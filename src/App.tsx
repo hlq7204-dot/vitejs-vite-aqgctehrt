@@ -99,7 +99,6 @@ const globalStyles = `
   .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
   .rotate-y-180 { transform: rotateY(180deg); }
   .preserve-3d { transform-style: preserve-3d; }
-  .swipe-container { user-select: none; -webkit-user-select: none; touch-action: pan-y; }
 `;
 
 const calculateNextReview = (card, quality) => {
@@ -232,13 +231,6 @@ export default function App() {
   const [reviewInteraction, setReviewInteraction] = useState(null); 
   const [typedInput, setTypedInput] = useState(''); 
   const [sessionStats, setSessionStats] = useState({ reviewed: 0, correct: 0 });
-
-  // REFs NATIVOS PARA SUPER PERFORMANCE NO SWIPE
-  const touchStartRef = useRef(null);
-  const currentSwipe = useRef(0);
-  const cardRef = useRef(null);
-  const swipeLeftOverlayRef = useRef(null);
-  const swipeRightOverlayRef = useRef(null);
 
   const [pomoActive, setPomoActive] = useState(false);
   const [pomoTime, setPomoTime] = useState(pomoWorkDuration * 60);
@@ -388,7 +380,6 @@ export default function App() {
   useEffect(() => { 
     setReviewInteraction(null); 
     setTypedInput(''); 
-    currentSwipe.current = 0;
   }, [currentCardIndex]);
 
   // POMODORO TIMER
@@ -630,55 +621,6 @@ export default function App() {
   const handleInteractiveSubmit = (val) => { 
     setReviewInteraction(val); 
     setIsFlipped(true); 
-  };
-
-  // --- NOVA LÓGICA DE SWIPE ULTRA-RÁPIDA (DOM DIRETO) ---
-  const onTouchStart = (e) => { 
-    const currentCardType = reviewQueue[currentCardIndex]?.type || 'standard';
-    if (!isFlipped || currentCardType !== 'standard') return;
-    
-    touchStartRef.current = e.touches[0].clientX; 
-    currentSwipe.current = 0;
-  };
-  
-  const onTouchMove = (e) => { 
-    if (!touchStartRef.current || !isFlipped) return;
-    
-    const diff = e.touches[0].clientX - touchStartRef.current;
-    currentSwipe.current = diff;
-    
-    // Atualização 60FPS direta no DOM (Não causa re-renderização do React)
-    if (cardRef.current) {
-      cardRef.current.style.transition = 'none';
-      cardRef.current.style.transform = `translateX(${diff}px) rotate(${diff * 0.05}deg) rotateY(180deg)`;
-    }
-    
-    if (swipeLeftOverlayRef.current) {
-      swipeLeftOverlayRef.current.style.opacity = diff < -20 ? Math.min(Math.abs(diff + 20) / 100, 1) : 0;
-    }
-    if (swipeRightOverlayRef.current) {
-      swipeRightOverlayRef.current.style.opacity = diff > 20 ? Math.min((diff - 20) / 100, 1) : 0;
-    }
-  };
-  
-  const onTouchEnd = () => {
-    if (!touchStartRef.current) return;
-    const diff = currentSwipe.current;
-    
-    // Limpar efeitos visuais
-    if (cardRef.current) {
-      cardRef.current.style.transition = 'transform 0.4s cubic-bezier(0.4, 0.2, 0.2, 1)';
-      cardRef.current.style.transform = 'rotateY(180deg)'; // volta ao normal (virado)
-    }
-    if (swipeLeftOverlayRef.current) swipeLeftOverlayRef.current.style.opacity = 0;
-    if (swipeRightOverlayRef.current) swipeRightOverlayRef.current.style.opacity = 0;
-    
-    touchStartRef.current = null;
-    currentSwipe.current = 0;
-
-    // Disparar a resposta se o deslize for suficientemente longo
-    if (diff > 100) handleAnswer(2); // Bom
-    else if (diff < -100) handleAnswer(0); // Errei
   };
 
   const updateChoiceOption = (idx, value) => {
@@ -1543,38 +1485,18 @@ export default function App() {
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
         </div>
 
-        <div className="flex-grow flex flex-col justify-center perspective-1000 swipe-container relative">
+        <div className="flex-grow flex flex-col justify-center perspective-1000 relative">
           
-          {/* INDICADORES VISUAIS DO SWIPE */}
-          {type === 'standard' && isFlipped && (
-            <div className="absolute inset-0 pointer-events-none flex items-center justify-between px-4 sm:px-8 z-50">
-              <div ref={swipeLeftOverlayRef} className="flex flex-col items-center opacity-0 transition-opacity duration-100">
-                <div className="bg-rose-500 text-white p-4 sm:p-5 rounded-full shadow-[0_0_30px_rgba(244,63,94,0.6)] mb-2">
-                  <X className="w-8 h-8 sm:w-10 sm:h-10" />
-                </div>
-                <span className="font-bold text-rose-400 text-lg sm:text-xl uppercase tracking-wider bg-slate-950/50 px-3 py-1 rounded-lg backdrop-blur-sm">Errei</span>
-              </div>
-              <div ref={swipeRightOverlayRef} className="flex flex-col items-center opacity-0 transition-opacity duration-100">
-                <div className="bg-emerald-500 text-white p-4 sm:p-5 rounded-full shadow-[0_0_30px_rgba(16,185,129,0.6)] mb-2">
-                  <Check className="w-8 h-8 sm:w-10 sm:h-10" />
-                </div>
-                <span className="font-bold text-emerald-400 text-lg sm:text-xl uppercase tracking-wider bg-slate-950/50 px-3 py-1 rounded-lg backdrop-blur-sm">Bom</span>
-              </div>
-            </div>
-          )}
-
           {type === 'standard' && (
             <div 
-              ref={cardRef}
               className="relative w-full h-[500px] cursor-pointer preserve-3d transition-transform duration-500" 
               style={{ transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
               onClick={() => setIsFlipped(prev => !prev)} 
-              onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
             >
               <div className="absolute w-full h-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl backface-hidden">
                 <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center">
                   <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
-                  <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Espaço para virar</span>
+                  <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique para virar</span>
                 </div>
                 <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
                   <div className="text-2xl text-slate-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
