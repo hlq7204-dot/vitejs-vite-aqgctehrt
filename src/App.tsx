@@ -219,8 +219,8 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard'); 
   const [mainTab, setMainTab] = useState('overview'); 
   
-  // GARANTIA: O activeDeck procura no validDecks para evitar fantasmas
   const [activeDeckId, setActiveDeckId] = useState(null);
+  const activeDeck = decks.find(d => d.id === activeDeckId);
   
   const [calendarMonth, setCalendarMonth] = useState(() => {
      const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -455,11 +455,13 @@ export default function App() {
     return `${y}-${m}-${day}`;
   };
   
-  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS ---
+  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS COM LIMITADOR DE LOOPS ---
   const reachableFolders = new Set([null]);
   let changed = true;
-  while (changed) {
+  let safetyLimit = 0; // Proteção estrita contra congelamento infinito
+  while (changed && safetyLimit < 1000) {
     changed = false;
+    safetyLimit++;
     for (const f of folders) {
       if (!reachableFolders.has(f.id) && reachableFolders.has(f.parentId)) {
         reachableFolders.add(f.id);
@@ -507,7 +509,9 @@ export default function App() {
 
   const calculateStreak = () => {
     let streak = 0; let d = new Date();
-    while (true) {
+    let loopSafeguard = 0; // Proteção estrita para o cálculo de dias
+    while (loopSafeguard < 3650) { // Limite máximo de 10 anos de histórico
+      loopSafeguard++;
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
       const dy = String(d.getDate()).padStart(2, '0');
@@ -538,10 +542,16 @@ export default function App() {
 
   const calculateTotalDue = (stats) => stats.new + stats.learning + stats.review;
 
-  const getDecksInFolder = (folderId) => {
+  // Proteção Recursiva em caso de pastas corrompidas!
+  const getDecksInFolder = (folderId, visited = new Set()) => {
+    if (visited.has(folderId)) return [];
+    visited.add(folderId);
+    
     let result = [];
     result.push(...validDecks.filter(d => d.parentId === folderId));
-    folders.filter(f => f.parentId === folderId).forEach(sf => { result.push(...getDecksInFolder(sf.id)); });
+    folders.filter(f => f.parentId === folderId).forEach(sf => { 
+      result.push(...getDecksInFolder(sf.id, visited)); 
+    });
     return result;
   };
 
@@ -549,9 +559,12 @@ export default function App() {
   const globalStats = getCardStats(validDecks.flatMap(d => d.cards || []));
   const totalPendingGlobal = calculateTotalDue(globalStats);
 
+  // Proteção contra ciclos nas migalhas de pão (breadcrumbs)
   const breadcrumbs = [];
   let currId = currentFolderId;
-  while (currId) {
+  const visitedCrumb = new Set();
+  while (currId && !visitedCrumb.has(currId)) {
+    visitedCrumb.add(currId);
     const f = folders.find(f => f.id === currId);
     if (f) { breadcrumbs.unshift(f); currId = f.parentId; } else break;
   }
@@ -842,7 +855,7 @@ export default function App() {
     e.target.value = null; 
   };
 
-  // --- CRUD COM INTERFACE OTIMISTA E ANTI-FANTASMAS ---
+  // --- CRUD COM INTERFACE OTIMISTA (NÃO BLOQUEANTE) ---
   const openEditModal = (type, item, e) => {
     e.stopPropagation(); 
     setModalType(type); 
@@ -1356,7 +1369,11 @@ export default function App() {
     const stats = getCardStats(activeDeck.cards); const due = calculateTotalDue(stats);
     return (
       <div className="max-w-6xl mx-auto p-4 sm:p-6 animate-in fade-in slide-in-from-right-8 duration-300">
-        <button onClick={() => setCurrentView('dashboard')} className="flex items-center gap-2 text-slate-400 hover:text-slate-200 mb-6 transition-colors"><ArrowLeft className="w-4 h-4" /> Voltar</button>
+        <button onClick={() => {
+          setCurrentView('dashboard');
+          setEditingCardId(null);
+          setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer('');
+        }} className="flex items-center gap-2 text-slate-400 hover:text-slate-200 mb-6 transition-colors"><ArrowLeft className="w-4 h-4" /> Voltar</button>
 
         <div className="bg-slate-900/80 backdrop-blur-sm rounded-3xl p-6 sm:p-8 border border-slate-800 mb-8 flex flex-col gap-6 relative group">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
