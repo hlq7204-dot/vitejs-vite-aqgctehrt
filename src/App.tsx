@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
 // --- ÍCONES ---
@@ -78,6 +78,7 @@ const globalStyles = `
   .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
   .rotate-y-180 { transform: rotateY(180deg); }
   .preserve-3d { transform-style: preserve-3d; }
+  .swipe-container { user-select: none; -webkit-user-select: none; touch-action: pan-y; }
 `;
 
 const calculateNextReview = (card, quality) => {
@@ -216,7 +217,7 @@ export default function App() {
   const [pomoActive, setPomoActive] = useState(false);
   const [pomoTime, setPomoTime] = useState(pomoWorkDuration * 60);
   const [pomoMode, setPomoMode] = useState('work'); 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isPomoSettingsOpen, setIsPomoSettingsOpen] = useState(false);
 
   // Modais de Criação
   const [cardType, setCardType] = useState('standard');
@@ -259,6 +260,15 @@ export default function App() {
       setIsAuthLoading(false);
       return;
     }
+
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        }
+      } catch (err) { console.error("Token de auth:", err); }
+    };
+    initAuth();
 
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u); 
@@ -414,7 +424,7 @@ export default function App() {
   const formatPomoTime = (secs) => `${Math.floor(secs/60).toString().padStart(2,'0')}:${(secs%60).toString().padStart(2,'0')}`;
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
   
-  // SOLUÇÃO: Gerar a data local correta sem interferência do UTC
+  // Gerar a data local correta sem interferência do UTC
   const getTodayStr = () => {
     const d = new Date();
     const y = d.getFullYear();
@@ -585,7 +595,7 @@ export default function App() {
     setPomoWorkDuration(finalWork);
     setPomoBreakDuration(finalBreak);
     setDailyGoal(finalGoal);
-    setIsSettingsOpen(false);
+    setIsPomoSettingsOpen(false);
     
     if (!pomoActive) {
       setPomoTime(pomoMode === 'work' ? finalWork * 60 : finalBreak * 60);
@@ -1348,7 +1358,10 @@ export default function App() {
                   <RichTextEditor label={cardType === 'standard' ? "Verso" : "Explicação (Opcional)"} placeholder="Adicione notas..." value={newCardBack} onChange={setNewCardBack} />
                 </div>
                 <div className="flex gap-2 mt-4">
-                  {editingCardId && <button type="button" onClick={resetCardForm} className="w-1/3 bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 rounded-xl transition-colors">Cancelar</button>}
+                  {editingCardId && <button type="button" onClick={() => {
+                    setEditingCardId(null);
+                    setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer('');
+                  }} className="w-1/3 bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 rounded-xl transition-colors">Cancelar</button>}
                   <button type="submit" className={`bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-colors border border-indigo-500/50 ${editingCardId ? 'w-2/3' : 'w-full'}`}>{editingCardId ? 'Guardar' : 'Adicionar'}</button>
                 </div>
               </form>
