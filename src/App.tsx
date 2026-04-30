@@ -4,12 +4,25 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
-// --- GARANTIA DE DESIGN (TAILWIND CSS) ---
-if (typeof document !== 'undefined' && !document.getElementById('tailwind-cdn')) {
-  const script = document.createElement('script');
-  script.id = 'tailwind-cdn';
-  script.src = 'https://cdn.tailwindcss.com';
-  document.head.appendChild(script);
+// --- GARANTIA DE DESIGN & IDIOMA (TAILWIND CSS + PT-BR) ---
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = 'pt-BR';
+  document.documentElement.setAttribute('translate', 'no');
+  document.documentElement.classList.add('notranslate');
+  
+  if (!document.querySelector('meta[name="google"]')) {
+    const meta = document.createElement('meta');
+    meta.name = 'google';
+    meta.content = 'notranslate';
+    document.head.appendChild(meta);
+  }
+  
+  if (!document.getElementById('tailwind-cdn')) {
+    const script = document.createElement('script');
+    script.id = 'tailwind-cdn';
+    script.src = 'https://cdn.tailwindcss.com';
+    document.head.appendChild(script);
+  }
 }
 
 // --- ÍCONES ---
@@ -441,6 +454,31 @@ export default function App() {
     return `${y}-${m}-${day}`;
   };
   
+  // --- ESCUDO ANTI-FANTASMAS ---
+  const reachableFolders = new Set([null]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of folders) {
+      if (!reachableFolders.has(f.id) && reachableFolders.has(f.parentId)) {
+        reachableFolders.add(f.id);
+        changed = true;
+      }
+    }
+  }
+  const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
+  const validCardIds = new Set(validDecks.flatMap(d => (d.cards || []).map(c => c.id)));
+
+  // Filtra as revisões diárias para ignorar os cartões que já foram excluídos
+  const getDailyCount = (dateStr) => {
+    const data = activityMap[dateStr];
+    if (!data) return 0;
+    if (Array.isArray(data)) {
+      return data.filter(id => validCardIds.has(id)).length;
+    }
+    return typeof data === 'number' ? data : 0; 
+  };
+
   const calculateStreak = () => {
     let streak = 0; let d = new Date();
     while (true) {
@@ -449,7 +487,7 @@ export default function App() {
       const dy = String(d.getDate()).padStart(2, '0');
       const str = `${y}-${m}-${dy}`;
 
-      if (activityMap[str] && activityMap[str] > 0) { 
+      if (getDailyCount(str) > 0) { 
         streak++; d.setDate(d.getDate() - 1); 
       } else if (streak === 0 && str === getTodayStr()) { 
         d.setDate(d.getDate() - 1); 
@@ -473,20 +511,6 @@ export default function App() {
   };
 
   const calculateTotalDue = (stats) => stats.new + stats.learning + stats.review;
-
-  // --- ESCUDO ANTI-FANTASMAS ---
-  const reachableFolders = new Set([null]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const f of folders) {
-      if (!reachableFolders.has(f.id) && reachableFolders.has(f.parentId)) {
-        reachableFolders.add(f.id);
-        changed = true;
-      }
-    }
-  }
-  const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
 
   const getDecksInFolder = (folderId) => {
     let result = [];
@@ -552,7 +576,11 @@ export default function App() {
     setSessionStats(prev => ({ reviewed: prev.reviewed + 1, correct: prev.correct + (quality > 0 ? 1 : 0) }));
 
     const todayStr = getTodayStr();
-    const newActivityMap = { ...activityMap, [todayStr]: (activityMap[todayStr] || 0) + 1 };
+    
+    // Adiciona o ID do cartão ao array de hoje
+    const currentDayData = Array.isArray(activityMap[todayStr]) ? activityMap[todayStr] : [];
+    const newActivityMap = { ...activityMap, [todayStr]: [...currentDayData, updatedCard.id] };
+    
     setActivityMap(newActivityMap); 
     syncActivityToCloud(newActivityMap);
 
@@ -924,13 +952,13 @@ export default function App() {
 
   // --- RENDERERS UI ---
   if (isAuthLoading) {
-    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-indigo-400"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-indigo-400 notranslate" translate="no"><Loader2 className="w-8 h-8 animate-spin" /></div>;
   }
 
   // --- LOGIN UI ---
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6">
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
         <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)]">
           <BrainCircuit className="text-indigo-400 w-10 h-10" />
         </div>
@@ -995,7 +1023,7 @@ export default function App() {
   };
 
   const renderDailyGoal = () => {
-    const todayReviewed = activityMap[getTodayStr()] || 0;
+    const todayReviewed = getDailyCount(getTodayStr());
     const goalProgress = Math.min((todayReviewed / dailyGoal) * 100, 100);
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between">
@@ -1065,8 +1093,10 @@ export default function App() {
       const dy = String(dateObj.getDate()).padStart(2, '0');
       const dateStr = `${y}-${m}-${dy}`;
 
-      const count = activityMap[dateStr] || 0; const isToday = dateStr === todayStr;
+      const count = getDailyCount(dateStr); 
+      const isToday = dateStr === todayStr;
       monthTotalRevisions += count;
+      
       let bg = 'bg-slate-900/50 border-slate-800 text-slate-400';
       if (count > 0 && count < 5) bg = 'bg-emerald-900/60 border-emerald-900 text-emerald-200';
       if (count >= 5 && count < 15) bg = 'bg-emerald-700/80 border-emerald-700 text-emerald-100';
@@ -1546,7 +1576,7 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-10" onClick={() => setActiveMenuId(null)}>
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-10 notranslate" translate="no" onClick={() => setActiveMenuId(null)}>
       <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
       
       {!user ? (
