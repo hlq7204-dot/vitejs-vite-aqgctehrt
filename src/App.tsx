@@ -22,17 +22,16 @@ import {
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
-  ? JSON.parse(__firebase_config) 
-  : {
-      apiKey: "AIzaSyBBSo5uUqvyMuQ_9cZ8KOgQ3VovKZjO2p8",
-      authDomain: "flash-cards-539e8.firebaseapp.com",
-      projectId: "flash-cards-539e8",
-      storageBucket: "flash-cards-539e8.firebasestorage.app",
-      messagingSenderId: "547789982172",
-      appId: "1:547789982172:web:d9d9f38f3bc02d05382719",
-      measurementId: "G-6G02K580GK"
-    };
+// Substitua pelas chaves do seu projeto (Project Settings > General > Firebase SDK snippet)
+const firebaseConfig = {
+  apiKey: "AIzaSyBBSo5uUqvyMuQ_9cZ8KOgQ3VovKZjO2p8",
+  authDomain: "flash-cards-539e8.firebaseapp.com",
+  projectId: "flash-cards-539e8",
+  storageBucket: "flash-cards-539e8.firebasestorage.app",
+  messagingSenderId: "547789982172",
+  appId: "1:547789982172:web:d9d9f38f3bc02d05382719",
+  measurementId: "G-6G02K580GK"
+};
 
 const isFirebaseActive = firebaseConfig.apiKey && firebaseConfig.apiKey !== "SUA_API_KEY";
 
@@ -170,6 +169,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
+  // Estados com inicialização segura
   const [decks, setDecks] = useState(() => {
     try { const saved = localStorage.getItem('lumina_decks'); if (saved) return JSON.parse(saved); } catch (e) {}
     return initialDecks;
@@ -215,6 +215,7 @@ export default function App() {
   const [pomoMode, setPomoMode] = useState('work'); 
   const [isPomoSettingsOpen, setIsPomoSettingsOpen] = useState(false);
 
+  // Modais de Criação
   const [cardType, setCardType] = useState('standard');
   const [newCardFront, setNewCardFront] = useState('');
   const [newCardBack, setNewCardBack] = useState(''); 
@@ -241,8 +242,7 @@ export default function App() {
   const stateRef = useRef();
   stateRef.current = { currentView, isFlipped, reviewQueue, currentCardIndex, cardType: reviewQueue[currentCardIndex]?.type || 'standard' };
 
-  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
-
+  // ESCUDO DE PROTEÇÃO LOCAL
   useEffect(() => { localStorage.setItem('lumina_decks', JSON.stringify(decks)); }, [decks]);
   useEffect(() => { localStorage.setItem('lumina_folders', JSON.stringify(folders)); }, [folders]);
   useEffect(() => { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); }, [activityMap]);
@@ -269,7 +269,7 @@ export default function App() {
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Erro no login com Google:", error);
-      showToast("Erro ao fazer login. Verifique as configurações.", "error");
+      showToast("Erro ao fazer login. Verifique se ativou o provedor Google no Firebase.", "error");
     }
   };
 
@@ -311,15 +311,13 @@ export default function App() {
       const cloudData = [];
       snap.forEach(d => cloudData.push(d.data()));
       
-      if (cloudData.length === 0 && !snap.metadata.hasPendingWrites) {
-         const localData = JSON.parse(localStorage.getItem('lumina_folders') || '[]');
-         if (localData.length > 0) {
-            localData.forEach(item => updateFolderInCloud(item));
-            setFolders(localData);
-            return;
-         }
-      }
-      setFolders(cloudData);
+      setFolders(currentLocal => {
+        if (cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
+          currentLocal.forEach(localF => setDoc(doc(foldersRef, localF.id), localF).catch(console.error));
+          return currentLocal;
+        }
+        return cloudData;
+      });
     }, console.error);
 
     // Escutar Baralhos
@@ -328,15 +326,13 @@ export default function App() {
       const cloudData = [];
       snap.forEach(dc => cloudData.push(dc.data()));
       
-      if (cloudData.length === 0 && !snap.metadata.hasPendingWrites) {
-         const localData = JSON.parse(localStorage.getItem('lumina_decks') || '[]');
-         if (localData.length > 0) {
-            localData.forEach(item => updateDeckInCloud(item));
-            setDecks(localData);
-            return;
-         }
-      }
-      setDecks(cloudData);
+      setDecks(currentLocal => {
+        if (cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
+          currentLocal.forEach(localD => setDoc(doc(decksRef, localD.id), localD).catch(console.error));
+          return currentLocal;
+        }
+        return cloudData;
+      });
     }, console.error);
 
     return () => { unsubProfile(); unsubFolders(); unsubDecks(); };
@@ -403,6 +399,7 @@ export default function App() {
   }, []);
 
   const formatPomoTime = (secs) => `${Math.floor(secs/60).toString().padStart(2,'0')}:${(secs%60).toString().padStart(2,'0')}`;
+  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
   const getTodayStr = () => new Date().toISOString().split('T')[0];
   
   const calculateStreak = () => {
@@ -452,36 +449,22 @@ export default function App() {
     if (f) { breadcrumbs.unshift(f); currId = f.parentId; } else break;
   }
 
-  // --- FUNÇÕES DE GRAVAÇÃO NA CLOUD BLINDADAS ---
-  const updateDeckInCloud = async (deckData) => {
+  // --- FUNÇÕES DE UPDATE NA CLOUD NÃO-BLOQUEANTES ---
+  const updateDeckInCloud = (deckData) => {
     if (!isFirebaseActive || !user) return;
-    try {
-      const cleanData = JSON.parse(JSON.stringify(deckData));
-      const ref = doc(db, 'artifacts', appId, 'users', user.uid, 'decks', deckData.id);
-      await setDoc(ref, cleanData);
-    } catch (e) {
-      console.error("Firebase Sync Error:", e);
-      if (e.code === 'permission-denied') showToast("Aviso: Permissão negada no Firebase (Regras do Firestore).", "error");
-    }
+    const cleanData = JSON.parse(JSON.stringify(deckData));
+    setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', deckData.id), cleanData).catch(e => console.error("Firebase sync error", e));
   };
 
-  const updateFolderInCloud = async (folderData) => {
+  const updateFolderInCloud = (folderData) => {
     if (!isFirebaseActive || !user) return;
-    try {
-      const cleanData = JSON.parse(JSON.stringify(folderData));
-      const ref = doc(db, 'artifacts', appId, 'users', user.uid, 'folders', folderData.id);
-      await setDoc(ref, cleanData);
-    } catch (e) {
-      console.error("Firebase Sync Error:", e);
-      if (e.code === 'permission-denied') showToast("Aviso: Permissão negada no Firebase (Regras do Firestore).", "error");
-    }
+    const cleanData = JSON.parse(JSON.stringify(folderData));
+    setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', folderData.id), cleanData).catch(e => console.error("Firebase sync error", e));
   };
 
-  const syncActivityToCloud = async (newMap) => {
+  const syncActivityToCloud = (newMap) => {
     if (!isFirebaseActive || !user) return;
-    try {
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true });
-    } catch (e) {}
+    setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true }).catch(console.error);
   };
 
   // --- LÓGICA DE ESTUDO ---
@@ -568,12 +551,11 @@ export default function App() {
     }
 
     if (isFirebaseActive && user) {
-      try {
-        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { 
-          pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak 
-        }, { merge: true });
-      } catch (err) {}
+      setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { 
+        pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak 
+      }, { merge: true }).catch(console.error);
     }
+
     showToast("Configurações do Pomodoro salvas!");
   };
 
@@ -612,7 +594,9 @@ export default function App() {
         try {
           const mediaData = await zip.file("media").async("string");
           mediaMap = JSON.parse(mediaData);
-        } catch (err) {}
+        } catch (err) { 
+          console.warn("Erro ao ler media map.", err); 
+        }
       }
 
       const mediaAssets = {}; 
@@ -745,7 +729,7 @@ export default function App() {
     e.target.value = null; 
   };
 
-  // --- CRUD COM TRY-CATCH ---
+  // --- CRUD COM INTERFACE OTIMISTA (NÃO BLOQUEANTE) ---
   const openEditModal = (type, item, e) => {
     e.stopPropagation(); 
     setModalType(type); 
@@ -765,107 +749,99 @@ export default function App() {
     setModalMode('create');
   };
 
-  const handleCreateOrEditItem = async (e) => {
+  const handleCreateOrEditItem = (e) => {
     e.preventDefault();
     if (!newItemName.trim() || !user) return;
 
-    try {
-      if (modalMode === 'edit') {
-        if (modalType === 'folder') {
-          const f = folders.find(x => x.id === editingItemId);
-          if(f) {
-             const updated = { ...f, name: newItemName, color: newItemColor };
-             setFolders(prev => prev.map(x => x.id === editingItemId ? updated : x));
-             await updateFolderInCloud(updated);
-          }
-        } else {
-          const d = decks.find(x => x.id === editingItemId);
-          if(d) {
-             const updated = { ...d, name: newItemName, description: newItemDesc, color: newItemColor };
-             setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x));
-             await updateDeckInCloud(updated);
-          }
+    if (modalMode === 'edit') {
+      if (modalType === 'folder') {
+        const f = folders.find(x => x.id === editingItemId);
+        if(f) {
+           const updated = { ...f, name: newItemName, color: newItemColor };
+           setFolders(prev => prev.map(x => x.id === editingItemId ? updated : x));
+           updateFolderInCloud(updated);
         }
-        showToast(`${modalType === 'folder' ? 'Pasta' : 'Baralho'} atualizado!`);
       } else {
-        if (modalType === 'folder') {
-          const newFolder = { id: `f-${Date.now()}`, name: newItemName, parentId: currentFolderId, color: newItemColor };
-          setFolders(prev => [...prev, newFolder]);
-          await updateFolderInCloud(newFolder);
-        } else {
-          const newDeck = { id: `d-${Date.now()}`, name: newItemName, description: newItemDesc, parentId: currentFolderId, color: newItemColor, cards: [] };
-          setDecks(prev => [...prev, newDeck]);
-          await updateDeckInCloud(newDeck);
+        const d = decks.find(x => x.id === editingItemId);
+        if(d) {
+           const updated = { ...d, name: newItemName, description: newItemDesc, color: newItemColor };
+           setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x));
+           updateDeckInCloud(updated);
         }
       }
-    } catch (err) {
-      console.error(err);
-      showToast("Erro ao processar dados.", "error");
-    } finally {
-      // O Ecrã vai FECHAR SEMPRE graças a isto
-      closeAndResetModal();
+      showToast(`${modalType === 'folder' ? 'Pasta' : 'Baralho'} atualizado!`);
+    } else {
+      if (modalType === 'folder') {
+        const newFolder = { id: `f-${Date.now()}`, name: newItemName, parentId: currentFolderId, color: newItemColor };
+        setFolders(prev => [...prev, newFolder]);
+        updateFolderInCloud(newFolder);
+      } else {
+        const newDeck = { id: `d-${Date.now()}`, name: newItemName, description: newItemDesc, parentId: currentFolderId, color: newItemColor, cards: [] };
+        setDecks(prev => [...prev, newDeck]);
+        updateDeckInCloud(newDeck);
+      }
     }
+    
+    // O Ecrã fecha de imediato, e o upload para o firebase corre em segundo plano!
+    closeAndResetModal();
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (!itemToDelete || !user) return;
-    try {
-      if (itemToDelete.type === 'folder') {
-        const getAllNestedFolderIds = (folderId) => {
-          let ids = [folderId];
-          folders.filter(f => f.parentId === folderId).forEach(c => { ids = [...ids, ...getAllNestedFolderIds(c.id)]; });
-          return ids;
-        };
-        const idsToDelete = getAllNestedFolderIds(itemToDelete.id);
-        
-        setFolders(prev => prev.filter(f => !idsToDelete.includes(f.id)));
-        setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId)));
+    
+    if (itemToDelete.type === 'folder') {
+      const getAllNestedFolderIds = (folderId) => {
+        let ids = [folderId];
+        folders.filter(f => f.parentId === folderId).forEach(c => { ids = [...ids, ...getAllNestedFolderIds(c.id)]; });
+        return ids;
+      };
+      const idsToDelete = getAllNestedFolderIds(itemToDelete.id);
+      
+      setFolders(prev => prev.filter(f => !idsToDelete.includes(f.id)));
+      setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId)));
 
-        if (isFirebaseActive && user) {
-          idsToDelete.forEach(async (id) => await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)));
-          decks.filter(d => idsToDelete.includes(d.parentId)).forEach(async (d) => await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)));
-        }
-        showToast("Pasta eliminada.");
-      } else {
-        setDecks(prev => prev.filter(d => d.id !== itemToDelete.id));
-        if (isFirebaseActive && user) {
-          await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id));
-        }
-        if (activeDeckId === itemToDelete.id) { setCurrentView('dashboard'); setActiveDeckId(null); }
-        showToast("Baralho eliminado.");
+      if (isFirebaseActive && user) {
+        idsToDelete.forEach(id => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)).catch(e => {}));
+        decks.filter(d => idsToDelete.includes(d.parentId)).forEach(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)).catch(e => {}));
       }
-    } catch (err) {}
+      showToast("Pasta eliminada.");
+    } else {
+      setDecks(prev => prev.filter(d => d.id !== itemToDelete.id));
+      if (isFirebaseActive && user) {
+        deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id)).catch(e => {});
+      }
+      if (activeDeckId === itemToDelete.id) { setCurrentView('dashboard'); setActiveDeckId(null); }
+      showToast("Baralho eliminado.");
+    }
     setItemToDelete(null);
   };
 
-  const handleSaveCard = async (e) => {
+  const handleSaveCard = (e) => {
     e.preventDefault();
     if (!newCardFront.trim() || !user) return;
 
-    try {
-      let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
-      const currentDeck = decks.find(d => d.id === activeDeckId);
+    let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
+    const currentDeck = decks.find(d => d.id === activeDeckId);
 
-      if (editingCardId && currentDeck) {
-        const existing = currentDeck.cards.find(c => c.id === editingCardId);
-        if (existing) processedCard = { ...processedCard, repetition: existing.repetition, interval: existing.interval, easeFactor: existing.easeFactor, dueDate: existing.dueDate, reviews: existing.reviews };
-      }
+    if (editingCardId && currentDeck) {
+      const existing = currentDeck.cards.find(c => c.id === editingCardId);
+      if (existing) processedCard = { ...processedCard, repetition: existing.repetition, interval: existing.interval, easeFactor: existing.easeFactor, dueDate: existing.dueDate, reviews: existing.reviews };
+    }
 
-      if (cardType === 'choice') { processedCard.options = [...choiceOptions]; processedCard.correctOption = correctOption; } 
-      else if (cardType === 'tf') { processedCard.isTrue = tfCorrect; } 
-      else if (cardType === 'typing') { processedCard.typeAnswer = typeAnswer; }
+    if (cardType === 'choice') { processedCard.options = [...choiceOptions]; processedCard.correctOption = correctOption; } 
+    else if (cardType === 'tf') { processedCard.isTrue = tfCorrect; } 
+    else if (cardType === 'typing') { processedCard.typeAnswer = typeAnswer; }
 
-      if(currentDeck) {
-         let updatedCards;
-         if (editingCardId) updatedCards = currentDeck.cards.map(c => c.id === editingCardId ? processedCard : c);
-         else updatedCards = [...(currentDeck.cards || []), processedCard];
-         
-         const updatedDeck = { ...currentDeck, cards: updatedCards };
-         setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
-         await updateDeckInCloud(updatedDeck);
-         showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
-      }
-    } catch (err) {}
+    if(currentDeck) {
+       let updatedCards;
+       if (editingCardId) updatedCards = currentDeck.cards.map(c => c.id === editingCardId ? processedCard : c);
+       else updatedCards = [...(currentDeck.cards || []), processedCard];
+       
+       const updatedDeck = { ...currentDeck, cards: updatedCards };
+       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
+       updateDeckInCloud(updatedDeck);
+       showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
+    }
     
     setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setEditingCardId(null);
   };
@@ -878,12 +854,12 @@ export default function App() {
     setEditingCardId(card.id); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const deleteCard = async (cardId) => {
+  const deleteCard = (cardId) => {
     const currentDeck = decks.find(d => d.id === activeDeckId);
     if(currentDeck) {
       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== cardId) };
       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
-      await updateDeckInCloud(updatedDeck);
+      updateDeckInCloud(updatedDeck);
     }
   };
 
@@ -1399,7 +1375,7 @@ export default function App() {
             <div 
               className="relative w-full h-[500px] cursor-pointer preserve-3d" 
               style={{ transition: swipeOffset ? 'none' : 'transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1)', transform: `translateX(${swipeOffset}px) rotate(${swipeOffset * 0.05}deg) ${isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'}` }} 
-              onClick={() => setIsFlipped(!isFlipped)} 
+              onClick={() => setIsFlipped(prev => !prev)} 
               onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
             >
               <div className="absolute w-full h-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl backface-hidden">
