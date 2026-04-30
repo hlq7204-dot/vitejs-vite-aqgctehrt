@@ -4,25 +4,12 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
-// --- GARANTIA DE DESIGN & IDIOMA (TAILWIND CSS + PT-BR) ---
-if (typeof document !== 'undefined') {
-  document.documentElement.lang = 'pt-BR';
-  document.documentElement.setAttribute('translate', 'no');
-  document.documentElement.classList.add('notranslate');
-  
-  if (!document.querySelector('meta[name="google"]')) {
-    const meta = document.createElement('meta');
-    meta.name = 'google';
-    meta.content = 'notranslate';
-    document.head.appendChild(meta);
-  }
-  
-  if (!document.getElementById('tailwind-cdn')) {
-    const script = document.createElement('script');
-    script.id = 'tailwind-cdn';
-    script.src = 'https://cdn.tailwindcss.com';
-    document.head.appendChild(script);
-  }
+// --- GARANTIA DE DESIGN (TAILWIND CSS) ---
+if (typeof document !== 'undefined' && !document.getElementById('tailwind-cdn')) {
+  const script = document.createElement('script');
+  script.id = 'tailwind-cdn';
+  script.src = 'https://cdn.tailwindcss.com';
+  document.head.appendChild(script);
 }
 
 // --- ÍCONES ---
@@ -186,6 +173,23 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  // --- PROTEÇÃO ANTI-TRADUÇÃO FORÇADA ---
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = 'pt-BR';
+      document.documentElement.setAttribute('translate', 'no');
+      document.documentElement.classList.add('notranslate');
+      
+      let metaGoogle = document.querySelector('meta[name="google"]');
+      if (!metaGoogle) {
+        metaGoogle = document.createElement('meta');
+        metaGoogle.name = 'google';
+        document.head.appendChild(metaGoogle);
+      }
+      metaGoogle.content = 'notranslate';
+    }
+  }, []);
 
   const firstLoadRefFolders = useRef(true);
   const firstLoadRefDecks = useRef(true);
@@ -454,7 +458,7 @@ export default function App() {
     return `${y}-${m}-${day}`;
   };
   
-  // --- ESCUDO ANTI-FANTASMAS ---
+  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS ---
   const reachableFolders = new Set([null]);
   let changed = true;
   while (changed) {
@@ -469,7 +473,27 @@ export default function App() {
   const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
   const validCardIds = new Set(validDecks.flatMap(d => (d.cards || []).map(c => c.id)));
 
-  // Filtra as revisões diárias para ignorar os cartões que já foram excluídos
+  // Remove de forma absoluta os cartões apagados do mapa de histórico!
+  const removeDeletedCardsFromActivity = (idsToRemoveSet) => {
+    if (idsToRemoveSet.size === 0) return;
+    setActivityMap(prev => {
+      let hasChanges = false;
+      const newMap = { ...prev };
+      for (const dateStr in newMap) {
+        const data = newMap[dateStr];
+        if (Array.isArray(data)) {
+          const filtered = data.filter(id => !idsToRemoveSet.has(id));
+          if (filtered.length !== data.length) {
+            newMap[dateStr] = filtered;
+            hasChanges = true;
+          }
+        }
+      }
+      if (hasChanges) syncActivityToCloud(newMap);
+      return hasChanges ? newMap : prev;
+    });
+  };
+
   const getDailyCount = (dateStr) => {
     const data = activityMap[dateStr];
     if (!data) return 0;
@@ -577,7 +601,6 @@ export default function App() {
 
     const todayStr = getTodayStr();
     
-    // Adiciona o ID do cartão ao array de hoje
     const currentDayData = Array.isArray(activityMap[todayStr]) ? activityMap[todayStr] : [];
     const newActivityMap = { ...activityMap, [todayStr]: [...currentDayData, updatedCard.id] };
     
@@ -816,7 +839,7 @@ export default function App() {
     e.target.value = null; 
   };
 
-  // --- CRUD COM INTERFACE OTIMISTA (NÃO BLOQUEANTE) ---
+  // --- CRUD COM INTERFACE OTIMISTA E ANTI-FANTASMAS ---
   const openEditModal = (type, item, e) => {
     e.stopPropagation(); 
     setModalType(type); 
@@ -883,16 +906,25 @@ export default function App() {
       };
       const idsToDelete = getAllNestedFolderIds(itemToDelete.id);
       
+      const decksToDelete = decks.filter(d => idsToDelete.includes(d.parentId));
+      const cardIdsToScrub = new Set(decksToDelete.flatMap(d => (d.cards || []).map(c => c.id)));
+      
       setFolders(prev => prev.filter(f => !idsToDelete.includes(f.id)));
       setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId)));
+      removeDeletedCardsFromActivity(cardIdsToScrub);
 
       if (isFirebaseActive && user && db) {
         idsToDelete.forEach(id => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)).catch(e => {}));
-        decks.filter(d => idsToDelete.includes(d.parentId)).forEach(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)).catch(e => {}));
+        decksToDelete.forEach(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)).catch(e => {}));
       }
       showToast("Pasta eliminada.");
     } else {
+      const deckToDelete = decks.find(d => d.id === itemToDelete.id);
+      const cardIdsToScrub = new Set((deckToDelete?.cards || []).map(c => c.id));
+      
       setDecks(prev => prev.filter(d => d.id !== itemToDelete.id));
+      removeDeletedCardsFromActivity(cardIdsToScrub);
+      
       if (isFirebaseActive && user && db) {
         deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id)).catch(e => {});
       }
@@ -946,6 +978,7 @@ export default function App() {
       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== cardId) };
       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
       updateDeckInCloud(updatedDeck);
+      removeDeletedCardsFromActivity(new Set([cardId]));
     }
   };
 
@@ -1576,7 +1609,7 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-10 notranslate" translate="no" onClick={() => setActiveMenuId(null)}>
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-10 notranslate" translate="no" lang="pt-BR" onClick={() => setActiveMenuId(null)}>
       <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
       
       {!user ? (
