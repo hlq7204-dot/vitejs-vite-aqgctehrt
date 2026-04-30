@@ -43,8 +43,8 @@ if (isFirebaseActive) {
   db = getFirestore(app);
 }
 
-const appIdRaw = typeof __app_id !== 'undefined' ? String(__app_id) : 'flashcards-app';
-const appId = appIdRaw.replace(/\//g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
+// Identificador estático garantido para sincronização entre dispositivos diferentes
+const appId = 'lumina-pro-cloud-app';
 
 // --- DADOS INICIAIS LIMPOS ---
 const initialFolders = [];
@@ -170,8 +170,8 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
-  const [decks, setDecks] = useState([]);
-  const [folders, setFolders] = useState([]);
+  const [decks, setDecks] = useState(initialDecks);
+  const [folders, setFolders] = useState(initialFolders);
   const [activityMap, setActivityMap] = useState({});
 
   const [pomoWorkDuration, setPomoWorkDuration] = useState(() => {
@@ -232,8 +232,7 @@ export default function App() {
   const stateRef = useRef();
   stateRef.current = { currentView, isFlipped, reviewQueue, currentCardIndex, cardType: reviewQueue[currentCardIndex]?.type || 'standard' };
 
-  useEffect(() => { localStorage.setItem('lumina_pomoWork', pomoWorkDuration); }, [pomoWorkDuration]);
-  useEffect(() => { localStorage.setItem('lumina_pomoBreak', pomoBreakDuration); }, [pomoBreakDuration]);
+  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
 
   // --- FIREBASE INIT & AUTH ---
   useEffect(() => {
@@ -255,7 +254,7 @@ export default function App() {
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Erro no login com Google:", error);
-      showToast("Erro ao fazer login. Verifique se ativou o provedor Google no Firebase.", "error");
+      showToast("Erro ao fazer login. Verifique as configurações.", "error");
     }
   };
 
@@ -276,6 +275,7 @@ export default function App() {
   useEffect(() => {
     if (!isFirebaseActive || !user) return;
 
+    // Escutar Perfil
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main');
     const unsubProfile = onSnapshot(profileRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -283,24 +283,31 @@ export default function App() {
         if (data.activityMap) setActivityMap(data.activityMap);
         if (data.pomoWorkDuration) setPomoWorkDuration(data.pomoWorkDuration);
         if (data.pomoBreakDuration) setPomoBreakDuration(data.pomoBreakDuration);
-      } else {
-        setDoc(profileRef, { activityMap: {}, pomoWorkDuration: 25, pomoBreakDuration: 5 });
       }
-    }, console.error);
+    }, (error) => {
+      console.error("Erro no perfil:", error);
+    });
 
+    // Escutar Pastas
     const foldersRef = collection(db, 'artifacts', appId, 'users', user.uid, 'folders');
     const unsubFolders = onSnapshot(foldersRef, (snap) => {
       const f = [];
       snap.forEach(d => f.push(d.data()));
       setFolders(f);
-    }, console.error);
+    }, (error) => {
+      console.error("Erro de Firestore (Pastas):", error);
+      showToast("Verifique as regras do Firebase.", "error");
+    });
 
+    // Escutar Baralhos
     const decksRef = collection(db, 'artifacts', appId, 'users', user.uid, 'decks');
     const unsubDecks = onSnapshot(decksRef, (snap) => {
       const d = [];
       snap.forEach(dc => d.push(dc.data()));
       setDecks(d);
-    }, console.error);
+    }, (error) => {
+      console.error("Erro de Firestore (Baralhos):", error);
+    });
 
     return () => { unsubProfile(); unsubFolders(); unsubDecks(); };
   }, [user]);
@@ -366,7 +373,6 @@ export default function App() {
   }, []);
 
   const formatPomoTime = (secs) => `${Math.floor(secs/60).toString().padStart(2,'0')}:${(secs%60).toString().padStart(2,'0')}`;
-  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
   const getTodayStr = () => new Date().toISOString().split('T')[0];
   
   const calculateStreak = () => {
@@ -416,23 +422,38 @@ export default function App() {
     if (f) { breadcrumbs.unshift(f); currId = f.parentId; } else break;
   }
 
-  // FIREBASE UPDATES
+  // --- FIREBASE WRITE HELPERS ---
   const updateDeckInCloud = async (deckData) => {
     if (!isFirebaseActive || !user) return;
-    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', deckData.id), deckData);
+    try {
+      // Evita o erro silently falhando "Unsupported field value: undefined" no Firebase
+      const cleanData = JSON.parse(JSON.stringify(deckData));
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', deckData.id), cleanData);
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao gravar dados do baralho na nuvem", "error");
+    }
   };
 
   const updateFolderInCloud = async (folderData) => {
     if (!isFirebaseActive || !user) return;
-    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', folderData.id), folderData);
+    try {
+      const cleanData = JSON.parse(JSON.stringify(folderData));
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', folderData.id), cleanData);
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao gravar dados da pasta na nuvem", "error");
+    }
   };
 
   const syncActivityToCloud = async (newMap) => {
     if (!isFirebaseActive || !user) return;
-    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true });
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true });
+    } catch (e) { console.error(e); }
   };
 
-  // REVIEW LOGIC
+  // --- LÓGICA DE ESTUDO ---
   const startReview = (deckId, forceAll = false) => {
     const deck = decks.find(d => d.id === deckId);
     let dueCards = (deck.cards || []).filter(c => c.dueDate <= Date.now());
@@ -453,6 +474,7 @@ export default function App() {
     const deckToUpdate = decks.find(d => d.id === activeDeckId);
     if (deckToUpdate) {
       const newDeckData = { ...deckToUpdate, cards: deckToUpdate.cards.map(c => c.id === updatedCard.id ? updatedCard : c) };
+      setDecks(prev => prev.map(d => d.id === activeDeckId ? newDeckData : d)); // Otimista
       updateDeckInCloud(newDeckData);
     }
 
@@ -460,6 +482,7 @@ export default function App() {
 
     const todayStr = getTodayStr();
     const newActivityMap = { ...activityMap, [todayStr]: (activityMap[todayStr] || 0) + 1 };
+    setActivityMap(newActivityMap); // Otimista
     syncActivityToCloud(newActivityMap);
 
     let newQueue = [...reviewQueue];
@@ -501,20 +524,30 @@ export default function App() {
     setChoiceOptions(newOpts);
   };
 
-  const handleSavePomoSettings = (e) => {
+  const handleSavePomoSettings = async (e) => {
     e.preventDefault();
     const finalWork = pomoWorkDuration || 25;
     const finalBreak = pomoBreakDuration || 5;
     setPomoWorkDuration(finalWork);
     setPomoBreakDuration(finalBreak);
     setIsPomoSettingsOpen(false);
+    
     if (!pomoActive) {
       setPomoTime(pomoMode === 'work' ? finalWork * 60 : finalBreak * 60);
     }
+
+    if (isFirebaseActive && user) {
+      try {
+        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { 
+          pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak 
+        }, { merge: true });
+      } catch (err) { console.error(err); }
+    }
+
     showToast("Configurações do Pomodoro salvas!");
   };
 
-  // IMPORTER
+  // --- IMPORTAÇÃO DE FICHEIROS ---
   const processAnkiImport = async (file) => {
     try {
       setImportProgress('A carregar...');
@@ -594,6 +627,7 @@ export default function App() {
         const newId = `f-anki-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const newFolder = { id: newId, name: fName, parentId, color: 'text-indigo-400' };
         newFoldersToCloud.push(newFolder);
+        setFolders(prev => [...prev, newFolder]);
         updateFolderInCloud(newFolder);
         return newId;
       };
@@ -633,6 +667,7 @@ export default function App() {
       const finalDecks = Object.values(newDecksMap).filter(d => d.cards.length > 0);
       if (fallbackDeck.cards.length > 0) finalDecks.push(fallbackDeck); 
       
+      setDecks(prev => [...prev, ...finalDecks]);
       finalDecks.forEach(d => updateDeckInCloud(d));
 
       if(importedCount > 0) showToast(`${importedCount} cartões importados!`);
@@ -663,6 +698,7 @@ export default function App() {
       });
       if (importedCards.length > 0) {
         const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: 'bg-emerald-600 text-white', cards: importedCards };
+        setDecks(prev => [...prev, newDeck]);
         updateDeckInCloud(newDeck);
         showToast(`${importedCards.length} cartões importados!`);
       }
@@ -681,7 +717,7 @@ export default function App() {
     e.target.value = null; 
   };
 
-  // MODALS E CRUD
+  // --- CRUD (PASTAS E BARALHOS) ---
   const openEditModal = (type, item, e) => {
     e.stopPropagation(); 
     setModalType(type); 
@@ -701,7 +737,7 @@ export default function App() {
     setModalMode('create');
   };
 
-  const handleCreateOrEditItem = (e) => {
+  const handleCreateOrEditItem = async (e) => {
     e.preventDefault();
     if (!newItemName.trim() || !user) return;
 
@@ -710,23 +746,27 @@ export default function App() {
         const f = folders.find(x => x.id === editingItemId);
         if(f) {
            const updated = { ...f, name: newItemName, color: newItemColor };
-           updateFolderInCloud(updated);
+           setFolders(prev => prev.map(x => x.id === editingItemId ? updated : x)); // Otimista
+           await updateFolderInCloud(updated);
         }
       } else {
         const d = decks.find(x => x.id === editingItemId);
         if(d) {
            const updated = { ...d, name: newItemName, description: newItemDesc, color: newItemColor };
-           updateDeckInCloud(updated);
+           setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x)); // Otimista
+           await updateDeckInCloud(updated);
         }
       }
       showToast(`${modalType === 'folder' ? 'Pasta' : 'Baralho'} atualizado!`);
     } else {
       if (modalType === 'folder') {
         const newFolder = { id: `f-${Date.now()}`, name: newItemName, parentId: currentFolderId, color: newItemColor };
-        updateFolderInCloud(newFolder);
+        setFolders(prev => [...prev, newFolder]); // Otimista
+        await updateFolderInCloud(newFolder);
       } else {
         const newDeck = { id: `d-${Date.now()}`, name: newItemName, description: newItemDesc, parentId: currentFolderId, color: newItemColor, cards: [] };
-        updateDeckInCloud(newDeck);
+        setDecks(prev => [...prev, newDeck]); // Otimista
+        await updateDeckInCloud(newDeck);
       }
     }
     closeAndResetModal();
@@ -742,12 +782,16 @@ export default function App() {
       };
       const idsToDelete = getAllNestedFolderIds(itemToDelete.id);
       
+      setFolders(prev => prev.filter(f => !idsToDelete.includes(f.id))); // Otimista
+      setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId))); // Otimista
+
       if (isFirebaseActive && user) {
         idsToDelete.forEach(async (id) => await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)));
         decks.filter(d => idsToDelete.includes(d.parentId)).forEach(async (d) => await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)));
       }
       showToast("Pasta eliminada.");
     } else {
+      setDecks(prev => prev.filter(d => d.id !== itemToDelete.id)); // Otimista
       if (isFirebaseActive && user) {
         await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id));
       }
@@ -757,7 +801,7 @@ export default function App() {
     setItemToDelete(null);
   };
 
-  const handleSaveCard = (e) => {
+  const handleSaveCard = async (e) => {
     e.preventDefault();
     if (!newCardFront.trim() || !user) return;
 
@@ -779,7 +823,8 @@ export default function App() {
        else updatedCards = [...(currentDeck.cards || []), processedCard];
        
        const updatedDeck = { ...currentDeck, cards: updatedCards };
-       updateDeckInCloud(updatedDeck);
+       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); // Otimista
+       await updateDeckInCloud(updatedDeck);
        showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
     }
     
@@ -794,11 +839,12 @@ export default function App() {
     setEditingCardId(card.id); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const deleteCard = (cardId) => {
+  const deleteCard = async (cardId) => {
     const currentDeck = decks.find(d => d.id === activeDeckId);
     if(currentDeck) {
       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== cardId) };
-      updateDeckInCloud(updatedDeck);
+      setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); // Otimista
+      await updateDeckInCloud(updatedDeck);
     }
   };
 
@@ -818,7 +864,6 @@ export default function App() {
         <h1 className="text-4xl font-bold mb-3">Lumina Pro</h1>
         <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma de flashcards inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
         
-        {/* Se o botão não funcionar no StackBlitz devido a bloqueios de popups do iFrame, clique em "Open in New Window" no topo direito do StackBlitz */}
         <button 
           onClick={signInWithGoogle}
           className="flex items-center gap-3 bg-white text-slate-900 hover:bg-slate-200 px-6 py-4 rounded-2xl font-bold transition-all transform hover:scale-105 active:scale-95 shadow-xl shadow-white/10"
