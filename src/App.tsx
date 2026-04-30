@@ -23,15 +23,17 @@ import {
 
 // --- CONFIGURAÇÃO FIREBASE ---
 // Substitua pelas chaves do seu projeto (Project Settings > General > Firebase SDK snippet)
-const firebaseConfig = {
-  apiKey: "AIzaSyBBSo5uUqvyMuQ_9cZ8KOgQ3VovKZjO2p8",
-  authDomain: "flash-cards-539e8.firebaseapp.com",
-  projectId: "flash-cards-539e8",
-  storageBucket: "flash-cards-539e8.firebasestorage.app",
-  messagingSenderId: "547789982172",
-  appId: "1:547789982172:web:d9d9f38f3bc02d05382719",
-  measurementId: "G-6G02K580GK"
-};
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+  ? JSON.parse(__firebase_config) 
+  : {
+      apiKey: "AIzaSyBBSo5uUqvyMuQ_9cZ8KOgQ3VovKZjO2p8",
+      authDomain: "flash-cards-539e8.firebaseapp.com",
+      projectId: "flash-cards-539e8",
+      storageBucket: "flash-cards-539e8.firebasestorage.app",
+      messagingSenderId: "547789982172",
+      appId: "1:547789982172:web:d9d9f38f3bc02d05382719",
+      measurementId: "G-6G02K580GK"
+    };
 
 const isFirebaseActive = firebaseConfig.apiKey && firebaseConfig.apiKey !== "SUA_API_KEY";
 
@@ -43,7 +45,8 @@ if (isFirebaseActive) {
 }
 
 // Identificador estático robusto para garantir a sincronização entre PC e Telemóvel
-const appId = 'lumina-pro-cloud-app';
+const appIdRaw = typeof __app_id !== 'undefined' ? String(__app_id) : 'flashcards-app';
+const appId = appIdRaw.replace(/\//g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
 
 // --- DADOS INICIAIS LIMPOS ---
 const initialFolders = [];
@@ -169,6 +172,9 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
+  const firstLoadRefFolders = useRef(true);
+  const firstLoadRefDecks = useRef(true);
+
   // Estados com inicialização segura
   const [decks, setDecks] = useState(() => {
     try { const saved = localStorage.getItem('lumina_decks'); if (saved) return JSON.parse(saved); } catch (e) {}
@@ -211,7 +217,7 @@ export default function App() {
   const touchStartRef = useRef(null);
 
   const [pomoActive, setPomoActive] = useState(false);
-  const [pomoTime, setPomoTime] = useState(pomoWorkDuration * 60);
+  const [pomoTime, setPomoTime] = useState(25 * 60);
   const [pomoMode, setPomoMode] = useState('work'); 
   const [isPomoSettingsOpen, setIsPomoSettingsOpen] = useState(false);
 
@@ -269,7 +275,7 @@ export default function App() {
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Erro no login com Google:", error);
-      showToast("Erro ao fazer login. Verifique se ativou o provedor Google no Firebase.", "error");
+      showToast("Erro ao fazer login. Verifique as configurações.", "error");
     }
   };
 
@@ -312,10 +318,12 @@ export default function App() {
       snap.forEach(d => cloudData.push(d.data()));
       
       setFolders(currentLocal => {
-        if (cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
+        if (firstLoadRefFolders.current && cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
           currentLocal.forEach(localF => setDoc(doc(foldersRef, localF.id), localF).catch(console.error));
+          firstLoadRefFolders.current = false;
           return currentLocal;
         }
+        firstLoadRefFolders.current = false;
         return cloudData;
       });
     }, console.error);
@@ -327,10 +335,12 @@ export default function App() {
       snap.forEach(dc => cloudData.push(dc.data()));
       
       setDecks(currentLocal => {
-        if (cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
+        if (firstLoadRefDecks.current && cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
           currentLocal.forEach(localD => setDoc(doc(decksRef, localD.id), localD).catch(console.error));
+          firstLoadRefDecks.current = false;
           return currentLocal;
         }
+        firstLoadRefDecks.current = false;
         return cloudData;
       });
     }, console.error);
@@ -431,15 +441,29 @@ export default function App() {
 
   const calculateTotalDue = (stats) => stats.new + stats.learning + stats.review;
 
+  // --- ESCUDO ANTI-FANTASMAS (Limpa baralhos de pastas deletadas) ---
+  const reachableFolders = new Set([null]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of folders) {
+      if (!reachableFolders.has(f.id) && reachableFolders.has(f.parentId)) {
+        reachableFolders.add(f.id);
+        changed = true;
+      }
+    }
+  }
+  const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
+
   const getDecksInFolder = (folderId) => {
     let result = [];
-    result.push(...decks.filter(d => d.parentId === folderId));
+    result.push(...validDecks.filter(d => d.parentId === folderId));
     folders.filter(f => f.parentId === folderId).forEach(sf => { result.push(...getDecksInFolder(sf.id)); });
     return result;
   };
 
   const getFolderStats = (folderId) => getCardStats(getDecksInFolder(folderId).flatMap(d => d.cards || []));
-  const globalStats = getCardStats(decks.flatMap(d => d.cards || []));
+  const globalStats = getCardStats(validDecks.flatMap(d => d.cards || []));
   const totalPendingGlobal = calculateTotalDue(globalStats);
 
   const breadcrumbs = [];
@@ -469,7 +493,7 @@ export default function App() {
 
   // --- LÓGICA DE ESTUDO ---
   const startReview = (deckId, forceAll = false) => {
-    const deck = decks.find(d => d.id === deckId);
+    const deck = validDecks.find(d => d.id === deckId);
     let dueCards = (deck.cards || []).filter(c => c.dueDate <= Date.now());
     if (forceAll) dueCards = deck.cards || [];
     if (dueCards.length === 0) return;
@@ -485,7 +509,7 @@ export default function App() {
     const currentCard = reviewQueue[currentCardIndex];
     const updatedCard = calculateNextReview(currentCard, quality);
     
-    const deckToUpdate = decks.find(d => d.id === activeDeckId);
+    const deckToUpdate = validDecks.find(d => d.id === activeDeckId);
     if (deckToUpdate) {
       const newDeckData = { ...deckToUpdate, cards: deckToUpdate.cards.map(c => c.id === updatedCard.id ? updatedCard : c) };
       setDecks(prev => prev.map(d => d.id === activeDeckId ? newDeckData : d)); 
@@ -762,7 +786,7 @@ export default function App() {
            updateFolderInCloud(updated);
         }
       } else {
-        const d = decks.find(x => x.id === editingItemId);
+        const d = validDecks.find(x => x.id === editingItemId);
         if(d) {
            const updated = { ...d, name: newItemName, description: newItemDesc, color: newItemColor };
            setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x));
@@ -782,7 +806,6 @@ export default function App() {
       }
     }
     
-    // O Ecrã fecha de imediato, e o upload para o firebase corre em segundo plano!
     closeAndResetModal();
   };
 
@@ -821,7 +844,7 @@ export default function App() {
     if (!newCardFront.trim() || !user) return;
 
     let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
-    const currentDeck = decks.find(d => d.id === activeDeckId);
+    const currentDeck = validDecks.find(d => d.id === activeDeckId);
 
     if (editingCardId && currentDeck) {
       const existing = currentDeck.cards.find(c => c.id === editingCardId);
@@ -855,7 +878,7 @@ export default function App() {
   };
 
   const deleteCard = (cardId) => {
-    const currentDeck = decks.find(d => d.id === activeDeckId);
+    const currentDeck = validDecks.find(d => d.id === activeDeckId);
     if(currentDeck) {
       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== cardId) };
       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
@@ -958,7 +981,7 @@ export default function App() {
   };
 
   const renderMastery = () => {
-    const gCards = decks.flatMap(d => d.cards || []);
+    const gCards = validDecks.flatMap(d => d.cards || []);
     const gStats = getCardStats(gCards);
     const totalC = gCards.length || 1;
     return (
@@ -1044,7 +1067,7 @@ export default function App() {
   };
 
   const renderForecast = () => {
-    const allCards = decks.flatMap(d => d.cards || []); const today = new Date(); today.setHours(0,0,0,0);
+    const allCards = validDecks.flatMap(d => d.cards || []); const today = new Date(); today.setHours(0,0,0,0);
     const forecast = Array(7).fill(0); const labels = [];
     for(let i=0; i<7; i++) {
        const d = new Date(today); d.setDate(today.getDate() + i); labels.push(d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.',''));
@@ -1077,7 +1100,7 @@ export default function App() {
 
   const renderDashboard = () => {
     const currentFolders = folders.filter(f => f.parentId === currentFolderId);
-    const currentDecks = decks.filter(d => d.parentId === currentFolderId);
+    const currentDecks = validDecks.filter(d => d.parentId === currentFolderId);
     const streak = calculateStreak();
 
     return (
