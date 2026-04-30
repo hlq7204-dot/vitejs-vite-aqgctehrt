@@ -4,12 +4,21 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
-// --- GARANTIA DE DESIGN (TAILWIND CSS) ---
-if (typeof document !== 'undefined' && !document.getElementById('tailwind-cdn')) {
-  const script = document.createElement('script');
-  script.id = 'tailwind-cdn';
-  script.src = 'https://cdn.tailwindcss.com';
-  document.head.appendChild(script);
+// --- GARANTIA DE DESIGN & IDIOMA (TAILWIND CSS + PT-BR) ---
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = 'pt-BR';
+  if (!document.querySelector('meta[name="google"]')) {
+    const meta = document.createElement('meta');
+    meta.name = 'google';
+    meta.content = 'notranslate';
+    document.head.appendChild(meta);
+  }
+  if (!document.getElementById('tailwind-cdn')) {
+    const script = document.createElement('script');
+    script.id = 'tailwind-cdn';
+    script.src = 'https://cdn.tailwindcss.com';
+    document.head.appendChild(script);
+  }
 }
 
 // --- ÍCONES ---
@@ -22,7 +31,6 @@ import {
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
-// Substitua pelas chaves do seu projeto (Project Settings > General > Firebase SDK snippet)
 const firebaseConfig = typeof __firebase_config !== 'undefined' 
   ? JSON.parse(__firebase_config) 
   : {
@@ -44,11 +52,9 @@ if (isFirebaseActive) {
   db = getFirestore(app);
 }
 
-// Identificador estático robusto para garantir a sincronização entre PC e Telemóvel
 const appIdRaw = typeof __app_id !== 'undefined' ? String(__app_id) : 'flashcards-app';
 const appId = appIdRaw.replace(/\//g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
 
-// --- DADOS INICIAIS LIMPOS ---
 const initialFolders = [];
 const initialDecks = [];
 
@@ -189,11 +195,15 @@ export default function App() {
     return {};
   });
 
+  // Configurações
   const [pomoWorkDuration, setPomoWorkDuration] = useState(() => {
     try { const saved = localStorage.getItem('lumina_pomoWork'); if (saved) return parseInt(saved); } catch(e){} return 25;
   });
   const [pomoBreakDuration, setPomoBreakDuration] = useState(() => {
     try { const saved = localStorage.getItem('lumina_pomoBreak'); if (saved) return parseInt(saved); } catch(e){} return 5;
+  });
+  const [dailyGoal, setDailyGoal] = useState(() => {
+    try { const saved = localStorage.getItem('lumina_dailyGoal'); if (saved) return parseInt(saved); } catch(e){} return 50;
   });
 
   const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -219,7 +229,7 @@ export default function App() {
   const [pomoActive, setPomoActive] = useState(false);
   const [pomoTime, setPomoTime] = useState(25 * 60);
   const [pomoMode, setPomoMode] = useState('work'); 
-  const [isPomoSettingsOpen, setIsPomoSettingsOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Modais de Criação
   const [cardType, setCardType] = useState('standard');
@@ -254,6 +264,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); }, [activityMap]);
   useEffect(() => { localStorage.setItem('lumina_pomoWork', pomoWorkDuration); }, [pomoWorkDuration]);
   useEffect(() => { localStorage.setItem('lumina_pomoBreak', pomoBreakDuration); }, [pomoBreakDuration]);
+  useEffect(() => { localStorage.setItem('lumina_dailyGoal', dailyGoal); }, [dailyGoal]);
 
   // --- FIREBASE INIT & AUTH ---
   useEffect(() => {
@@ -304,10 +315,11 @@ export default function App() {
         if (data.activityMap) setActivityMap(data.activityMap);
         if (data.pomoWorkDuration) setPomoWorkDuration(data.pomoWorkDuration);
         if (data.pomoBreakDuration) setPomoBreakDuration(data.pomoBreakDuration);
+        if (data.dailyGoal) setDailyGoal(data.dailyGoal);
       } else {
         const localActivity = localStorage.getItem('lumina_activity');
         const activityToSync = localActivity ? JSON.parse(localActivity) : {};
-        setDoc(profileRef, { activityMap: activityToSync, pomoWorkDuration: 25, pomoBreakDuration: 5 }).catch(console.error);
+        setDoc(profileRef, { activityMap: activityToSync, pomoWorkDuration: 25, pomoBreakDuration: 5, dailyGoal: 50 }).catch(console.error);
       }
     }, console.error);
 
@@ -410,12 +422,24 @@ export default function App() {
 
   const formatPomoTime = (secs) => `${Math.floor(secs/60).toString().padStart(2,'0')}:${(secs%60).toString().padStart(2,'0')}`;
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
-  const getTodayStr = () => new Date().toISOString().split('T')[0];
+  
+  // SOLUÇÃO: Gerar a data local correta sem interferência do UTC
+  const getTodayStr = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
   
   const calculateStreak = () => {
     let streak = 0; let d = new Date();
     while (true) {
-      const str = d.toISOString().split('T')[0];
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dy = String(d.getDate()).padStart(2, '0');
+      const str = `${y}-${m}-${dy}`;
+
       if (activityMap[str] && activityMap[str] > 0) { 
         streak++; d.setDate(d.getDate() - 1); 
       } else if (streak === 0 && str === getTodayStr()) { 
@@ -441,7 +465,7 @@ export default function App() {
 
   const calculateTotalDue = (stats) => stats.new + stats.learning + stats.review;
 
-  // --- ESCUDO ANTI-FANTASMAS (Limpa baralhos de pastas deletadas) ---
+  // --- ESCUDO ANTI-FANTASMAS ---
   const reachableFolders = new Set([null]);
   let changed = true;
   while (changed) {
@@ -562,13 +586,15 @@ export default function App() {
     setChoiceOptions(newOpts);
   };
 
-  const handleSavePomoSettings = async (e) => {
+  const handleSaveSettings = async (e) => {
     e.preventDefault();
     const finalWork = pomoWorkDuration || 25;
     const finalBreak = pomoBreakDuration || 5;
+    const finalGoal = dailyGoal || 50;
     setPomoWorkDuration(finalWork);
     setPomoBreakDuration(finalBreak);
-    setIsPomoSettingsOpen(false);
+    setDailyGoal(finalGoal);
+    setIsSettingsOpen(false);
     
     if (!pomoActive) {
       setPomoTime(pomoMode === 'work' ? finalWork * 60 : finalBreak * 60);
@@ -576,11 +602,11 @@ export default function App() {
 
     if (isFirebaseActive && user) {
       setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { 
-        pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak 
+        pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak, dailyGoal: finalGoal 
       }, { merge: true }).catch(console.error);
     }
 
-    showToast("Configurações do Pomodoro salvas!");
+    showToast("Configurações salvas!");
   };
 
   // --- IMPORTAÇÃO DE FICHEIROS ---
@@ -941,7 +967,7 @@ export default function App() {
         <button onClick={(e) => { e.stopPropagation(); setPomoActive(false); setPomoTime(pomoMode === 'work' ? pomoWorkDuration * 60 : pomoBreakDuration * 60); }} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors" title="Reiniciar">
           <RotateCcw className="w-4 h-4" />
         </button>
-        <button onClick={(e) => { e.stopPropagation(); setIsPomoSettingsOpen(true); setPomoActive(false); }} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors" title="Configurar Pomodoro">
+        <button onClick={(e) => { e.stopPropagation(); setIsPomoSettingsOpen(true); setPomoActive(false); }} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors" title="Configurações">
           <Settings className="w-4 h-4" />
         </button>
       </div>
@@ -960,22 +986,21 @@ export default function App() {
   };
 
   const renderDailyGoal = () => {
-    const todayGoal = 50; 
     const todayReviewed = activityMap[getTodayStr()] || 0;
-    const goalProgress = Math.min((todayReviewed / todayGoal) * 100, 100);
+    const goalProgress = Math.min((todayReviewed / dailyGoal) * 100, 100);
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between">
         <div className="absolute top-0 right-0 p-32 bg-rose-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div>
             <div className="flex justify-between items-center mb-6 relative z-10">
               <h3 className="font-bold text-slate-100 flex items-center gap-2"><Target className="w-5 h-5 text-rose-400" /> Meta Diária</h3>
-              <span className="text-xl font-black text-rose-400">{todayReviewed} <span className="text-sm text-slate-500">/ {todayGoal}</span></span>
+              <span className="text-xl font-black text-rose-400">{todayReviewed} <span className="text-sm text-slate-500">/ {dailyGoal}</span></span>
             </div>
             <div className="w-full bg-slate-950 rounded-full h-4 mb-3 overflow-hidden border border-slate-800 relative z-10">
               <div className="bg-gradient-to-r from-orange-400 to-rose-500 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(244,63,94,0.5)]" style={{ width: `${goalProgress}%` }}></div>
             </div>
         </div>
-        <p className="text-sm font-medium text-slate-400 relative z-10 mt-4">{goalProgress >= 100 ? 'Meta atingida! Excelente trabalho! 🎉' : `Faltam rever ${todayGoal - todayReviewed} cartões.`}</p>
+        <p className="text-sm font-medium text-slate-400 relative z-10 mt-4">{goalProgress >= 100 ? 'Meta atingida! Excelente trabalho! 🎉' : `Faltam rever ${dailyGoal - todayReviewed} cartões.`}</p>
       </div>
     );
   };
@@ -1025,7 +1050,12 @@ export default function App() {
     const todayStr = getTodayStr();
 
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateObj = new Date(year, month, d, 12, 0, 0); const dateStr = dateObj.toISOString().split('T')[0];
+      const dateObj = new Date(year, month, d, 12, 0, 0); 
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const dy = String(dateObj.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${dy}`;
+
       const count = activityMap[dateStr] || 0; const isToday = dateStr === todayStr;
       monthTotalRevisions += count;
       let bg = 'bg-slate-900/50 border-slate-800 text-slate-400';
@@ -1517,9 +1547,13 @@ export default function App() {
       {isPomoSettingsOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4" onClick={() => setIsPomoSettingsOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-2xl font-bold text-slate-100 mb-6 flex items-center gap-2"><Timer className="w-6 h-6 text-indigo-400" /> Pomodoro</h3>
-            <form onSubmit={handleSavePomoSettings} className="space-y-5">
+            <h3 className="text-2xl font-bold text-slate-100 mb-6 flex items-center gap-2"><Settings className="w-6 h-6 text-indigo-400" /> Configurações</h3>
+            <form onSubmit={handleSaveSettings} className="space-y-5">
               <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Meta Diária (cartões)</label>
+                <input type="number" min="1" max="1000" required value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div className="pt-4 border-t border-slate-800">
                 <label className="block text-sm font-medium text-slate-400 mb-1">Tempo de Foco (minutos)</label>
                 <input type="number" min="1" max="120" required value={pomoWorkDuration} onChange={(e) => setPomoWorkDuration(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
