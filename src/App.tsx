@@ -233,8 +233,12 @@ export default function App() {
   const [typedInput, setTypedInput] = useState(''); 
   const [sessionStats, setSessionStats] = useState({ reviewed: 0, correct: 0 });
 
-  const [swipeOffset, setSwipeOffset] = useState(0);
+  // REFs NATIVOS PARA SUPER PERFORMANCE NO SWIPE
   const touchStartRef = useRef(null);
+  const currentSwipe = useRef(0);
+  const cardRef = useRef(null);
+  const swipeLeftOverlayRef = useRef(null);
+  const swipeRightOverlayRef = useRef(null);
 
   const [pomoActive, setPomoActive] = useState(false);
   const [pomoTime, setPomoTime] = useState(pomoWorkDuration * 60);
@@ -330,7 +334,6 @@ export default function App() {
   useEffect(() => {
     if (!isFirebaseActive || !user || !db) return;
 
-    // Escutar Perfil
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main');
     const unsubProfile = onSnapshot(profileRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -346,7 +349,6 @@ export default function App() {
       }
     }, console.error);
 
-    // Escutar Pastas
     const foldersRef = collection(db, 'artifacts', appId, 'users', user.uid, 'folders');
     const unsubFolders = onSnapshot(foldersRef, (snap) => {
       const cloudData = [];
@@ -363,7 +365,6 @@ export default function App() {
       });
     }, console.error);
 
-    // Escutar Baralhos
     const decksRef = collection(db, 'artifacts', appId, 'users', user.uid, 'decks');
     const unsubDecks = onSnapshot(decksRef, (snap) => {
       const cloudData = [];
@@ -387,7 +388,7 @@ export default function App() {
   useEffect(() => { 
     setReviewInteraction(null); 
     setTypedInput(''); 
-    setSwipeOffset(0); 
+    currentSwipe.current = 0;
   }, [currentCardIndex]);
 
   // POMODORO TIMER
@@ -446,7 +447,6 @@ export default function App() {
   const formatPomoTime = (secs) => `${Math.floor(secs/60).toString().padStart(2,'0')}:${(secs%60).toString().padStart(2,'0')}`;
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
   
-  // Gerar a data local correta sem interferência do UTC
   const getTodayStr = () => {
     const d = new Date();
     const y = d.getFullYear();
@@ -455,10 +455,10 @@ export default function App() {
     return `${y}-${m}-${day}`;
   };
   
-  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS COM LIMITADOR DE LOOPS ---
+  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS COM LIMITADOR ---
   const reachableFolders = new Set([null]);
   let changed = true;
-  let safetyLimit = 0; // Proteção estrita contra congelamento infinito
+  let safetyLimit = 0; 
   while (changed && safetyLimit < 1000) {
     changed = false;
     safetyLimit++;
@@ -472,7 +472,6 @@ export default function App() {
   const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
   const validCardIds = new Set(validDecks.flatMap(d => (d.cards || []).map(c => c.id)));
 
-  // Remove de forma absoluta os cartões apagados do mapa de histórico!
   const removeDeletedCardsFromActivity = (idsToRemoveSet) => {
     if (idsToRemoveSet.size === 0) return;
     setActivityMap(prev => {
@@ -493,24 +492,19 @@ export default function App() {
     });
   };
 
-  // ZERA OS REGISTOS ANTIGOS E FOCA-SE APENAS NOS CARTÕES EXISTENTES
   const getDailyCount = (dateStr) => {
     const data = activityMap[dateStr];
     if (!data) return 0;
-    
-    // Se o registo for o array moderno, conta apenas os cartões que NÃO foram eliminados
     if (Array.isArray(data)) {
       return data.filter(id => validCardIds.has(id)).length;
     }
-    
-    // Se for um número inteiro (do erro do dia 30), devolve 0 para limpar a estatística corrompida.
     return 0; 
   };
 
   const calculateStreak = () => {
     let streak = 0; let d = new Date();
-    let loopSafeguard = 0; // Proteção estrita para o cálculo de dias
-    while (loopSafeguard < 3650) { // Limite máximo de 10 anos de histórico
+    let loopSafeguard = 0; 
+    while (loopSafeguard < 3650) { 
       loopSafeguard++;
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -542,7 +536,6 @@ export default function App() {
 
   const calculateTotalDue = (stats) => stats.new + stats.learning + stats.review;
 
-  // Proteção Recursiva em caso de pastas corrompidas!
   const getDecksInFolder = (folderId, visited = new Set()) => {
     if (visited.has(folderId)) return [];
     visited.add(folderId);
@@ -559,7 +552,6 @@ export default function App() {
   const globalStats = getCardStats(validDecks.flatMap(d => d.cards || []));
   const totalPendingGlobal = calculateTotalDue(globalStats);
 
-  // Proteção contra ciclos nas migalhas de pão (breadcrumbs)
   const breadcrumbs = [];
   let currId = currentFolderId;
   const visitedCrumb = new Set();
@@ -640,20 +632,53 @@ export default function App() {
     setIsFlipped(true); 
   };
 
+  // --- NOVA LÓGICA DE SWIPE ULTRA-RÁPIDA (DOM DIRETO) ---
   const onTouchStart = (e) => { 
+    const currentCardType = reviewQueue[currentCardIndex]?.type || 'standard';
+    if (!isFlipped || currentCardType !== 'standard') return;
+    
     touchStartRef.current = e.touches[0].clientX; 
+    currentSwipe.current = 0;
   };
   
   const onTouchMove = (e) => { 
-    if (!touchStartRef.current || !isFlipped || (reviewQueue[currentCardIndex]?.type || 'standard') !== 'standard') return;
-    setSwipeOffset(e.touches[0].clientX - touchStartRef.current);
+    if (!touchStartRef.current || !isFlipped) return;
+    
+    const diff = e.touches[0].clientX - touchStartRef.current;
+    currentSwipe.current = diff;
+    
+    // Atualização 60FPS direta no DOM (Não causa re-renderização do React)
+    if (cardRef.current) {
+      cardRef.current.style.transition = 'none';
+      cardRef.current.style.transform = `translateX(${diff}px) rotate(${diff * 0.05}deg) rotateY(180deg)`;
+    }
+    
+    if (swipeLeftOverlayRef.current) {
+      swipeLeftOverlayRef.current.style.opacity = diff < -20 ? Math.min(Math.abs(diff + 20) / 100, 1) : 0;
+    }
+    if (swipeRightOverlayRef.current) {
+      swipeRightOverlayRef.current.style.opacity = diff > 20 ? Math.min((diff - 20) / 100, 1) : 0;
+    }
   };
   
   const onTouchEnd = () => {
-    if (swipeOffset > 100) handleAnswer(2); 
-    else if (swipeOffset < -100) handleAnswer(0); 
-    setSwipeOffset(0); 
+    if (!touchStartRef.current) return;
+    const diff = currentSwipe.current;
+    
+    // Limpar efeitos visuais
+    if (cardRef.current) {
+      cardRef.current.style.transition = 'transform 0.4s cubic-bezier(0.4, 0.2, 0.2, 1)';
+      cardRef.current.style.transform = 'rotateY(180deg)'; // volta ao normal (virado)
+    }
+    if (swipeLeftOverlayRef.current) swipeLeftOverlayRef.current.style.opacity = 0;
+    if (swipeRightOverlayRef.current) swipeRightOverlayRef.current.style.opacity = 0;
+    
     touchStartRef.current = null;
+    currentSwipe.current = 0;
+
+    // Disparar a resposta se o deslize for suficientemente longo
+    if (diff > 100) handleAnswer(2); // Bom
+    else if (diff < -100) handleAnswer(0); // Errei
   };
 
   const updateChoiceOption = (idx, value) => {
@@ -855,7 +880,7 @@ export default function App() {
     e.target.value = null; 
   };
 
-  // --- CRUD COM INTERFACE OTIMISTA (NÃO BLOQUEANTE) ---
+  // --- CRUD COM INTERFACE OTIMISTA E ANTI-FANTASMAS ---
   const openEditModal = (type, item, e) => {
     e.stopPropagation(); 
     setModalType(type); 
@@ -1518,11 +1543,31 @@ export default function App() {
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
         </div>
 
-        <div className="flex-grow flex flex-col justify-center perspective-1000 swipe-container">
+        <div className="flex-grow flex flex-col justify-center perspective-1000 swipe-container relative">
+          
+          {/* INDICADORES VISUAIS DO SWIPE */}
+          {type === 'standard' && isFlipped && (
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-between px-4 sm:px-8 z-50">
+              <div ref={swipeLeftOverlayRef} className="flex flex-col items-center opacity-0 transition-opacity duration-100">
+                <div className="bg-rose-500 text-white p-4 sm:p-5 rounded-full shadow-[0_0_30px_rgba(244,63,94,0.6)] mb-2">
+                  <X className="w-8 h-8 sm:w-10 sm:h-10" />
+                </div>
+                <span className="font-bold text-rose-400 text-lg sm:text-xl uppercase tracking-wider bg-slate-950/50 px-3 py-1 rounded-lg backdrop-blur-sm">Errei</span>
+              </div>
+              <div ref={swipeRightOverlayRef} className="flex flex-col items-center opacity-0 transition-opacity duration-100">
+                <div className="bg-emerald-500 text-white p-4 sm:p-5 rounded-full shadow-[0_0_30px_rgba(16,185,129,0.6)] mb-2">
+                  <Check className="w-8 h-8 sm:w-10 sm:h-10" />
+                </div>
+                <span className="font-bold text-emerald-400 text-lg sm:text-xl uppercase tracking-wider bg-slate-950/50 px-3 py-1 rounded-lg backdrop-blur-sm">Bom</span>
+              </div>
+            </div>
+          )}
+
           {type === 'standard' && (
             <div 
-              className="relative w-full h-[500px] cursor-pointer preserve-3d" 
-              style={{ transition: swipeOffset ? 'none' : 'transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1)', transform: `translateX(${swipeOffset}px) rotate(${swipeOffset * 0.05}deg) ${isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'}` }} 
+              ref={cardRef}
+              className="relative w-full h-[500px] cursor-pointer preserve-3d transition-transform duration-500" 
+              style={{ transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
               onClick={() => setIsFlipped(prev => !prev)} 
               onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
             >
