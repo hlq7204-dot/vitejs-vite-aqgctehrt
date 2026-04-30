@@ -1,8 +1,16 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
+
+// --- GARANTIA DE DESIGN (TAILWIND CSS) ---
+if (typeof document !== 'undefined' && !document.getElementById('tailwind-cdn')) {
+  const script = document.createElement('script');
+  script.id = 'tailwind-cdn';
+  script.src = 'https://cdn.tailwindcss.com';
+  document.head.appendChild(script);
+}
 
 // --- ÍCONES ---
 import { 
@@ -10,7 +18,7 @@ import {
   Trophy, Sparkles, Folder, ChevronRight, ChevronLeft, FolderPlus, Upload, 
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, X, FastForward, CalendarDays, Target, 
-  PieChart, Timer, Pause, RotateCcw, Settings, LayoutDashboard, Library, Flame, BarChart2
+  PieChart, Timer, Pause, RotateCcw, Settings, LayoutDashboard, Library, Flame, BarChart2, LogOut
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -38,27 +46,9 @@ if (isFirebaseActive) {
 const appIdRaw = typeof __app_id !== 'undefined' ? String(__app_id) : 'flashcards-app';
 const appId = appIdRaw.replace(/\//g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
 
-// --- DADOS INICIAIS ---
-const initialFolders = [
-  { id: 'f-concursos', name: 'Concursos', parentId: null, color: 'text-purple-400' },
-  { id: 'f-idiomas', name: 'Idiomas', parentId: null, color: 'text-blue-400' },
-];
-
-const initialDecks = [
-  {
-    id: 'deck-1',
-    name: 'Inglês Dinâmico',
-    parentId: 'f-idiomas',
-    description: 'Experimente os novos formatos e atalhos!',
-    color: 'bg-blue-500 text-white',
-    cards: [
-      { id: 'c1', type: 'standard', front: 'What is the color of the sky?', back: 'Blue', repetition: 5, interval: 14, easeFactor: 2.5, dueDate: Date.now() - 100000, reviews: 5 },
-      { id: 'c2', type: 'choice', front: 'Qual destas palavras significa "Maçã"?', options: ['Banana', 'Apple', 'Pineapple', 'Strawberry'], correctOption: 1, back: 'Apple é maçã em inglês.', repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now() - 100000, reviews: 0 },
-      { id: 'c3', type: 'tf', front: 'A palavra "Water" significa Fogo.', isTrue: false, back: '"Water" significa Água. Fogo é "Fire".', repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now() - 100000, reviews: 0 },
-      { id: 'c4', type: 'typing', front: 'Traduza para inglês: "Casa"', typeAnswer: 'House', back: 'Lembre-se que o "H" tem som de "R" em português.', repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now() - 100000, reviews: 0 },
-    ]
-  }
-];
+// --- DADOS INICIAIS LIMPOS ---
+const initialFolders = [];
+const initialDecks = [];
 
 const FOLDER_THEMES = [
   { id: 'indigo', label: 'Índigo', color: 'text-indigo-400' },
@@ -180,18 +170,9 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
-  const [decks, setDecks] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_decks'); if (saved) return JSON.parse(saved); } catch (e) {}
-    return initialDecks;
-  });
-  const [folders, setFolders] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_folders'); if (saved) return JSON.parse(saved); } catch (e) {}
-    return initialFolders;
-  });
-  const [activityMap, setActivityMap] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_activity'); if (saved) return JSON.parse(saved); } catch (e) {}
-    return {};
-  });
+  const [decks, setDecks] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [activityMap, setActivityMap] = useState({});
 
   const [pomoWorkDuration, setPomoWorkDuration] = useState(() => {
     try { const saved = localStorage.getItem('lumina_pomoWork'); if (saved) return parseInt(saved); } catch(e){} return 25;
@@ -251,33 +232,16 @@ export default function App() {
   const stateRef = useRef();
   stateRef.current = { currentView, isFlipped, reviewQueue, currentCardIndex, cardType: reviewQueue[currentCardIndex]?.type || 'standard' };
 
-  useEffect(() => { localStorage.setItem('lumina_decks', JSON.stringify(decks)); }, [decks]);
-  useEffect(() => { localStorage.setItem('lumina_folders', JSON.stringify(folders)); }, [folders]);
-  useEffect(() => { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); }, [activityMap]);
   useEffect(() => { localStorage.setItem('lumina_pomoWork', pomoWorkDuration); }, [pomoWorkDuration]);
   useEffect(() => { localStorage.setItem('lumina_pomoBreak', pomoBreakDuration); }, [pomoBreakDuration]);
 
-  // FIREBASE INIT
+  // --- FIREBASE INIT & AUTH ---
   useEffect(() => {
     if (!isFirebaseActive) {
       setIsAuthLoading(false);
       return;
     }
 
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) { 
-        console.error("Erro ao autenticar no Firebase:", err); 
-        setIsAuthLoading(false);
-      }
-    };
-    initAuth();
-    
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u); 
       setIsAuthLoading(false);
@@ -285,7 +249,30 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // SYNC DATA (CLOUD)
+  const signInWithGoogle = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Erro no login com Google:", error);
+      showToast("Erro ao fazer login. Verifique se ativou o provedor Google no Firebase.", "error");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setDecks([]);
+      setFolders([]);
+      setActivityMap({});
+      setCurrentView('dashboard');
+      setMainTab('overview');
+    } catch (error) {
+      console.error("Erro ao sair:", error);
+    }
+  };
+
+  // --- SYNC DATA (CLOUD) ---
   useEffect(() => {
     if (!isFirebaseActive || !user) return;
 
@@ -305,22 +292,14 @@ export default function App() {
     const unsubFolders = onSnapshot(foldersRef, (snap) => {
       const f = [];
       snap.forEach(d => f.push(d.data()));
-      if (f.length === 0 && !snap.metadata.hasPendingWrites) {
-         initialFolders.forEach(folder => setDoc(doc(foldersRef, folder.id), folder));
-      } else { 
-        setFolders(f); 
-      }
+      setFolders(f);
     }, console.error);
 
     const decksRef = collection(db, 'artifacts', appId, 'users', user.uid, 'decks');
     const unsubDecks = onSnapshot(decksRef, (snap) => {
       const d = [];
       snap.forEach(dc => d.push(dc.data()));
-      if (d.length === 0 && !snap.metadata.hasPendingWrites) {
-         initialDecks.forEach(deck => setDoc(doc(decksRef, deck.id), deck));
-      } else { 
-        setDecks(d); 
-      }
+      setDecks(d);
     }, console.error);
 
     return () => { unsubProfile(); unsubFolders(); unsubDecks(); };
@@ -471,22 +450,17 @@ export default function App() {
     const currentCard = reviewQueue[currentCardIndex];
     const updatedCard = calculateNextReview(currentCard, quality);
     
-    const newDecks = decks.map(deck => {
-      if (deck.id === activeDeckId) {
-        const updatedDeck = { ...deck, cards: deck.cards.map(c => c.id === updatedCard.id ? updatedCard : c) };
-        updateDeckInCloud(updatedDeck);
-        return updatedDeck;
-      }
-      return deck;
-    });
-    setDecks(newDecks);
+    const deckToUpdate = decks.find(d => d.id === activeDeckId);
+    if (deckToUpdate) {
+      const newDeckData = { ...deckToUpdate, cards: deckToUpdate.cards.map(c => c.id === updatedCard.id ? updatedCard : c) };
+      updateDeckInCloud(newDeckData);
+    }
+
+    setSessionStats(prev => ({ reviewed: prev.reviewed + 1, correct: prev.correct + (quality > 0 ? 1 : 0) }));
 
     const todayStr = getTodayStr();
     const newActivityMap = { ...activityMap, [todayStr]: (activityMap[todayStr] || 0) + 1 };
-    setActivityMap(newActivityMap);
     syncActivityToCloud(newActivityMap);
-
-    setSessionStats(prev => ({ reviewed: prev.reviewed + 1, correct: prev.correct + (quality > 0 ? 1 : 0) }));
 
     let newQueue = [...reviewQueue];
     if (updatedCard.interval === 0) newQueue.push(updatedCard);
@@ -620,7 +594,6 @@ export default function App() {
         const newId = `f-anki-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const newFolder = { id: newId, name: fName, parentId, color: 'text-indigo-400' };
         newFoldersToCloud.push(newFolder);
-        setFolders(prev => [...prev, newFolder]);
         updateFolderInCloud(newFolder);
         return newId;
       };
@@ -660,7 +633,6 @@ export default function App() {
       const finalDecks = Object.values(newDecksMap).filter(d => d.cards.length > 0);
       if (fallbackDeck.cards.length > 0) finalDecks.push(fallbackDeck); 
       
-      setDecks(prev => [...prev, ...finalDecks]);
       finalDecks.forEach(d => updateDeckInCloud(d));
 
       if(importedCount > 0) showToast(`${importedCount} cartões importados!`);
@@ -691,7 +663,6 @@ export default function App() {
       });
       if (importedCards.length > 0) {
         const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: 'bg-emerald-600 text-white', cards: importedCards };
-        setDecks(prev => [...prev, newDeck]);
         updateDeckInCloud(newDeck);
         showToast(`${importedCards.length} cartões importados!`);
       }
@@ -732,21 +703,19 @@ export default function App() {
 
   const handleCreateOrEditItem = (e) => {
     e.preventDefault();
-    if (!newItemName.trim()) return;
+    if (!newItemName.trim() || !user) return;
 
     if (modalMode === 'edit') {
       if (modalType === 'folder') {
         const f = folders.find(x => x.id === editingItemId);
         if(f) {
            const updated = { ...f, name: newItemName, color: newItemColor };
-           setFolders(prev => prev.map(x => x.id === editingItemId ? updated : x));
            updateFolderInCloud(updated);
         }
       } else {
         const d = decks.find(x => x.id === editingItemId);
         if(d) {
            const updated = { ...d, name: newItemName, description: newItemDesc, color: newItemColor };
-           setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x));
            updateDeckInCloud(updated);
         }
       }
@@ -754,11 +723,9 @@ export default function App() {
     } else {
       if (modalType === 'folder') {
         const newFolder = { id: `f-${Date.now()}`, name: newItemName, parentId: currentFolderId, color: newItemColor };
-        setFolders(prev => [...prev, newFolder]);
         updateFolderInCloud(newFolder);
       } else {
         const newDeck = { id: `d-${Date.now()}`, name: newItemName, description: newItemDesc, parentId: currentFolderId, color: newItemColor, cards: [] };
-        setDecks(prev => [...prev, newDeck]);
         updateDeckInCloud(newDeck);
       }
     }
@@ -766,7 +733,7 @@ export default function App() {
   };
 
   const confirmDelete = async () => {
-    if (!itemToDelete) return;
+    if (!itemToDelete || !user) return;
     if (itemToDelete.type === 'folder') {
       const getAllNestedFolderIds = (folderId) => {
         let ids = [folderId];
@@ -775,16 +742,12 @@ export default function App() {
       };
       const idsToDelete = getAllNestedFolderIds(itemToDelete.id);
       
-      setFolders(prev => prev.filter(f => !idsToDelete.includes(f.id)));
-      setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId)));
-
       if (isFirebaseActive && user) {
         idsToDelete.forEach(async (id) => await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)));
         decks.filter(d => idsToDelete.includes(d.parentId)).forEach(async (d) => await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)));
       }
       showToast("Pasta eliminada.");
     } else {
-      setDecks(prev => prev.filter(d => d.id !== itemToDelete.id));
       if (isFirebaseActive && user) {
         await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id));
       }
@@ -796,7 +759,7 @@ export default function App() {
 
   const handleSaveCard = (e) => {
     e.preventDefault();
-    if (!newCardFront.trim()) return;
+    if (!newCardFront.trim() || !user) return;
 
     let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
     const currentDeck = decks.find(d => d.id === activeDeckId);
@@ -816,7 +779,6 @@ export default function App() {
        else updatedCards = [...(currentDeck.cards || []), processedCard];
        
        const updatedDeck = { ...currentDeck, cards: updatedCards };
-       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
        updateDeckInCloud(updatedDeck);
        showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
     }
@@ -836,7 +798,6 @@ export default function App() {
     const currentDeck = decks.find(d => d.id === activeDeckId);
     if(currentDeck) {
       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== cardId) };
-      setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
       updateDeckInCloud(updatedDeck);
     }
   };
@@ -845,6 +806,42 @@ export default function App() {
   // --- RENDERERS UI ---
   if (isAuthLoading) {
     return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-indigo-400"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+  }
+
+  // --- LOGIN UI ---
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6">
+        <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)]">
+          <BrainCircuit className="text-indigo-400 w-10 h-10" />
+        </div>
+        <h1 className="text-4xl font-bold mb-3">Lumina Pro</h1>
+        <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma de flashcards inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
+        
+        {/* Se o botão não funcionar no StackBlitz devido a bloqueios de popups do iFrame, clique em "Open in New Window" no topo direito do StackBlitz */}
+        <button 
+          onClick={signInWithGoogle}
+          className="flex items-center gap-3 bg-white text-slate-900 hover:bg-slate-200 px-6 py-4 rounded-2xl font-bold transition-all transform hover:scale-105 active:scale-95 shadow-xl shadow-white/10"
+        >
+          <svg className="w-6 h-6" viewBox="0 0 24 24">
+            <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+          </svg>
+          Continuar com o Google
+        </button>
+
+        {toast && (
+          <div className="fixed bottom-6 right-6 z-[90] animate-in slide-in-from-bottom-4 fade-in duration-300">
+            <div className="flex items-center gap-3 px-6 py-4 rounded-2xl shadow-xl shadow-black/50 border backdrop-blur-md bg-rose-950/80 border-rose-500/30 text-rose-200">
+              <Info className="w-5 h-5 text-rose-400" />
+              <p className="font-medium text-sm">{toast.message}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
 
   const renderGlobalPomodoro = () => {
@@ -1036,14 +1033,15 @@ export default function App() {
             <div className={`px-4 py-2 rounded-full font-medium flex items-center gap-2 border transition-all ${streak > 0 ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_15px_rgba(249,115,22,0.15)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
               <Flame className={`w-5 h-5 ${streak > 0 ? 'fill-current' : ''}`} /> {streak} dias
             </div>
-            <div className="bg-indigo-500/10 text-indigo-300 px-4 py-2 rounded-full font-medium flex items-center gap-2 border border-indigo-500/20 shadow-[0_0_15px_rgba(99,102,241,0.1)]">
-              <Trophy className="w-5 h-5" /> {totalPendingGlobal}
-            </div>
             {isImporting ? (
               <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-500/10 px-4 py-2 rounded-full border border-emerald-500/20"><Loader2 className="w-4 h-4 animate-spin" /> {importProgress}</div>
             ) : (
               <button onClick={() => fileInputRef.current.click()} className="p-2.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar pacotes Anki"><Upload className="w-5 h-5" /></button>
             )}
+            <div className="w-px h-8 bg-slate-800 mx-1"></div>
+            <button onClick={handleLogout} className="p-2.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded-full transition-colors" title="Sair da Conta">
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
         </header>
 
