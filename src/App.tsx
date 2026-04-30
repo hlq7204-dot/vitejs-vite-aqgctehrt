@@ -170,9 +170,19 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
-  const [decks, setDecks] = useState(initialDecks);
-  const [folders, setFolders] = useState(initialFolders);
-  const [activityMap, setActivityMap] = useState({});
+  // Fallback de Memória Local garantido
+  const [decks, setDecks] = useState(() => {
+    try { const saved = localStorage.getItem('lumina_decks'); if (saved) return JSON.parse(saved); } catch (e) {}
+    return initialDecks;
+  });
+  const [folders, setFolders] = useState(() => {
+    try { const saved = localStorage.getItem('lumina_folders'); if (saved) return JSON.parse(saved); } catch (e) {}
+    return initialFolders;
+  });
+  const [activityMap, setActivityMap] = useState(() => {
+    try { const saved = localStorage.getItem('lumina_activity'); if (saved) return JSON.parse(saved); } catch (e) {}
+    return {};
+  });
 
   const [pomoWorkDuration, setPomoWorkDuration] = useState(() => {
     try { const saved = localStorage.getItem('lumina_pomoWork'); if (saved) return parseInt(saved); } catch(e){} return 25;
@@ -202,7 +212,7 @@ export default function App() {
   const touchStartRef = useRef(null);
 
   const [pomoActive, setPomoActive] = useState(false);
-  const [pomoTime, setPomoTime] = useState(25 * 60);
+  const [pomoTime, setPomoTime] = useState(pomoWorkDuration * 60);
   const [pomoMode, setPomoMode] = useState('work'); 
   const [isPomoSettingsOpen, setIsPomoSettingsOpen] = useState(false);
 
@@ -232,7 +242,12 @@ export default function App() {
   const stateRef = useRef();
   stateRef.current = { currentView, isFlipped, reviewQueue, currentCardIndex, cardType: reviewQueue[currentCardIndex]?.type || 'standard' };
 
-  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
+  // ESCUDO DE PROTEÇÃO LOCAL (Guarda tudo na memória do navegador a cada alteração)
+  useEffect(() => { localStorage.setItem('lumina_decks', JSON.stringify(decks)); }, [decks]);
+  useEffect(() => { localStorage.setItem('lumina_folders', JSON.stringify(folders)); }, [folders]);
+  useEffect(() => { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); }, [activityMap]);
+  useEffect(() => { localStorage.setItem('lumina_pomoWork', pomoWorkDuration); }, [pomoWorkDuration]);
+  useEffect(() => { localStorage.setItem('lumina_pomoBreak', pomoBreakDuration); }, [pomoBreakDuration]);
 
   // --- FIREBASE INIT & AUTH ---
   useEffect(() => {
@@ -271,7 +286,7 @@ export default function App() {
     }
   };
 
-  // --- SYNC DATA (CLOUD) ---
+  // --- SYNC DATA (CLOUD) SEGURO ---
   useEffect(() => {
     if (!isFirebaseActive || !user) return;
 
@@ -283,31 +298,46 @@ export default function App() {
         if (data.activityMap) setActivityMap(data.activityMap);
         if (data.pomoWorkDuration) setPomoWorkDuration(data.pomoWorkDuration);
         if (data.pomoBreakDuration) setPomoBreakDuration(data.pomoBreakDuration);
+      } else {
+        // Se a nuvem estiver vazia, tentar enviar os dados que já existem na memória local
+        setActivityMap(currentLocal => {
+          setDoc(profileRef, { activityMap: currentLocal, pomoWorkDuration: 25, pomoBreakDuration: 5 }).catch(console.error);
+          return currentLocal;
+        });
       }
-    }, (error) => {
-      console.error("Erro no perfil:", error);
-    });
+    }, console.error);
 
     // Escutar Pastas
     const foldersRef = collection(db, 'artifacts', appId, 'users', user.uid, 'folders');
     const unsubFolders = onSnapshot(foldersRef, (snap) => {
-      const f = [];
-      snap.forEach(d => f.push(d.data()));
-      setFolders(f);
-    }, (error) => {
-      console.error("Erro de Firestore (Pastas):", error);
-      showToast("Verifique as regras do Firebase.", "error");
-    });
+      const cloudData = [];
+      snap.forEach(d => cloudData.push(d.data()));
+      
+      setFolders(currentLocal => {
+        // Escudo: Se a nuvem estiver vazia MAS tivermos pastas na memória local (e não foi uma ação de apagar), puxamos para a nuvem!
+        if (cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
+          currentLocal.forEach(localF => setDoc(doc(foldersRef, localF.id), localF).catch(console.error));
+          return currentLocal;
+        }
+        return cloudData;
+      });
+    }, console.error);
 
     // Escutar Baralhos
     const decksRef = collection(db, 'artifacts', appId, 'users', user.uid, 'decks');
     const unsubDecks = onSnapshot(decksRef, (snap) => {
-      const d = [];
-      snap.forEach(dc => d.push(dc.data()));
-      setDecks(d);
-    }, (error) => {
-      console.error("Erro de Firestore (Baralhos):", error);
-    });
+      const cloudData = [];
+      snap.forEach(dc => cloudData.push(dc.data()));
+      
+      setDecks(currentLocal => {
+        // Escudo: Protege os baralhos locais caso a nuvem esteja vazia
+        if (cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
+          currentLocal.forEach(localD => setDoc(doc(decksRef, localD.id), localD).catch(console.error));
+          return currentLocal;
+        }
+        return cloudData;
+      });
+    }, console.error);
 
     return () => { unsubProfile(); unsubFolders(); unsubDecks(); };
   }, [user]);
@@ -373,6 +403,7 @@ export default function App() {
   }, []);
 
   const formatPomoTime = (secs) => `${Math.floor(secs/60).toString().padStart(2,'0')}:${(secs%60).toString().padStart(2,'0')}`;
+  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
   const getTodayStr = () => new Date().toISOString().split('T')[0];
   
   const calculateStreak = () => {
@@ -422,35 +453,23 @@ export default function App() {
     if (f) { breadcrumbs.unshift(f); currId = f.parentId; } else break;
   }
 
-  // --- FIREBASE WRITE HELPERS ---
-  const updateDeckInCloud = async (deckData) => {
+  // --- FUNÇÕES DE UPDATE NA CLOUD NÃO-BLOQUEANTES ---
+  // A remoção do "await" aqui é o que impede a interface de congelar quando clica em Salvar/Criar!
+  const updateDeckInCloud = (deckData) => {
     if (!isFirebaseActive || !user) return;
-    try {
-      // Evita o erro silently falhando "Unsupported field value: undefined" no Firebase
-      const cleanData = JSON.parse(JSON.stringify(deckData));
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', deckData.id), cleanData);
-    } catch (e) {
-      console.error(e);
-      showToast("Erro ao gravar dados do baralho na nuvem", "error");
-    }
+    const cleanData = JSON.parse(JSON.stringify(deckData));
+    setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', deckData.id), cleanData).catch(e => console.error("Firebase sync error", e));
   };
 
-  const updateFolderInCloud = async (folderData) => {
+  const updateFolderInCloud = (folderData) => {
     if (!isFirebaseActive || !user) return;
-    try {
-      const cleanData = JSON.parse(JSON.stringify(folderData));
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', folderData.id), cleanData);
-    } catch (e) {
-      console.error(e);
-      showToast("Erro ao gravar dados da pasta na nuvem", "error");
-    }
+    const cleanData = JSON.parse(JSON.stringify(folderData));
+    setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', folderData.id), cleanData).catch(e => console.error("Firebase sync error", e));
   };
 
-  const syncActivityToCloud = async (newMap) => {
+  const syncActivityToCloud = (newMap) => {
     if (!isFirebaseActive || !user) return;
-    try {
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true });
-    } catch (e) { console.error(e); }
+    setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true }).catch(console.error);
   };
 
   // --- LÓGICA DE ESTUDO ---
@@ -524,7 +543,7 @@ export default function App() {
     setChoiceOptions(newOpts);
   };
 
-  const handleSavePomoSettings = async (e) => {
+  const handleSavePomoSettings = (e) => {
     e.preventDefault();
     const finalWork = pomoWorkDuration || 25;
     const finalBreak = pomoBreakDuration || 5;
@@ -537,13 +556,10 @@ export default function App() {
     }
 
     if (isFirebaseActive && user) {
-      try {
-        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { 
-          pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak 
-        }, { merge: true });
-      } catch (err) { console.error(err); }
+      setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { 
+        pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak 
+      }, { merge: true }).catch(console.error);
     }
-
     showToast("Configurações do Pomodoro salvas!");
   };
 
@@ -717,7 +733,7 @@ export default function App() {
     e.target.value = null; 
   };
 
-  // --- CRUD (PASTAS E BARALHOS) ---
+  // --- CRUD (PASTAS E BARALHOS) OTIMISTA E NÃO BLOQUEANTE ---
   const openEditModal = (type, item, e) => {
     e.stopPropagation(); 
     setModalType(type); 
@@ -737,7 +753,7 @@ export default function App() {
     setModalMode('create');
   };
 
-  const handleCreateOrEditItem = async (e) => {
+  const handleCreateOrEditItem = (e) => {
     e.preventDefault();
     if (!newItemName.trim() || !user) return;
 
@@ -746,15 +762,15 @@ export default function App() {
         const f = folders.find(x => x.id === editingItemId);
         if(f) {
            const updated = { ...f, name: newItemName, color: newItemColor };
-           setFolders(prev => prev.map(x => x.id === editingItemId ? updated : x)); // Otimista
-           await updateFolderInCloud(updated);
+           setFolders(prev => prev.map(x => x.id === editingItemId ? updated : x)); // Otimista (Muda logo no ecrã)
+           updateFolderInCloud(updated); // Background (Não fazemos await)
         }
       } else {
         const d = decks.find(x => x.id === editingItemId);
         if(d) {
            const updated = { ...d, name: newItemName, description: newItemDesc, color: newItemColor };
            setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x)); // Otimista
-           await updateDeckInCloud(updated);
+           updateDeckInCloud(updated); // Background
         }
       }
       showToast(`${modalType === 'folder' ? 'Pasta' : 'Baralho'} atualizado!`);
@@ -762,17 +778,18 @@ export default function App() {
       if (modalType === 'folder') {
         const newFolder = { id: `f-${Date.now()}`, name: newItemName, parentId: currentFolderId, color: newItemColor };
         setFolders(prev => [...prev, newFolder]); // Otimista
-        await updateFolderInCloud(newFolder);
+        updateFolderInCloud(newFolder); // Background
       } else {
         const newDeck = { id: `d-${Date.now()}`, name: newItemName, description: newItemDesc, parentId: currentFolderId, color: newItemColor, cards: [] };
         setDecks(prev => [...prev, newDeck]); // Otimista
-        await updateDeckInCloud(newDeck);
+        updateDeckInCloud(newDeck); // Background
       }
     }
-    closeAndResetModal();
+    
+    closeAndResetModal(); // Fecha o ecrã instantaneamente
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (!itemToDelete || !user) return;
     if (itemToDelete.type === 'folder') {
       const getAllNestedFolderIds = (folderId) => {
@@ -786,14 +803,14 @@ export default function App() {
       setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId))); // Otimista
 
       if (isFirebaseActive && user) {
-        idsToDelete.forEach(async (id) => await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)));
-        decks.filter(d => idsToDelete.includes(d.parentId)).forEach(async (d) => await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)));
+        idsToDelete.forEach(id => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)).catch(e => {}));
+        decks.filter(d => idsToDelete.includes(d.parentId)).forEach(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)).catch(e => {}));
       }
       showToast("Pasta eliminada.");
     } else {
       setDecks(prev => prev.filter(d => d.id !== itemToDelete.id)); // Otimista
       if (isFirebaseActive && user) {
-        await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id));
+        deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id)).catch(e => {});
       }
       if (activeDeckId === itemToDelete.id) { setCurrentView('dashboard'); setActiveDeckId(null); }
       showToast("Baralho eliminado.");
@@ -801,7 +818,7 @@ export default function App() {
     setItemToDelete(null);
   };
 
-  const handleSaveCard = async (e) => {
+  const handleSaveCard = (e) => {
     e.preventDefault();
     if (!newCardFront.trim() || !user) return;
 
@@ -824,7 +841,7 @@ export default function App() {
        
        const updatedDeck = { ...currentDeck, cards: updatedCards };
        setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); // Otimista
-       await updateDeckInCloud(updatedDeck);
+       updateDeckInCloud(updatedDeck);
        showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
     }
     
@@ -839,12 +856,12 @@ export default function App() {
     setEditingCardId(card.id); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const deleteCard = async (cardId) => {
+  const deleteCard = (cardId) => {
     const currentDeck = decks.find(d => d.id === activeDeckId);
     if(currentDeck) {
       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== cardId) };
       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); // Otimista
-      await updateDeckInCloud(updatedDeck);
+      updateDeckInCloud(updatedDeck);
     }
   };
 
