@@ -4,12 +4,25 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
-// --- GARANTIA DE DESIGN (TAILWIND CSS) ---
-if (typeof document !== 'undefined' && !document.getElementById('tailwind-cdn')) {
-  const script = document.createElement('script');
-  script.id = 'tailwind-cdn';
-  script.src = 'https://cdn.tailwindcss.com';
-  document.head.appendChild(script);
+// --- GARANTIA DE DESIGN E BLOQUEIO DE TRADUÇÃO ---
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = 'pt-BR';
+  document.documentElement.setAttribute('translate', 'no');
+  document.documentElement.classList.add('notranslate');
+  
+  if (!document.querySelector('meta[name="google"]')) {
+    const meta = document.createElement('meta');
+    meta.name = 'google';
+    meta.content = 'notranslate';
+    document.head.appendChild(meta);
+  }
+  
+  if (!document.getElementById('tailwind-cdn')) {
+    const script = document.createElement('script');
+    script.id = 'tailwind-cdn';
+    script.src = 'https://cdn.tailwindcss.com';
+    document.head.appendChild(script);
+  }
 }
 
 // --- ÍCONES ---
@@ -174,23 +187,6 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
-  // --- PROTEÇÃO ANTI-TRADUÇÃO FORÇADA ---
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      document.documentElement.lang = 'pt-BR';
-      document.documentElement.setAttribute('translate', 'no');
-      document.documentElement.classList.add('notranslate');
-      
-      let metaGoogle = document.querySelector('meta[name="google"]');
-      if (!metaGoogle) {
-        metaGoogle = document.createElement('meta');
-        metaGoogle.name = 'google';
-        document.head.appendChild(metaGoogle);
-      }
-      metaGoogle.content = 'notranslate';
-    }
-  }, []);
-
   const firstLoadRefFolders = useRef(true);
   const firstLoadRefDecks = useRef(true);
 
@@ -222,8 +218,9 @@ export default function App() {
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [currentView, setCurrentView] = useState('dashboard'); 
   const [mainTab, setMainTab] = useState('overview'); 
+  
+  // GARANTIA: O activeDeck procura no validDecks para evitar fantasmas
   const [activeDeckId, setActiveDeckId] = useState(null);
-  const activeDeck = decks.find(d => d.id === activeDeckId);
   
   const [calendarMonth, setCalendarMonth] = useState(() => {
      const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -494,13 +491,18 @@ export default function App() {
     });
   };
 
+  // ZERA OS REGISTOS ANTIGOS E FOCA-SE APENAS NOS CARTÕES EXISTENTES
   const getDailyCount = (dateStr) => {
     const data = activityMap[dateStr];
     if (!data) return 0;
+    
+    // Se o registo for o array moderno, conta apenas os cartões que NÃO foram eliminados
     if (Array.isArray(data)) {
       return data.filter(id => validCardIds.has(id)).length;
     }
-    return typeof data === 'number' ? data : 0; 
+    
+    // Se for um número inteiro (do erro do dia 30), devolve 0 para limpar a estatística corrompida.
+    return 0; 
   };
 
   const calculateStreak = () => {
@@ -573,10 +575,12 @@ export default function App() {
   };
 
   // --- LÓGICA DE ESTUDO ---
+  const activeDeckRef = validDecks.find(d => d.id === activeDeckId);
+
   const startReview = (deckId, forceAll = false) => {
     const deck = validDecks.find(d => d.id === deckId);
-    let dueCards = (deck.cards || []).filter(c => c.dueDate <= Date.now());
-    if (forceAll) dueCards = deck.cards || [];
+    let dueCards = (deck?.cards || []).filter(c => c.dueDate <= Date.now());
+    if (forceAll) dueCards = deck?.cards || [];
     if (dueCards.length === 0) return;
     setReviewQueue([...dueCards].sort(() => Math.random() - 0.5));
     setCurrentCardIndex(0); 
@@ -590,9 +594,8 @@ export default function App() {
     const currentCard = reviewQueue[currentCardIndex];
     const updatedCard = calculateNextReview(currentCard, quality);
     
-    const deckToUpdate = validDecks.find(d => d.id === activeDeckId);
-    if (deckToUpdate) {
-      const newDeckData = { ...deckToUpdate, cards: deckToUpdate.cards.map(c => c.id === updatedCard.id ? updatedCard : c) };
+    if (activeDeckRef) {
+      const newDeckData = { ...activeDeckRef, cards: activeDeckRef.cards.map(c => c.id === updatedCard.id ? updatedCard : c) };
       setDecks(prev => prev.map(d => d.id === activeDeckId ? newDeckData : d)); 
       updateDeckInCloud(newDeckData);
     }
@@ -906,7 +909,7 @@ export default function App() {
       };
       const idsToDelete = getAllNestedFolderIds(itemToDelete.id);
       
-      const decksToDelete = decks.filter(d => idsToDelete.includes(d.parentId));
+      const decksToDelete = validDecks.filter(d => idsToDelete.includes(d.parentId));
       const cardIdsToScrub = new Set(decksToDelete.flatMap(d => (d.cards || []).map(c => c.id)));
       
       setFolders(prev => prev.filter(f => !idsToDelete.includes(f.id)));
@@ -919,7 +922,7 @@ export default function App() {
       }
       showToast("Pasta eliminada.");
     } else {
-      const deckToDelete = decks.find(d => d.id === itemToDelete.id);
+      const deckToDelete = validDecks.find(d => d.id === itemToDelete.id);
       const cardIdsToScrub = new Set((deckToDelete?.cards || []).map(c => c.id));
       
       setDecks(prev => prev.filter(d => d.id !== itemToDelete.id));
