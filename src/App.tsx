@@ -4,23 +4,6 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
-// --- GARANTIA DE DESIGN & IDIOMA (TAILWIND CSS + PT-BR) ---
-if (typeof document !== 'undefined') {
-  document.documentElement.lang = 'pt-BR';
-  if (!document.querySelector('meta[name="google"]')) {
-    const meta = document.createElement('meta');
-    meta.name = 'google';
-    meta.content = 'notranslate';
-    document.head.appendChild(meta);
-  }
-  if (!document.getElementById('tailwind-cdn')) {
-    const script = document.createElement('script');
-    script.id = 'tailwind-cdn';
-    script.src = 'https://cdn.tailwindcss.com';
-    document.head.appendChild(script);
-  }
-}
-
 // --- ÍCONES ---
 import { 
   BookOpen, Plus, Play, ArrowLeft, CheckCircle2, BrainCircuit, Trash2, 
@@ -31,7 +14,7 @@ import {
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
+const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
   ? JSON.parse(__firebase_config) 
   : {
       apiKey: "AIzaSyBBSo5uUqvyMuQ_9cZ8KOgQ3VovKZjO2p8",
@@ -46,10 +29,14 @@ const firebaseConfig = typeof __firebase_config !== 'undefined'
 const isFirebaseActive = firebaseConfig.apiKey && firebaseConfig.apiKey !== "SUA_API_KEY";
 
 let app, auth, db;
-if (isFirebaseActive) {
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
+try {
+  if (isFirebaseActive) {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  }
+} catch (error) {
+  console.error("Erro ao inicializar o Firebase:", error);
 }
 
 const appIdRaw = typeof __app_id !== 'undefined' ? String(__app_id) : 'flashcards-app';
@@ -227,7 +214,7 @@ export default function App() {
   const touchStartRef = useRef(null);
 
   const [pomoActive, setPomoActive] = useState(false);
-  const [pomoTime, setPomoTime] = useState(25 * 60);
+  const [pomoTime, setPomoTime] = useState(pomoWorkDuration * 60);
   const [pomoMode, setPomoMode] = useState('work'); 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -268,7 +255,7 @@ export default function App() {
 
   // --- FIREBASE INIT & AUTH ---
   useEffect(() => {
-    if (!isFirebaseActive) {
+    if (!isFirebaseActive || !auth) {
       setIsAuthLoading(false);
       return;
     }
@@ -281,6 +268,10 @@ export default function App() {
   }, []);
 
   const signInWithGoogle = async () => {
+    if (!auth) {
+      showToast("Firebase não inicializado corretamente.", "error");
+      return;
+    }
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
@@ -292,7 +283,7 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      if (auth) await signOut(auth);
       setDecks([]);
       setFolders([]);
       setActivityMap({});
@@ -305,7 +296,7 @@ export default function App() {
 
   // --- SYNC DATA (CLOUD) ULTRA-SEGURO ---
   useEffect(() => {
-    if (!isFirebaseActive || !user) return;
+    if (!isFirebaseActive || !user || !db) return;
 
     // Escutar Perfil
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main');
@@ -499,19 +490,19 @@ export default function App() {
 
   // --- FUNÇÕES DE UPDATE NA CLOUD NÃO-BLOQUEANTES ---
   const updateDeckInCloud = (deckData) => {
-    if (!isFirebaseActive || !user) return;
+    if (!isFirebaseActive || !user || !db) return;
     const cleanData = JSON.parse(JSON.stringify(deckData));
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', deckData.id), cleanData).catch(e => console.error("Firebase sync error", e));
   };
 
   const updateFolderInCloud = (folderData) => {
-    if (!isFirebaseActive || !user) return;
+    if (!isFirebaseActive || !user || !db) return;
     const cleanData = JSON.parse(JSON.stringify(folderData));
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', folderData.id), cleanData).catch(e => console.error("Firebase sync error", e));
   };
 
   const syncActivityToCloud = (newMap) => {
-    if (!isFirebaseActive || !user) return;
+    if (!isFirebaseActive || !user || !db) return;
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true }).catch(console.error);
   };
 
@@ -600,7 +591,7 @@ export default function App() {
       setPomoTime(pomoMode === 'work' ? finalWork * 60 : finalBreak * 60);
     }
 
-    if (isFirebaseActive && user) {
+    if (isFirebaseActive && user && db) {
       setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { 
         pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak, dailyGoal: finalGoal 
       }, { merge: true }).catch(console.error);
@@ -849,14 +840,14 @@ export default function App() {
       setFolders(prev => prev.filter(f => !idsToDelete.includes(f.id)));
       setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId)));
 
-      if (isFirebaseActive && user) {
+      if (isFirebaseActive && user && db) {
         idsToDelete.forEach(id => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)).catch(e => {}));
         decks.filter(d => idsToDelete.includes(d.parentId)).forEach(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)).catch(e => {}));
       }
       showToast("Pasta eliminada.");
     } else {
       setDecks(prev => prev.filter(d => d.id !== itemToDelete.id));
-      if (isFirebaseActive && user) {
+      if (isFirebaseActive && user && db) {
         deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id)).catch(e => {});
       }
       if (activeDeckId === itemToDelete.id) { setCurrentView('dashboard'); setActiveDeckId(null); }
