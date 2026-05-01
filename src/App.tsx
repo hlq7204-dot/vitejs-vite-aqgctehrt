@@ -30,7 +30,7 @@ import {
   BookOpen, Plus, Play, ArrowLeft, CheckCircle2, BrainCircuit, Trash2, 
   Sparkles, Folder, ChevronRight, ChevronLeft, FolderPlus, Upload, 
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
-  CheckSquare, Keyboard, Check, X, FastForward, CalendarDays, Target, 
+  CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
   PieChart, Timer, Pause, RotateCcw, Settings, LayoutDashboard, Library, Flame, BarChart2, LogOut
 } from 'lucide-react';
 
@@ -1249,7 +1249,7 @@ export default function App() {
         </div>
 
         {mainTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-8 pb-10">
             <div className="lg:col-span-2">{renderCalendar()}</div>
             <div className="lg:col-span-1">{renderForecast()}</div>
             <div className="lg:col-span-2">{renderMastery()}</div>
@@ -1258,7 +1258,7 @@ export default function App() {
         )}
 
         {mainTab === 'library' && (
-          <div className="animate-in fade-in duration-300">
+          <div className="animate-in fade-in duration-300 pb-10">
             <div className="flex items-center gap-2 mb-8 text-sm font-medium text-slate-400 bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-full overflow-x-auto custom-scrollbar">
               <button onClick={() => setCurrentFolderId(null)} className={`flex items-center gap-2 transition-colors whitespace-nowrap ${currentFolderId === null ? 'text-indigo-400' : 'hover:text-slate-200'}`}><Folder className="w-4 h-4" /> Início</button>
               {breadcrumbs.map(crumb => (
@@ -1296,7 +1296,7 @@ export default function App() {
                             </div>
                           )}
                         </div>
-                      </div>
+                       </div>
                      </div>
                    )
                  })}
@@ -1361,7 +1361,7 @@ export default function App() {
     if (!activeDeck) return null;
     const stats = getCardStats(activeDeck.cards); const due = calculateTotalDue(stats);
     return (
-      <div className="max-w-6xl mx-auto p-4 sm:p-6 animate-in slide-in-from-right-4 fade-in duration-300">
+      <div className="max-w-6xl mx-auto p-4 sm:p-6 pb-20 animate-in slide-in-from-right-4 fade-in duration-300">
         <button onClick={() => {
           setCurrentView('dashboard');
           setEditingCardId(null);
@@ -1505,7 +1505,7 @@ export default function App() {
     const type = currentCard.type || 'standard';
 
     return (
-      <div className="max-w-3xl mx-auto p-4 sm:p-6 min-h-screen flex flex-col">
+      <div className="max-w-3xl mx-auto p-4 sm:p-6 min-h-screen flex flex-col pb-24">
         <div className="flex items-center justify-between mb-8 pt-4 gap-4">
           <button onClick={() => setCurrentView('deck-detail')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
@@ -1657,8 +1657,8 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* HEADER GLOBAL UNIFICADO (COM POMODORO) */}
-          <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-lg border-b border-slate-800/80 px-4 py-3 sm:px-6 flex flex-wrap items-center justify-between gap-4 w-full">
+          {/* HEADER GLOBAL LIMPO (Sem Pomodoro) */}
+          <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-lg border-b border-slate-800/80 px-4 py-3 sm:px-6 flex items-center justify-between w-full">
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
               <div className="w-10 h-10 bg-slate-900 rounded-xl border border-indigo-500/20 overflow-hidden shadow-sm shrink-0 flex items-center justify-center">
                 <BrainCircuit className="text-indigo-400 w-6 h-6" />
@@ -1668,28 +1668,7 @@ export default function App() {
               </h1>
             </div>
 
-            <div className="flex-1 flex justify-center order-3 w-full sm:order-2 sm:w-auto">
-              <div className="flex items-center bg-slate-900/80 border border-slate-700/80 rounded-full p-1 shadow-inner">
-                <button onClick={() => setPomoActive(!pomoActive)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${pomoActive ? 'bg-rose-500/20 text-rose-400' : 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'}`}>
-                  {pomoActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                </button>
-                
-                <div className="flex flex-col px-4 cursor-pointer text-center min-w-[6.5rem]" onClick={() => setIsPomoSettingsOpen(true)}>
-                  <span className={`text-[9px] font-bold uppercase tracking-widest ${pomoMode === 'work' ? 'text-slate-500' : 'text-emerald-500'}`}>
-                    {pomoMode === 'work' ? 'Foco' : 'Pausa'} • {currentPomoBlock}/{pomoTotalBlocks}
-                  </span>
-                  <span className={`font-mono font-bold text-sm leading-none mt-0.5 ${pomoMode === 'work' ? 'text-indigo-300' : 'text-emerald-300'}`}>
-                    {formatPomoTime(pomoTime)}
-                  </span>
-                </div>
-                
-                <button onClick={(e) => { e.stopPropagation(); setPomoActive(false); setPomoTime(pomoMode === 'work' ? pomoWorkDuration * 60 : pomoBreakDuration * 60); setCurrentPomoBlock(1); }} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors" title="Reiniciar Ciclo">
-                  <RotateCcw className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 order-2 sm:order-3">
+            <div className="flex items-center gap-2">
               <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
               
               <div className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-medium items-center gap-1.5 border transition-all ${calculateStreak() > 0 ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`} title="Ofensiva (Dias Seguidos)">
@@ -1712,12 +1691,57 @@ export default function App() {
             </div>
           </header>
 
-          <main className="flex-grow max-w-5xl mx-auto w-full p-4 sm:p-6">
+          <main className="flex-grow w-full">
             {currentView === 'dashboard' && renderDashboard()}
             {currentView === 'deck-detail' && renderDeckDetail()}
             {currentView === 'review' && renderReview()}
             {currentView === 'finished' && renderFinished()}
           </main>
+
+          {/* WIDGET FLUTUANTE POMODORO (Estilo Dynamic Island) */}
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 sm:translate-x-0 sm:left-6 z-[50] group animate-pop">
+            <div className={`bg-slate-900/95 backdrop-blur-xl border p-1.5 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.6)] flex items-center gap-1 transition-all duration-500 hover:bg-slate-900 hover:shadow-2xl ${pomoActive ? (pomoMode === 'work' ? 'border-indigo-500/40 shadow-indigo-500/20' : 'border-emerald-500/40 shadow-emerald-500/20') : 'border-slate-700/60'}`}>
+
+              {/* Progress Ring / Play Button */}
+              <div className="relative w-12 h-12 flex items-center justify-center shrink-0">
+                <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 36 36">
+                  <path className="text-slate-800/80" strokeWidth="2.5" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                  <path className={`${pomoMode === 'work' ? 'text-indigo-500' : 'text-emerald-500'} transition-all duration-1000 ease-linear`} strokeWidth="2.5" strokeDasharray={`${(pomoTime / ((pomoMode === 'work' ? pomoWorkDuration : pomoBreakDuration) * 60)) * 100}, 100`} strokeLinecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                </svg>
+                <button onClick={() => setPomoActive(!pomoActive)} className={`relative w-9 h-9 flex items-center justify-center rounded-full transition-colors ${pomoActive ? (pomoMode === 'work' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-emerald-500/20 text-emerald-400') : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
+                   {pomoActive ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                </button>
+              </div>
+
+              {/* Info */}
+              <div className="flex flex-col justify-center px-2 cursor-pointer select-none" onClick={() => setIsPomoSettingsOpen(true)}>
+                <span className={`font-mono text-xl font-bold tracking-tight leading-none ${pomoActive ? 'text-slate-100' : 'text-slate-300'}`}>
+                  {formatPomoTime(pomoTime)}
+                </span>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className={`text-[9px] uppercase font-bold tracking-wider ${pomoMode === 'work' ? 'text-indigo-400' : 'text-emerald-400'}`}>
+                    {pomoMode === 'work' ? 'Foco' : 'Pausa'}
+                  </span>
+                  <div className="flex gap-0.5">
+                    {Array.from({length: pomoTotalBlocks}).map((_, i) => (
+                       <div key={i} className={`w-1 h-1 rounded-full ${i < currentPomoBlock ? (pomoMode==='work' ? 'bg-indigo-400' : 'bg-emerald-400') : 'bg-slate-700'}`} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Controls */}
+              <div className="flex items-center gap-0.5 pl-1 pr-1 border-l border-slate-700/50 ml-1">
+                <button onClick={(e) => { e.stopPropagation(); setIsPomoSettingsOpen(true); }} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors" title="Configurações">
+                  <Settings className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); setPomoActive(false); setPomoTime(pomoMode === 'work' ? pomoWorkDuration * 60 : pomoBreakDuration * 60); setCurrentPomoBlock(1); }} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors" title="Reiniciar Ciclo">
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+            </div>
+          </div>
         </>
       )}
 
