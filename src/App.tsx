@@ -1046,9 +1046,6 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
-        <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)] animate-pop">
-          <BrainCircuit className="text-indigo-400 w-10 h-10" />
-        </div>
         <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
         <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
         
@@ -1657,18 +1654,9 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* HEADER GLOBAL LIMPO (Sem Pomodoro) */}
-          <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-lg border-b border-slate-800/80 px-4 py-3 sm:px-6 flex items-center justify-between w-full">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
-              <div className="w-10 h-10 bg-slate-900 rounded-xl border border-indigo-500/20 overflow-hidden shadow-sm shrink-0 flex items-center justify-center">
-                <BrainCircuit className="text-indigo-400 w-6 h-6" />
-              </div>
-              <h1 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight hidden sm:block">
-                Flash Cards
-              </h1>
-            </div>
-
-            <div className="flex items-center gap-2">
+          {/* AÇÕES FLUTUANTES SUPERIORES (Sem barra e sem logo) */}
+          <div className="w-full p-4 sm:px-6 sm:pt-6 flex justify-end items-center z-40 relative">
+            <div className="flex items-center gap-2 bg-slate-900/50 backdrop-blur-md p-1.5 rounded-full border border-slate-800/80 shadow-sm">
               <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
               
               <div className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-medium items-center gap-1.5 border transition-all ${calculateStreak() > 0 ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`} title="Ofensiva (Dias Seguidos)">
@@ -1676,20 +1664,20 @@ export default function App() {
               </div>
               
               {isImporting ? (
-                <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20"><Loader2 className="w-4 h-4 animate-spin" /></div>
+                <div className="flex items-center justify-center w-8 h-8 rounded-full text-emerald-400 bg-emerald-500/10 border border-emerald-500/20"><Loader2 className="w-4 h-4 animate-spin" /></div>
               ) : (
-                <button onClick={() => fileInputRef.current.click()} className="p-2 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar">
+                <button onClick={() => fileInputRef.current.click()} className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar">
                   <Upload className="w-4 h-4" />
                 </button>
               )}
               
-              <div className="w-px h-6 bg-slate-800 mx-1"></div>
+              <div className="w-px h-5 bg-slate-800 mx-1"></div>
               
-              <button onClick={handleLogout} className="p-2 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded-full transition-colors" title="Sair da Conta">
+              <button onClick={handleLogout} className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded-full transition-colors" title="Sair da Conta">
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
-          </header>
+          </div>
 
           <main className="flex-grow w-full">
             {currentView === 'dashboard' && renderDashboard()}
