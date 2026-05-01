@@ -444,7 +444,7 @@ export default function App() {
       interval = setInterval(() => {
         setPomoTime(prev => {
           if (prev <= 1) {
-            playAlarmSound(); // TOca o alarme
+            playAlarmSound(); // Toca o alarme
             if (pomoMode === 'work') {
               showToast(`Pomodoro concluído! Pausa de ${pomoBreakDuration} minutos.`, 'info');
               setPomoMode('break'); 
@@ -1031,10 +1031,7 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
-        <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)]">
-          <BrainCircuit className="text-indigo-400 w-10 h-10" />
-        </div>
-        <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
+        <h1 className="text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
         <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
         
         <button 
@@ -1546,29 +1543,30 @@ export default function App() {
 
         <div className="flex-grow flex flex-col justify-center perspective-1000">
           {type === 'standard' && (
-            <div 
-              key={currentCard.id}
-              className="relative w-full h-[500px] cursor-pointer preserve-3d transition-transform duration-500 animate-slide-right" 
-              style={{ transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
-              onClick={() => setIsFlipped(prev => !prev)} 
-            >
-              <div className="absolute w-full h-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl backface-hidden">
-                <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center">
-                  <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
-                  <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique para virar</span>
+            <div key={currentCard.id} className="w-full animate-slide-right">
+              <div 
+                className="relative w-full h-[500px] cursor-pointer preserve-3d transition-transform duration-500" 
+                style={{ transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
+                onClick={() => setIsFlipped(prev => !prev)} 
+              >
+                <div className="absolute w-full h-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl backface-hidden">
+                  <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center">
+                    <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
+                    <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique para virar</span>
+                  </div>
+                  <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
+                    <div className="text-2xl text-slate-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                  </div>
                 </div>
-                <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
-                  <div className="text-2xl text-slate-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
-                </div>
-              </div>
 
-              <div className="absolute w-full h-full bg-indigo-950/40 rounded-3xl border border-indigo-500/20 flex flex-col shadow-2xl backface-hidden rotate-y-180">
-                <div className="p-6 text-left border-b border-indigo-500/20 flex justify-between items-center">
-                  <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
-                  <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }}><RefreshCcw className="w-4 h-4" /></button>
-                </div>
-                <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
-                  <div className="text-2xl text-indigo-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                <div className="absolute w-full h-full bg-indigo-950/40 rounded-3xl border border-indigo-500/20 flex flex-col shadow-2xl backface-hidden rotate-y-180">
+                  <div className="p-6 text-left border-b border-indigo-500/20 flex justify-between items-center">
+                    <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
+                    <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }}><RefreshCcw className="w-4 h-4" /></button>
+                  </div>
+                  <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
+                    <div className="text-2xl text-indigo-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1660,8 +1658,13 @@ export default function App() {
       
       {!user ? (
         <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6">
-          <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)] animate-pop">
-            <BrainCircuit className="text-indigo-400 w-10 h-10" />
+          <div className="w-24 h-24 bg-slate-900 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)] overflow-hidden">
+            <img 
+              src="/logo.png" 
+              alt="Flash Cards Logo" 
+              className="w-full h-full object-cover" 
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
           </div>
           <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
           <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
