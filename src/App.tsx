@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInWithCustomToken } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
 // --- GARANTIA DE DESIGN E BLOQUEIO DE TRADUÇÃO ---
@@ -89,7 +89,6 @@ const CARD_TYPES = [
   { id: 'typing', label: 'Digitação', Icon: Keyboard }
 ];
 
-// --- MOTOR DE ANIMAÇÕES E ESTILOS GLOBAIS ---
 const globalStyles = `
   .anki-content img { max-width: 100%; max-height: 250px; border-radius: 0.5rem; margin: 0.5rem auto; display: block; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
   .custom-scrollbar { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
@@ -101,7 +100,6 @@ const globalStyles = `
   .rotate-y-180 { transform: rotateY(180deg); }
   .preserve-3d { transform-style: preserve-3d; }
   
-  /* --- ANIMAÇÕES CUSTOMIZADAS --- */
   @keyframes popIn {
     0% { opacity: 0; transform: scale(0.95) translateY(10px); }
     100% { opacity: 1; transform: scale(1) translateY(0); }
@@ -120,7 +118,6 @@ const globalStyles = `
   }
   .animate-float { animation: float 4s ease-in-out infinite; }
 
-  /* Delays para o efeito Cascata */
   .delay-100 { animation-delay: 100ms; }
   .delay-200 { animation-delay: 200ms; }
   .delay-300 { animation-delay: 300ms; }
@@ -159,6 +156,38 @@ const formatInterval = (days) => {
   if (days < 30) return `${days}d`;
   if (days < 365) return `${Math.round(days / 30)}m`; 
   return `${Math.round(days / 365)}a`; 
+};
+
+// SINTETIZADOR DE ÁUDIO PARA O ALARME DO POMODORO
+const playAlarmSound = () => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    
+    // Função para tocar um "beep" harmônico
+    const playTone = (freq, startTime, duration) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(0.5, startTime + 0.05); // Suaviza entrada
+      gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration); // Suaviza saída
+      
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+    };
+
+    const now = ctx.currentTime;
+    playTone(523.25, now, 0.4); // Nota Dó (C5)
+    playTone(659.25, now + 0.15, 0.6); // Nota Mi (E5)
+  } catch (e) {
+    console.warn("Erro ao tocar alarme:", e);
+  }
 };
 
 const loadScript = (src) => new Promise((resolve, reject) => {
@@ -408,13 +437,14 @@ export default function App() {
     setTypedInput(''); 
   }, [currentCardIndex]);
 
-  // POMODORO TIMER
+  // POMODORO TIMER COM ALARME
   useEffect(() => {
     let interval;
     if (pomoActive) {
       interval = setInterval(() => {
         setPomoTime(prev => {
           if (prev <= 1) {
+            playAlarmSound(); // TOca o alarme
             if (pomoMode === 'work') {
               showToast(`Pomodoro concluído! Pausa de ${pomoBreakDuration} minutos.`, 'info');
               setPomoMode('break'); 
@@ -472,7 +502,7 @@ export default function App() {
     return `${y}-${m}-${day}`;
   };
   
-  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS ---
+  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS COM LIMITADOR ---
   const reachableFolders = new Set([null]);
   let changed = true;
   let safetyLimit = 0; 
@@ -848,7 +878,7 @@ export default function App() {
     e.target.value = null; 
   };
 
-  // --- CRUD MODALS ---
+  // --- CRUD COM INTERFACE OTIMISTA E ANTI-FANTASMAS ---
   const openEditModal = (type, item, e) => {
     e.stopPropagation(); 
     setModalType(type); 
@@ -1001,7 +1031,10 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
-        <h1 className="text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float">Flash Cards</h1>
+        <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)]">
+          <BrainCircuit className="text-indigo-400 w-10 h-10" />
+        </div>
+        <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
         <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
         
         <button 
@@ -1214,7 +1247,10 @@ export default function App() {
     return (
       <div className="max-w-5xl mx-auto p-4 sm:p-6 animate-in fade-in duration-300">
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <div>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center border border-indigo-500/20 overflow-hidden shadow-lg shrink-0">
+              <BrainCircuit className="text-indigo-400 w-8 h-8" />
+            </div>
             <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight">
               Flash Cards
             </h1>
@@ -1624,7 +1660,10 @@ export default function App() {
       
       {!user ? (
         <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6">
-          <h1 className="text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float">Flash Cards</h1>
+          <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)] animate-pop">
+            <BrainCircuit className="text-indigo-400 w-10 h-10" />
+          </div>
+          <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
           <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
           
           <button 
