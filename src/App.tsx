@@ -27,7 +27,7 @@ if (typeof document !== 'undefined') {
 
 // --- ÍCONES ---
 import { 
-  BookOpen, Plus, Play, ArrowLeft, CheckCircle2, BrainCircuit, Trash2, 
+  BookOpen, Plus, Play, ArrowLeft, CheckCircle2, Trash2, 
   Trophy, Sparkles, Folder, ChevronRight, ChevronLeft, FolderPlus, Upload, 
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, X, FastForward, CalendarDays, Target, 
@@ -975,11 +975,8 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
-        <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)]">
-          <BrainCircuit className="text-indigo-400 w-10 h-10" />
-        </div>
-        <h1 className="text-4xl font-bold mb-3">Lumina Pro</h1>
-        <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma de flashcards inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
+        <h1 className="text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight">Flash Cards</h1>
+        <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
         
         <button 
           onClick={signInWithGoogle}
@@ -993,15 +990,6 @@ export default function App() {
           </svg>
           Continuar com o Google
         </button>
-
-        {toast && (
-          <div className="fixed bottom-6 right-6 z-[90] animate-in slide-in-from-bottom-4 fade-in duration-300">
-            <div className="flex items-center gap-3 px-6 py-4 rounded-2xl shadow-xl shadow-black/50 border backdrop-blur-md bg-rose-950/80 border-rose-500/30 text-rose-200">
-              <Info className="w-5 h-5 text-rose-400" />
-              <p className="font-medium text-sm">{toast.message}</p>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -1192,9 +1180,9 @@ export default function App() {
       <div className="max-w-5xl mx-auto p-4 sm:p-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
-            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center border border-indigo-500/20">
-              <BrainCircuit className="text-indigo-400 w-8 h-8" />
-            </div>
+            <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight">
+              Flash Cards
+            </h1>
           </div>
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
@@ -1601,11 +1589,8 @@ export default function App() {
       
       {!user ? (
         <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6">
-          <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)]">
-            <BrainCircuit className="text-indigo-400 w-10 h-10" />
-          </div>
-          <h1 className="text-4xl font-bold mb-3">Lumina Pro</h1>
-          <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma de flashcards inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
+          <h1 className="text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight">Flash Cards</h1>
+          <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
           
           <button 
             onClick={signInWithGoogle}
