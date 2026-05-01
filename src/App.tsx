@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
 // --- GARANTIA DE DESIGN E BLOQUEIO DE TRADUÇÃO ---
@@ -27,8 +27,8 @@ if (typeof document !== 'undefined') {
 
 // --- ÍCONES ---
 import { 
-  BookOpen, Plus, Play, ArrowLeft, CheckCircle2, Trash2, 
-  Trophy, Sparkles, Folder, ChevronRight, ChevronLeft, FolderPlus, Upload, 
+  BookOpen, Plus, Play, ArrowLeft, CheckCircle2, BrainCircuit, Trash2, 
+  Sparkles, Folder, ChevronRight, ChevronLeft, FolderPlus, Upload, 
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, X, FastForward, CalendarDays, Target, 
   PieChart, Timer, Pause, RotateCcw, Settings, LayoutDashboard, Library, Flame, BarChart2, LogOut
@@ -89,6 +89,7 @@ const CARD_TYPES = [
   { id: 'typing', label: 'Digitação', Icon: Keyboard }
 ];
 
+// --- MOTOR DE ANIMAÇÕES E ESTILOS GLOBAIS ---
 const globalStyles = `
   .anki-content img { max-width: 100%; max-height: 250px; border-radius: 0.5rem; margin: 0.5rem auto; display: block; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
   .custom-scrollbar { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
@@ -99,6 +100,31 @@ const globalStyles = `
   .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
   .rotate-y-180 { transform: rotateY(180deg); }
   .preserve-3d { transform-style: preserve-3d; }
+  
+  /* --- ANIMAÇÕES CUSTOMIZADAS --- */
+  @keyframes popIn {
+    0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .animate-pop { animation: popIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
+  
+  @keyframes slideInRight {
+    0% { opacity: 0; transform: translateX(40px); }
+    100% { opacity: 1; transform: translateX(0); }
+  }
+  .animate-slide-right { animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  .animate-float { animation: float 4s ease-in-out infinite; }
+
+  /* Delays para o efeito Cascata */
+  .delay-100 { animation-delay: 100ms; }
+  .delay-200 { animation-delay: 200ms; }
+  .delay-300 { animation-delay: 300ms; }
+  .delay-400 { animation-delay: 400ms; }
 `;
 
 const calculateNextReview = (card, quality) => {
@@ -175,7 +201,7 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
         contentEditable 
         onInput={handleInput} 
         onPaste={handlePaste} 
-        className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 overflow-y-auto min-h-[5rem] max-h-[15rem] cursor-text relative empty:before:content-[attr(data-placeholder)] empty:before:text-slate-700 custom-scrollbar anki-content" 
+        className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 overflow-y-auto min-h-[5rem] max-h-[15rem] cursor-text relative empty:before:content-[attr(data-placeholder)] empty:before:text-slate-700 custom-scrollbar anki-content transition-all focus:border-indigo-500" 
         data-placeholder={placeholder} 
       />
     </div>
@@ -446,7 +472,7 @@ export default function App() {
     return `${y}-${m}-${day}`;
   };
   
-  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS COM LIMITADOR ---
+  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS ---
   const reachableFolders = new Set([null]);
   let changed = true;
   let safetyLimit = 0; 
@@ -552,7 +578,7 @@ export default function App() {
     if (f) { breadcrumbs.unshift(f); currId = f.parentId; } else break;
   }
 
-  // --- FUNÇÕES DE UPDATE NA CLOUD NÃO-BLOQUEANTES ---
+  // --- FUNÇÕES DE UPDATE NA CLOUD ---
   const updateDeckInCloud = (deckData) => {
     if (!isFirebaseActive || !user || !db) return;
     const cleanData = JSON.parse(JSON.stringify(deckData));
@@ -822,7 +848,7 @@ export default function App() {
     e.target.value = null; 
   };
 
-  // --- CRUD COM INTERFACE OTIMISTA E ANTI-FANTASMAS ---
+  // --- CRUD MODALS ---
   const openEditModal = (type, item, e) => {
     e.stopPropagation(); 
     setModalType(type); 
@@ -975,7 +1001,7 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
-        <h1 className="text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight">Flash Cards</h1>
+        <h1 className="text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float">Flash Cards</h1>
         <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
         
         <button 
@@ -990,13 +1016,22 @@ export default function App() {
           </svg>
           Continuar com o Google
         </button>
+
+        {toast && (
+          <div className="fixed bottom-6 right-6 z-[90] animate-in slide-in-from-bottom-4 fade-in duration-300">
+            <div className="flex items-center gap-3 px-6 py-4 rounded-2xl shadow-xl shadow-black/50 border backdrop-blur-md bg-rose-950/80 border-rose-500/30 text-rose-200">
+              <Info className="w-5 h-5 text-rose-400" />
+              <p className="font-medium text-sm">{toast.message}</p>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   const renderGlobalPomodoro = () => {
     return (
-      <div className="fixed bottom-6 left-6 z-50 flex items-center gap-2 bg-slate-900/95 backdrop-blur-md p-3 rounded-2xl border border-slate-700 shadow-xl shadow-black/50 hover:border-indigo-500/50 transition-all group">
+      <div className="fixed bottom-6 left-6 z-50 flex items-center gap-2 bg-slate-900/95 backdrop-blur-md p-3 rounded-2xl border border-slate-700 shadow-xl shadow-black/50 hover:border-indigo-500/50 transition-all group animate-pop">
         <button onClick={() => setPomoActive(!pomoActive)} className={`p-2 rounded-xl transition-colors ${pomoActive ? 'bg-rose-500/20 text-rose-400' : 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'}`}>
           {pomoActive ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
         </button>
@@ -1030,7 +1065,7 @@ export default function App() {
     const todayReviewed = getDailyCount(getTodayStr());
     const goalProgress = Math.min((todayReviewed / dailyGoal) * 100, 100);
     return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between">
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between animate-pop delay-400">
         <div className="absolute top-0 right-0 p-32 bg-rose-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div>
             <div className="flex justify-between items-center mb-6 relative z-10">
@@ -1051,7 +1086,7 @@ export default function App() {
     const gStats = getCardStats(gCards);
     const totalC = gCards.length || 1;
     return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between">
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between animate-pop delay-300">
         <div className="absolute top-0 right-0 p-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div>
             <div className="flex justify-between items-center mb-6 relative z-10">
@@ -1115,7 +1150,7 @@ export default function App() {
       );
     }
     return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl overflow-hidden flex flex-col h-full relative group">
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl overflow-hidden flex flex-col h-full relative group animate-pop delay-100">
          <div className="absolute top-0 right-0 p-32 bg-emerald-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
          <div className="flex justify-between items-start mb-6 relative z-10">
             <div>
@@ -1150,7 +1185,7 @@ export default function App() {
     forecast[0] += overdue; const max = Math.max(...forecast, 10);
 
     return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group">
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-200">
         <div className="absolute top-0 left-0 p-32 bg-indigo-500/5 rounded-full blur-3xl -ml-16 -mt-16 pointer-events-none"></div>
         <h3 className="text-xl font-bold text-slate-100 mb-8 flex items-center gap-2 relative z-10"><BarChart2 className="w-5 h-5 text-indigo-400" /> Previsão Semanal</h3>
         <div className="flex items-end justify-between flex-grow min-h-[160px] gap-2 relative z-10 mt-auto">
@@ -1177,7 +1212,7 @@ export default function App() {
     const streak = calculateStreak();
 
     return (
-      <div className="max-w-5xl mx-auto p-4 sm:p-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 animate-in fade-in duration-300">
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight">
@@ -1211,7 +1246,7 @@ export default function App() {
         </div>
 
         {mainTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-8 animate-in fade-in duration-300">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
             <div className="lg:col-span-2">{renderCalendar()}</div>
             <div className="lg:col-span-1">{renderForecast()}</div>
             <div className="lg:col-span-2">{renderMastery()}</div>
@@ -1234,10 +1269,10 @@ export default function App() {
             <div className="mb-8">
                <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><Folder className="w-5 h-5 text-slate-500" /> Pastas</h2></div>
                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                 {currentFolders.map(folder => {
+                 {currentFolders.map((folder, index) => {
                    const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || 'text-indigo-400';
                    return (
-                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/40 rounded-2xl p-5 border border-slate-800 hover:border-slate-700 cursor-pointer flex items-center justify-between group">
+                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className={`bg-slate-900/40 rounded-2xl p-5 border border-slate-800 hover:border-slate-700 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-xl hover:shadow-${folder.color?.split('-')[1]}-500/10`} style={{animationDelay: `${index * 50}ms`}}>
                        <div className="flex items-center gap-4 truncate">
                          <div className={`p-3 bg-slate-950 rounded-xl shrink-0 ${colorClass}`}>
                            <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
@@ -1262,7 +1297,7 @@ export default function App() {
                      </div>
                    )
                  })}
-                 <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-5 border-2 border-dashed border-slate-800/50 hover:border-indigo-500/30 cursor-pointer flex items-center gap-4 text-slate-500 hover:text-indigo-400">
+                 <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-5 border-2 border-dashed border-slate-800/50 hover:border-indigo-500/30 cursor-pointer flex items-center gap-4 text-slate-500 hover:text-indigo-400 animate-pop hover:-translate-y-1 transition-all duration-300">
                     <div className="p-3 bg-slate-950/50 rounded-xl"><FolderPlus className="w-6 h-6" /></div>
                     <span className="font-medium">Nova Pasta</span>
                  </div>
@@ -1272,12 +1307,12 @@ export default function App() {
             <div>
                <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><BookOpen className="w-5 h-5 text-slate-500" /> Baralhos</h2></div>
                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                 {currentDecks.map(deck => {
+                 {currentDecks.map((deck, index) => {
                    const stats = getCardStats(deck.cards); const due = calculateTotalDue(stats);
                    const isMenuOpen = activeMenuId === deck.id; const colorClass = deck.color?.includes('text-') ? deck.color : `${deck.color} text-white`;
 
                    return (
-                     <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className="bg-slate-900/80 rounded-2xl p-6 border border-slate-800 hover:border-slate-700 cursor-pointer flex flex-col h-full group relative">
+                     <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className={`bg-slate-900/80 rounded-2xl p-6 border border-slate-800 hover:border-slate-700 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-xl hover:shadow-${deck.color?.split('-')[1] || 'indigo'}-500/10`} style={{animationDelay: `${index * 50}ms`}}>
                        <div className="flex items-start justify-between mb-4">
                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
                          <div className="flex items-center gap-3 shrink-0 ml-2">
@@ -1307,7 +1342,7 @@ export default function App() {
                      </div>
                    )
                  })}
-                 <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/30 rounded-2xl p-6 border-2 border-dashed border-slate-800 flex flex-col items-center justify-center text-slate-600 hover:text-indigo-400 hover:border-indigo-500/30 transition-colors cursor-pointer min-h-[220px]">
+                 <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/30 rounded-2xl p-6 border-2 border-dashed border-slate-800 flex flex-col items-center justify-center text-slate-600 hover:text-indigo-400 hover:border-indigo-500/30 transition-all duration-300 cursor-pointer min-h-[220px] animate-pop hover:-translate-y-1">
                    <Plus className="w-10 h-10 mb-2" />
                    <span className="font-medium">Novo Baralho</span>
                  </div>
@@ -1323,7 +1358,7 @@ export default function App() {
     if (!activeDeck) return null;
     const stats = getCardStats(activeDeck.cards); const due = calculateTotalDue(stats);
     return (
-      <div className="max-w-6xl mx-auto p-4 sm:p-6 animate-in fade-in slide-in-from-right-8 duration-300">
+      <div className="max-w-6xl mx-auto p-4 sm:p-6 animate-in slide-in-from-right-4 fade-in duration-300">
         <button onClick={() => {
           setCurrentView('dashboard');
           setEditingCardId(null);
@@ -1427,7 +1462,7 @@ export default function App() {
               const TypeIconComp = typeObj.Icon;
 
               return (
-                <div key={card.id} className={`bg-slate-900/80 p-5 rounded-2xl border flex items-start justify-between group transition-colors anki-content ${editingCardId === card.id ? 'border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'border-slate-800 hover:border-slate-700'}`}>
+                <div key={card.id} className={`bg-slate-900/80 p-5 rounded-2xl border flex items-start justify-between group transition-all duration-300 anki-content ${editingCardId === card.id ? 'border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'border-slate-800 hover:border-slate-700 hover:-translate-y-1'}`}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow pr-4">
                     <div>
                       <div className="flex items-center gap-2 mb-2">
@@ -1469,15 +1504,15 @@ export default function App() {
     return (
       <div className="max-w-3xl mx-auto p-4 sm:p-6 min-h-screen flex flex-col">
         <div className="flex items-center justify-between mb-8 pt-4 gap-4">
-          <button onClick={() => setCurrentView('deck-detail')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800"><ArrowLeft className="w-6 h-6" /></button>
+          <button onClick={() => setCurrentView('deck-detail')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
         </div>
 
-        <div className="flex-grow flex flex-col justify-center perspective-1000 relative">
-          
+        <div className="flex-grow flex flex-col justify-center perspective-1000">
           {type === 'standard' && (
             <div 
-              className="relative w-full h-[500px] cursor-pointer preserve-3d transition-transform duration-500" 
+              key={currentCard.id}
+              className="relative w-full h-[500px] cursor-pointer preserve-3d transition-transform duration-500 animate-slide-right" 
               style={{ transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
               onClick={() => setIsFlipped(prev => !prev)} 
             >
@@ -1504,7 +1539,7 @@ export default function App() {
           )}
 
           {type !== 'standard' && (
-            <div className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px]">
+            <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right">
               <div className="p-8 border-b border-slate-800/50">
                 <div className="text-xl sm:text-2xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
               </div>
@@ -1528,21 +1563,21 @@ export default function App() {
                 )}
                 {type === 'tf' && (
                   <div className="flex gap-4 h-32">
-                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(true)} className={`flex-1 rounded-2xl border-2 font-bold text-xl ${isFlipped ? (currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-emerald-500/30 text-emerald-500'} relative`}>VERDADEIRO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">1</span></button>
-                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(false)} className={`flex-1 rounded-2xl border-2 font-bold text-xl ${isFlipped ? (!currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-rose-500/30 text-rose-500'} relative`}>FALSO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">2</span></button>
+                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(true)} className={`flex-1 rounded-2xl border-2 font-bold text-xl transition-all ${isFlipped ? (currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10'} relative`}>VERDADEIRO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">1</span></button>
+                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(false)} className={`flex-1 rounded-2xl border-2 font-bold text-xl transition-all ${isFlipped ? (!currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-rose-500/30 text-rose-500 hover:bg-rose-500/10'} relative`}>FALSO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">2</span></button>
                   </div>
                 )}
                 {type === 'typing' && (
                   <div className="w-full flex flex-col items-center gap-4">
-                    <input type="text" autoFocus disabled={isFlipped} value={isFlipped ? reviewInteraction : typedInput} onChange={e => setTypedInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && typedInput && handleInteractiveSubmit(typedInput)} className={`w-full max-w-md bg-transparent border-b-2 text-center text-2xl font-mono p-4 outline-none ${!isFlipped ? 'border-indigo-500 text-indigo-300' : ((reviewInteraction || '').toLowerCase() === (currentCard.typeAnswer || '').toLowerCase() ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`} placeholder="Digite..." />
+                    <input type="text" autoFocus disabled={isFlipped} value={isFlipped ? reviewInteraction : typedInput} onChange={e => setTypedInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && typedInput && handleInteractiveSubmit(typedInput)} className={`w-full max-w-md bg-transparent border-b-2 text-center text-2xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : ((reviewInteraction || '').toLowerCase() === (currentCard.typeAnswer || '').toLowerCase() ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`} placeholder="Digite..." />
                     {isFlipped && (reviewInteraction || '').toLowerCase() !== (currentCard.typeAnswer || '').toLowerCase() && (
-                      <div className="text-emerald-400 font-mono text-xl"><span className="text-slate-500 text-sm block">Correta:</span>{currentCard.typeAnswer}</div>
+                      <div className="text-emerald-400 font-mono text-xl animate-pop"><span className="text-slate-500 text-sm block">Correta:</span>{currentCard.typeAnswer}</div>
                     )}
                   </div>
                 )}
               </div>
               {isFlipped && currentCard.back && (
-                <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100"><div dangerouslySetInnerHTML={{ __html: currentCard.back }} /></div>
+                <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 animate-in fade-in duration-300"><div dangerouslySetInnerHTML={{ __html: currentCard.back }} /></div>
               )}
             </div>
           )}
@@ -1550,19 +1585,19 @@ export default function App() {
 
         <div className="h-32 mt-8 flex flex-col justify-center">
           {!isFlipped && type === 'standard' ? (
-            <button onClick={() => setIsFlipped(true)} className="w-full bg-indigo-600 text-white font-bold text-lg py-5 rounded-2xl shadow-lg">Mostrar Resposta</button>
+            <button onClick={() => setIsFlipped(true)} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-lg py-5 rounded-2xl shadow-lg transition-all active:scale-95">Mostrar Resposta</button>
           ) : isFlipped ? (
-            <div className="grid grid-cols-4 gap-2 sm:gap-4">
-              <button onClick={() => handleAnswer(0)} className="p-4 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-2xl font-bold relative">
+            <div className="grid grid-cols-4 gap-2 sm:gap-4 animate-in slide-in-from-bottom-2 fade-in duration-200">
+              <button onClick={() => handleAnswer(0)} className="p-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-2xl font-bold relative transition-colors active:scale-95">
                 Errei <span className="text-xs opacity-50 block">{intervalLabels[0]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">1</span>
               </button>
-              <button onClick={() => handleAnswer(1)} className="p-4 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded-2xl font-bold relative">
+              <button onClick={() => handleAnswer(1)} className="p-4 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded-2xl font-bold relative transition-colors active:scale-95">
                 Difícil <span className="text-xs opacity-50 block">{intervalLabels[1]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">2</span>
               </button>
-              <button onClick={() => handleAnswer(2)} className="p-4 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-2xl font-bold relative">
+              <button onClick={() => handleAnswer(2)} className="p-4 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-2xl font-bold relative transition-colors active:scale-95">
                 Bom <span className="text-xs opacity-50 block">{intervalLabels[2]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">3</span>
               </button>
-              <button onClick={() => handleAnswer(3)} className="p-4 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-2xl font-bold relative">
+              <button onClick={() => handleAnswer(3)} className="p-4 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-2xl font-bold relative transition-colors active:scale-95">
                 Fácil <span className="text-xs opacity-50 block">{intervalLabels[3]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">4</span>
               </button>
             </div>
@@ -1576,10 +1611,10 @@ export default function App() {
 
   const renderFinished = () => (
     <div className="max-w-md mx-auto p-6 min-h-[80vh] flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-500">
-      <div className="w-24 h-24 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center justify-center mb-6"><Sparkles className="w-12 h-12" /></div>
+      <div className="w-24 h-24 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center justify-center mb-6 animate-pop"><Sparkles className="w-12 h-12" /></div>
       <h1 className="text-3xl font-bold text-slate-100 mb-2">Sessão Concluída!</h1>
       <p className="text-slate-400 mb-8">Reviu <span className="font-bold text-slate-200">{sessionStats.reviewed}</span> cartões.</p>
-      <button onClick={() => setCurrentView('dashboard')} className="w-full mt-8 bg-indigo-600 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2"><CheckCircle2 className="w-5 h-5" /> Concluir</button>
+      <button onClick={() => setCurrentView('dashboard')} className="w-full mt-8 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95"><CheckCircle2 className="w-5 h-5" /> Concluir</button>
     </div>
   );
 
@@ -1589,7 +1624,7 @@ export default function App() {
       
       {!user ? (
         <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6">
-          <h1 className="text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight">Flash Cards</h1>
+          <h1 className="text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float">Flash Cards</h1>
           <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
           
           <button 
@@ -1617,25 +1652,25 @@ export default function App() {
 
       {/* MODALS */}
       {isPomoSettingsOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4" onClick={() => setIsPomoSettingsOpen(false)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsPomoSettingsOpen(false)}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <h3 className="text-2xl font-bold text-slate-100 mb-6 flex items-center gap-2"><Settings className="w-6 h-6 text-indigo-400" /> Configurações</h3>
             <form onSubmit={handleSaveSettings} className="space-y-5">
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-1">Meta Diária (cartões)</label>
-                <input type="number" min="1" max="1000" required value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input type="number" min="1" max="1000" required value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
               </div>
               <div className="pt-4 border-t border-slate-800">
                 <label className="block text-sm font-medium text-slate-400 mb-1">Tempo de Foco (minutos)</label>
-                <input type="number" min="1" max="120" required value={pomoWorkDuration} onChange={(e) => setPomoWorkDuration(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input type="number" min="1" max="120" required value={pomoWorkDuration} onChange={(e) => setPomoWorkDuration(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-1">Tempo de Pausa (minutos)</label>
-                <input type="number" min="1" max="60" required value={pomoBreakDuration} onChange={(e) => setPomoBreakDuration(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input type="number" min="1" max="60" required value={pomoBreakDuration} onChange={(e) => setPomoBreakDuration(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
               </div>
               <div className="flex gap-3 mt-8 pt-2">
-                <button type="button" onClick={() => setIsPomoSettingsOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors">Cancelar</button>
-                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-colors shadow-lg shadow-indigo-500/25">Guardar</button>
+                <button type="button" onClick={() => setIsPomoSettingsOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar</button>
               </div>
             </form>
           </div>
@@ -1643,14 +1678,14 @@ export default function App() {
       )}
 
       {itemToDelete && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={() => setItemToDelete(null)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setItemToDelete(null)}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="w-16 h-16 bg-rose-500/10 text-rose-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-rose-500/20"><Trash2 className="w-8 h-8" /></div>
             <h3 className="text-xl font-bold text-slate-100 mb-2">Eliminar {itemToDelete.type === 'folder' ? 'Pasta' : 'Baralho'}?</h3>
             <p className="text-slate-400 mb-6 text-sm">Esta ação é irreversível.</p>
             <div className="flex gap-3">
-              <button onClick={() => setItemToDelete(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors">Cancelar</button>
-              <button onClick={confirmDelete} className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-medium py-3 rounded-xl transition-colors shadow-lg shadow-rose-500/25">Eliminar</button>
+              <button onClick={() => setItemToDelete(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+              <button onClick={confirmDelete} className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-rose-500/25 active:scale-95">Eliminar</button>
             </div>
           </div>
         </div>
@@ -1658,37 +1693,37 @@ export default function App() {
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={closeAndResetModal}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl shadow-black" onClick={e => e.stopPropagation()}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <h3 className="text-2xl font-bold text-slate-100 mb-6">{modalMode === 'edit' ? 'Editar ' : 'Criar nov'}{modalType === 'folder' ? 'a Pasta' : 'o Baralho'}</h3>
             <form onSubmit={handleCreateOrEditItem} className="space-y-5">
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-1">Nome</label>
-                <input type="text" autoFocus value={newItemName} onChange={(e) => setNewItemName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input type="text" autoFocus value={newItemName} onChange={(e) => setNewItemName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
               </div>
               {modalType === 'deck' && (
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-1">Descrição (opcional)</label>
-                  <textarea value={newItemDesc} onChange={(e) => setNewItemDesc(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-20 custom-scrollbar" />
+                  <textarea value={newItemDesc} onChange={(e) => setNewItemDesc(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-20 custom-scrollbar transition-colors" />
                 </div>
               )}
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center gap-2"><Palette className="w-4 h-4" /> Estilo Visual</label>
                 <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
                   {modalType === 'folder' && FOLDER_THEMES.map(theme => (
-                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center bg-slate-950 border transition-all ${newItemColor === theme.color ? 'border-slate-400 scale-110 shadow-lg shadow-black/50' : 'border-slate-800 opacity-70 hover:opacity-100'} ${theme.color}`} title={theme.label}>
+                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center bg-slate-950 border transition-all duration-200 ${newItemColor === theme.color ? 'border-slate-400 scale-110 shadow-lg shadow-black/50' : 'border-slate-800 opacity-70 hover:opacity-100 hover:scale-105'} ${theme.color}`} title={theme.label}>
                       <Folder className="w-6 h-6 fill-current opacity-20 absolute" /><Folder className="w-6 h-6" />
                     </button>
                   ))}
                   {modalType !== 'folder' && DECK_THEMES.map(theme => (
-                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-all ${theme.color} ${newItemColor === theme.color ? 'ring-2 ring-white ring-offset-2 ring-slate-900 scale-110 z-10' : 'opacity-70 hover:opacity-100'}`} title={theme.label}>
+                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 ${theme.color} ${newItemColor === theme.color ? 'ring-2 ring-white ring-offset-2 ring-slate-900 scale-110 z-10' : 'opacity-70 hover:opacity-100 hover:scale-105'}`} title={theme.label}>
                       <BookOpen className="w-6 h-6" />
                     </button>
                   ))}
                 </div>
               </div>
               <div className="flex gap-3 mt-8 pt-2">
-                <button type="button" onClick={closeAndResetModal} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors">Cancelar</button>
-                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-colors shadow-lg shadow-indigo-500/25">{modalMode === 'edit' ? 'Guardar' : 'Criar'}</button>
+                <button type="button" onClick={closeAndResetModal} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">{modalMode === 'edit' ? 'Guardar' : 'Criar'}</button>
               </div>
             </form>
           </div>
