@@ -97,8 +97,6 @@ const globalStyles = `
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
-  .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-  .preserve-3d { transform-style: preserve-3d; }
   
   @keyframes popIn {
     0% { opacity: 0; transform: scale(0.95) translateY(10px); }
@@ -1079,31 +1077,6 @@ export default function App() {
     );
   }
 
-  const renderGlobalPomodoro = () => {
-    return (
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-900/80 backdrop-blur-xl px-4 py-2.5 rounded-full border border-slate-700/50 shadow-2xl shadow-black/50 transition-all hover:bg-slate-900 animate-pop">
-        <button onClick={() => setPomoActive(!pomoActive)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${pomoActive ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'}`}>
-          {pomoActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-        </button>
-        
-        <div className="flex flex-col items-center justify-center cursor-pointer min-w-[4rem]" onClick={() => setIsPomoSettingsOpen(true)}>
-          <span className={`text-[9px] font-bold uppercase tracking-widest ${pomoMode === 'work' ? 'text-slate-400' : 'text-emerald-400'}`}>
-            {pomoMode === 'work' ? 'Foco' : 'Pausa'} • {currentPomoBlock}/{pomoTotalBlocks}
-          </span>
-          <span className={`font-mono font-bold text-base leading-none mt-0.5 ${pomoMode === 'work' ? 'text-indigo-300' : 'text-emerald-300'}`}>
-            {formatPomoTime(pomoTime)}
-          </span>
-        </div>
-        
-        <div className="w-px h-5 bg-slate-700"></div>
-        
-        <button onClick={() => { setPomoActive(false); setPomoTime(pomoMode === 'work' ? pomoWorkDuration * 60 : pomoBreakDuration * 60); setCurrentPomoBlock(1); }} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors" title="Reiniciar Ciclo">
-          <RotateCcw className="w-4 h-4" />
-        </button>
-      </div>
-    );
-  }
-
   const renderStatBadges = (stats) => {
     if (calculateTotalDue(stats) === 0) return null;
     return (
@@ -1263,44 +1236,9 @@ export default function App() {
   const renderDashboard = () => {
     const currentFolders = folders.filter(f => f.parentId === currentFolderId);
     const currentDecks = validDecks.filter(d => d.parentId === currentFolderId);
-    const streak = calculateStreak();
 
     return (
       <div className="max-w-5xl mx-auto p-4 sm:p-6 animate-in fade-in duration-300">
-        
-        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center border border-indigo-500/20 shadow-lg shrink-0">
-                <BrainCircuit className="text-indigo-400 w-7 h-7" />
-              </div>
-              <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight">
-                Flash Cards
-              </h1>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
-              
-              <div className={`px-3 py-1.5 rounded-full text-sm font-medium flex items-center gap-1.5 border transition-all ${streak > 0 ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`} title="Ofensiva (Dias Seguidos)">
-                <Flame className={`w-4 h-4 ${streak > 0 ? 'fill-current' : ''}`} /> {streak}
-              </div>
-              
-              {isImporting ? (
-                <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20"><Loader2 className="w-4 h-4 animate-spin" /></div>
-              ) : (
-                <button onClick={() => fileInputRef.current.click()} className="p-2 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar">
-                  <Upload className="w-4 h-4" />
-                </button>
-              )}
-              
-              <div className="w-px h-6 bg-slate-800 mx-1"></div>
-              
-              <button onClick={handleLogout} className="p-2 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded-full transition-colors" title="Sair da Conta">
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-        </header>
-
         <div className="flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-full sm:w-fit mb-6 overflow-x-auto custom-scrollbar">
           <button onClick={() => { setMainTab('overview'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'overview' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
             <LayoutDashboard className="w-4 h-4" /> Visão Geral
@@ -1573,15 +1511,19 @@ export default function App() {
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
         </div>
 
-        <div className="flex-grow flex flex-col justify-center perspective-1000">
+        <div className="flex-grow flex flex-col justify-center items-center" style={{ perspective: '1000px' }}>
           {type === 'standard' && (
             <div key={currentCard.id} className="w-full animate-slide-right">
               <div 
-                className="relative w-full h-[500px] cursor-pointer preserve-3d transition-transform duration-500" 
-                style={{ transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
+                className="relative w-full h-[500px] cursor-pointer transition-transform duration-500" 
+                style={{ transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
                 onClick={() => setIsFlipped(prev => !prev)} 
               >
-                <div className="absolute w-full h-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl backface-hidden">
+                {/* FRENTE */}
+                <div 
+                  className="absolute inset-0 w-full h-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl"
+                  style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
+                >
                   <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center">
                     <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
                     <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique para virar</span>
@@ -1591,7 +1533,11 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="absolute w-full h-full bg-indigo-950/40 rounded-3xl border border-indigo-500/20 flex flex-col shadow-2xl backface-hidden rotate-y-180">
+                {/* VERSO */}
+                <div 
+                  className="absolute inset-0 w-full h-full bg-indigo-950/40 rounded-3xl border border-indigo-500/20 flex flex-col shadow-2xl"
+                  style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+                >
                   <div className="p-6 text-left border-b border-indigo-500/20 flex justify-between items-center">
                     <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
                     <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }}><RefreshCcw className="w-4 h-4" /></button>
@@ -1685,15 +1631,15 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-10 notranslate" translate="no" lang="pt-BR" onClick={() => setActiveMenuId(null)}>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col notranslate" translate="no" lang="pt-BR" onClick={() => setActiveMenuId(null)}>
       <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
       
       {!user ? (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6">
-          <div className="w-24 h-24 bg-slate-900 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)] overflow-hidden animate-pop">
-             <BrainCircuit className="text-indigo-400 w-10 h-10" />
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 flex-grow">
+          <div className="w-24 h-24 bg-slate-900 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)] overflow-hidden">
+            <BrainCircuit className="text-indigo-400 w-12 h-12 animate-float" />
           </div>
-          <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
+          <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight text-center">Flash Cards</h1>
           <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
           
           <button 
@@ -1711,10 +1657,62 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* HEADER FIXA E LIMPA */}
-          {renderGlobalPomodoro()}
+          {/* HEADER GLOBAL UNIFICADO (COM POMODORO) */}
+          <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-lg border-b border-slate-800/80 px-4 py-3 sm:px-6 flex flex-wrap items-center justify-between gap-4 w-full">
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
+              <div className="w-10 h-10 bg-slate-900 rounded-xl border border-indigo-500/20 overflow-hidden shadow-sm shrink-0 flex items-center justify-center">
+                <BrainCircuit className="text-indigo-400 w-6 h-6" />
+              </div>
+              <h1 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight hidden sm:block">
+                Flash Cards
+              </h1>
+            </div>
 
-          <main className="flex-grow">
+            <div className="flex-1 flex justify-center order-3 w-full sm:order-2 sm:w-auto">
+              <div className="flex items-center bg-slate-900/80 border border-slate-700/80 rounded-full p-1 shadow-inner">
+                <button onClick={() => setPomoActive(!pomoActive)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${pomoActive ? 'bg-rose-500/20 text-rose-400' : 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'}`}>
+                  {pomoActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                </button>
+                
+                <div className="flex flex-col px-4 cursor-pointer text-center min-w-[6.5rem]" onClick={() => setIsPomoSettingsOpen(true)}>
+                  <span className={`text-[9px] font-bold uppercase tracking-widest ${pomoMode === 'work' ? 'text-slate-500' : 'text-emerald-500'}`}>
+                    {pomoMode === 'work' ? 'Foco' : 'Pausa'} • {currentPomoBlock}/{pomoTotalBlocks}
+                  </span>
+                  <span className={`font-mono font-bold text-sm leading-none mt-0.5 ${pomoMode === 'work' ? 'text-indigo-300' : 'text-emerald-300'}`}>
+                    {formatPomoTime(pomoTime)}
+                  </span>
+                </div>
+                
+                <button onClick={(e) => { e.stopPropagation(); setPomoActive(false); setPomoTime(pomoMode === 'work' ? pomoWorkDuration * 60 : pomoBreakDuration * 60); setCurrentPomoBlock(1); }} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors" title="Reiniciar Ciclo">
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 order-2 sm:order-3">
+              <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
+              
+              <div className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-medium items-center gap-1.5 border transition-all ${calculateStreak() > 0 ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`} title="Ofensiva (Dias Seguidos)">
+                <Flame className={`w-4 h-4 ${calculateStreak() > 0 ? 'fill-current' : ''}`} /> {calculateStreak()}
+              </div>
+              
+              {isImporting ? (
+                <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20"><Loader2 className="w-4 h-4 animate-spin" /></div>
+              ) : (
+                <button onClick={() => fileInputRef.current.click()} className="p-2 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar">
+                  <Upload className="w-4 h-4" />
+                </button>
+              )}
+              
+              <div className="w-px h-6 bg-slate-800 mx-1"></div>
+              
+              <button onClick={handleLogout} className="p-2 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded-full transition-colors" title="Sair da Conta">
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          </header>
+
+          <main className="flex-grow max-w-5xl mx-auto w-full p-4 sm:p-6">
             {currentView === 'dashboard' && renderDashboard()}
             {currentView === 'deck-detail' && renderDeckDetail()}
             {currentView === 'review' && renderReview()}
