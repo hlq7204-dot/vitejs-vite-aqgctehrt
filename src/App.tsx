@@ -1697,8 +1697,9 @@ export default function App() {
     const currentDecks = validDecks.filter(d => d.parentId === currentFolderId);
 
     return (
-      <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 animate-in fade-in duration-300">
-        <div className="flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-full md:w-fit mb-6 overflow-x-auto custom-scrollbar">
+      <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 pb-16 sm:pb-0 animate-in fade-in duration-300">
+        {/* Desktop Tabs */}
+        <div className="hidden sm:flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-fit mb-6">
           <button onClick={() => { setMainTab('overview'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'overview' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
             <LayoutDashboard className="w-4 h-4" /> Visão Geral
           </button>
@@ -1707,6 +1708,22 @@ export default function App() {
           </button>
           <button onClick={() => { setMainTab('reports'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'reports' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
             <Activity className="w-4 h-4" /> Relatórios
+          </button>
+        </div>
+
+        {/* Mobile Fixed Bottom Navigation */}
+        <div className="sm:hidden fixed bottom-0 left-0 right-0 z-[60] bg-slate-950/95 backdrop-blur-xl border-t border-slate-800 flex justify-around items-center px-2 py-3 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+          <button onClick={() => { setMainTab('overview'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'overview' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+            <LayoutDashboard className="w-5 h-5" />
+            <span className="text-[10px] font-bold">Visão Geral</span>
+          </button>
+          <button onClick={() => setMainTab('library')} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'library' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+            <Library className="w-5 h-5" />
+            <span className="text-[10px] font-bold">Biblioteca</span>
+          </button>
+          <button onClick={() => { setMainTab('reports'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'reports' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+            <Activity className="w-5 h-5" />
+            <span className="text-[10px] font-bold">Relatórios</span>
           </button>
         </div>
 
@@ -2169,7 +2186,7 @@ export default function App() {
           </main>
 
           {/* WIDGET FLUTUANTE POMODORO (Colapsável p/ Celular) */}
-          <div className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 sm:translate-x-0 sm:left-6 z-[50] animate-pop pointer-events-auto">
+          <div className={`fixed left-1/2 -translate-x-1/2 sm:translate-x-0 sm:left-6 z-[50] animate-pop pointer-events-auto transition-all duration-300 ${currentView === 'dashboard' ? 'bottom-24 sm:bottom-6' : 'bottom-6'}`}>
             <div className={`bg-slate-900/95 backdrop-blur-xl border p-1 sm:p-1.5 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.6)] flex items-center transition-all duration-500 hover:bg-slate-900 hover:shadow-2xl ${pomoActive ? (pomoMode === 'work' ? 'border-indigo-500/40 shadow-indigo-500/20' : 'border-emerald-500/40 shadow-emerald-500/20') : 'border-slate-700/60'}`}>
 
               {/* Progress Ring / Play Button */}
