@@ -92,6 +92,11 @@ const CARD_TYPES = [
 
 // --- MOTOR DE ANIMAÇÕES E ESTILOS GLOBAIS ---
 const globalStyles = `
+  body, html { margin: 0; padding: 0; width: 100%; min-height: 100vh; overflow-x: hidden; background-color: #020617; }
+  #root { width: 100%; min-height: 100vh; }
+  :fullscreen { width: 100vw; height: 100vh; background-color: #020617; }
+  ::backdrop { background-color: #020617; }
+
   .anki-content img { max-width: 100%; max-height: 250px; border-radius: 0.5rem; margin: 0.5rem auto; display: block; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
   .custom-scrollbar { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
   .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -1072,7 +1077,7 @@ export default function App() {
   // --- LOGIN UI ---
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
+      <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
         <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
         <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
         
@@ -1262,7 +1267,7 @@ export default function App() {
     const currentDecks = validDecks.filter(d => d.parentId === currentFolderId);
 
     return (
-      <div className="w-full px-4 sm:px-8 lg:px-12 pt-2 animate-in fade-in duration-300">
+      <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 animate-in fade-in duration-300">
         <div className="flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-full sm:w-fit mb-6 overflow-x-auto custom-scrollbar">
           <button onClick={() => { setMainTab('overview'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'overview' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
             <LayoutDashboard className="w-4 h-4" /> Visão Geral
@@ -1385,7 +1390,7 @@ export default function App() {
     if (!activeDeck) return null;
     const stats = getCardStats(activeDeck.cards); const due = calculateTotalDue(stats);
     return (
-      <div className="w-full px-4 sm:px-8 lg:px-12 pt-2 pb-20 animate-in slide-in-from-right-4 fade-in duration-300">
+      <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 pb-20 animate-in slide-in-from-right-4 fade-in duration-300">
         <button onClick={() => {
           setCurrentView('dashboard');
           setEditingCardId(null);
@@ -1529,15 +1534,15 @@ export default function App() {
     const type = currentCard.type || 'standard';
 
     return (
-      <div className="w-full max-w-6xl mx-auto px-4 sm:px-8 lg:px-12 min-h-screen flex flex-col pb-24">
+      <div className="w-full px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col pb-24">
         <div className="flex items-center justify-between mb-8 pt-4 gap-4">
           <button onClick={() => setCurrentView('deck-detail')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
         </div>
 
-        <div className="flex-grow flex flex-col justify-center items-center w-full" style={{ perspective: '1000px' }}>
+        <div className="flex-grow flex flex-col justify-center items-center w-full max-w-5xl mx-auto" style={{ perspective: '1000px' }}>
           {type === 'standard' && (
-            <div key={currentCard.id} className="w-full animate-slide-right max-w-4xl mx-auto">
+            <div key={currentCard.id} className="w-full animate-slide-right">
               <div 
                 className="relative w-full h-[500px] cursor-pointer transition-transform duration-500" 
                 style={{ transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
@@ -1575,7 +1580,7 @@ export default function App() {
           )}
 
           {type !== 'standard' && (
-            <div key={currentCard.id} className="w-full max-w-4xl mx-auto bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right">
+            <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right">
               <div className="p-8 border-b border-slate-800/50">
                 <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
               </div>
@@ -1619,7 +1624,7 @@ export default function App() {
           )}
         </div>
 
-        <div className="h-32 mt-8 flex flex-col justify-center max-w-4xl mx-auto w-full">
+        <div className="h-32 mt-8 flex flex-col justify-center max-w-5xl mx-auto w-full">
           {!isFlipped && type === 'standard' ? (
             <button onClick={() => setIsFlipped(true)} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xl py-6 rounded-2xl shadow-lg transition-all active:scale-95">Mostrar Resposta</button>
           ) : isFlipped ? (
@@ -1655,15 +1660,12 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col notranslate" translate="no" lang="pt-BR" onClick={() => setActiveMenuId(null)}>
+    <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col notranslate" translate="no" lang="pt-BR" onClick={() => setActiveMenuId(null)}>
       <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
       
       {!user ? (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 flex-grow">
-          <div className="w-24 h-24 bg-slate-900 rounded-3xl flex items-center justify-center border border-indigo-500/20 mb-8 shadow-[0_0_30px_rgba(99,102,241,0.15)] overflow-hidden">
-            <BrainCircuit className="text-indigo-400 w-12 h-12 animate-float" />
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight text-center">Flash Cards</h1>
+        <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 flex-grow">
+          <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
           <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
           
           <button 
@@ -1678,11 +1680,20 @@ export default function App() {
             </svg>
             Continuar com o Google
           </button>
+
+          {toast && (
+            <div className="fixed bottom-6 right-6 z-[90] animate-in slide-in-from-bottom-4 fade-in duration-300">
+              <div className="flex items-center gap-3 px-6 py-4 rounded-2xl shadow-xl shadow-black/50 border backdrop-blur-md bg-rose-950/80 border-rose-500/30 text-rose-200">
+                <Info className="w-5 h-5 text-rose-400" />
+                <p className="font-medium text-sm">{toast.message}</p>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <>
-          {/* CABEÇALHO FLUTUANTE (Sem barra de fundo, com Título, sem Logo) */}
-          <header className="w-full px-4 py-6 sm:px-8 lg:px-12 flex items-center justify-between z-40 relative">
+          {/* CABEÇALHO FLUTUANTE */}
+          <header className="w-full px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-between z-40 relative">
             {/* Título */}
             <h1 onClick={() => setCurrentView('dashboard')} className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight cursor-pointer hover:opacity-80 transition-opacity">
               Flash Cards
