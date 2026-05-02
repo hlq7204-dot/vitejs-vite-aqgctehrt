@@ -31,7 +31,8 @@ import {
   Sparkles, Folder, ChevronRight, ChevronLeft, FolderPlus, Upload, 
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
-  PieChart, Timer, Pause, RotateCcw, Settings, LayoutDashboard, Library, Flame, BarChart2, LogOut
+  PieChart, Timer, Pause, RotateCcw, Settings, LayoutDashboard, Library, Flame, BarChart2, LogOut,
+  Maximize, Minimize // Ícones de ecrã inteiro adicionados
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -294,6 +295,9 @@ export default function App() {
   const [isPomoSettingsOpen, setIsPomoSettingsOpen] = useState(false);
   const [isPomoExpanded, setIsPomoExpanded] = useState(true);
 
+  // Ecrã inteiro
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   // Modais de Criação
   const [cardType, setCardType] = useState('standard');
   const [newCardFront, setNewCardFront] = useState('');
@@ -352,6 +356,28 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // --- OUVIR ALTERAÇÕES DE ECRÃ INTEIRO ---
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch((err) => {
+        console.error(`Erro ao tentar entrar em modo de ecrã inteiro: ${err.message}`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
 
   const signInWithGoogle = async () => {
     if (!auth) {
@@ -1680,6 +1706,10 @@ export default function App() {
               
               <div className="w-px h-5 bg-slate-800 mx-1"></div>
               
+              <button onClick={toggleFullScreen} className="w-8 h-8 flex items-center justify-center bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-full transition-colors" title="Ecrã Inteiro">
+                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+              </button>
+
               <button onClick={handleLogout} className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded-full transition-colors" title="Sair da Conta">
                 <LogOut className="w-4 h-4" />
               </button>
