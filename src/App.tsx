@@ -129,87 +129,130 @@ const globalStyles = `
 `;
 
 // ============================================================================
-// ALGORITMO FSRS (Free Spaced Repetition Scheduler) - Padrão Anki FSRS4Anki
+// ALGORITMO FSRS v6 (Free Spaced Repetition Scheduler) - Baseado no FSRS4Anki v6.1.1
 // ============================================================================
 
-// Pesos (w) baseados nas otimizações de rede neural do FSRS v4
-const FSRS_W = [0.4, 0.6, 2.4, 5.8, 4.93, 0.94, 0.86, 0.01, 1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.29, 2.61];
-const REQUEST_RETENTION = 0.90; // Taxa de Retenção Alvo (90% padrão Anki)
-const MAX_INTERVAL = 36500; // Máximo de dias (100 Anos)
+// Pesos (w) fornecidos para o FSRS v6.1.1
+const FSRS_W = [0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542];
+const REQUEST_RETENTION = 0.9;
+const MAXIMUM_INTERVAL = 36500;
+const DECAY = -FSRS_W[20];
+const FACTOR = Math.pow(0.9, 1 / DECAY) - 1;
+
+const RATINGS_VAL = { "again": 1, "hard": 2, "good": 3, "easy": 4 };
+
+function constrain_difficulty(difficulty) {
+  return Math.min(Math.max(Number(difficulty.toFixed(2)), 1), 10);
+}
+
+function init_difficulty(ratingStr) {
+  return constrain_difficulty(FSRS_W[4] - Math.exp(FSRS_W[5] * (RATINGS_VAL[ratingStr] - 1)) + 1);
+}
+
+function init_stability(ratingStr) {
+  return Number(Math.max(FSRS_W[RATINGS_VAL[ratingStr] - 1], 0.1).toFixed(2));
+}
+
+function forgetting_curve(elapsed_days, stability) {
+  return Math.pow(1 + FACTOR * elapsed_days / stability, DECAY);
+}
+
+function next_interval(stability) {
+  const new_interval = stability / FACTOR * (Math.pow(REQUEST_RETENTION, 1 / DECAY) - 1);
+  return Math.min(Math.max(Math.round(new_interval), 1), MAXIMUM_INTERVAL);
+}
+
+function linear_damping(delta_d, old_d) {
+  return delta_d * (10 - old_d) / 9;
+}
+
+function mean_reversion(init, current) {
+  return FSRS_W[7] * init + (1 - FSRS_W[7]) * current;
+}
+
+function next_difficulty(d, ratingStr) {
+  let delta_d = -FSRS_W[6] * (RATINGS_VAL[ratingStr] - 3);
+  let next_d = d + linear_damping(delta_d, d);
+  return constrain_difficulty(mean_reversion(init_difficulty("easy"), next_d));
+}
+
+function next_recall_stability(d, s, r, ratingStr) {
+  let hardPenalty = ratingStr === "hard" ? FSRS_W[15] : 1;
+  let easyBonus = ratingStr === "easy" ? FSRS_W[16] : 1;
+  return Number((s * (1 + Math.exp(FSRS_W[8]) *
+    (11 - d) *
+    Math.pow(s, -FSRS_W[9]) *
+    (Math.exp((1 - r) * FSRS_W[10]) - 1) *
+    hardPenalty *
+    easyBonus)).toFixed(2));
+}
+
+function next_forget_stability(d, s, r) {
+  let sMin = s / Math.exp(FSRS_W[17] * FSRS_W[18]);
+  return Number(Math.min(FSRS_W[11] *
+    Math.pow(d, -FSRS_W[12]) *
+    (Math.pow(s + 1, FSRS_W[13]) - 1) *
+    Math.exp((1 - r) * FSRS_W[14]), sMin).toFixed(2));
+}
+
+function next_short_term_stability(s, ratingStr) {
+  let sinc = Math.exp(FSRS_W[17] * (RATINGS_VAL[ratingStr] - 3 + FSRS_W[18])) * Math.pow(s, -FSRS_W[19]);
+  if (RATINGS_VAL[ratingStr] >= 3) {
+    sinc = Math.max(sinc, 1);
+  }
+  return Number((s * sinc).toFixed(2));
+}
 
 const calculateNextReview = (card, qualityUI) => {
-  // O FSRS usa G (Grade) de 1 a 4. Nossa UI manda de 0 a 3 (0=Errei, 1=Difícil, 2=Bom, 3=Fácil).
-  const g = qualityUI + 1; 
+  const ratingStr = ["again", "hard", "good", "easy"][qualityUI];
+  const r_val = qualityUI + 1; 
   const now = Date.now();
 
-  // Estados FSRS: 0 = New, 1 = Learning, 2 = Review, 3 = Relearning
-  // Migração suave para cartões antigos ou inicialização de novos
   let state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
   let difficulty = card.difficulty !== undefined ? card.difficulty : 5;
-  let stability = card.stability !== undefined ? card.stability : (card.interval > 0 ? card.interval : 0);
+  let stability = card.stability !== undefined ? card.stability : (card.interval > 0 ? Math.max(card.interval, 0.1) : 0);
   let last_review = card.last_review || now;
-  let interval = card.interval || 0;
-
+  
   const elapsed_days = Math.max((now - last_review) / 86400000, 0);
-  // Probabilidade de recordar (R) da memória
-  const r = stability > 0 ? Math.exp((Math.log(0.9) * elapsed_days) / stability) : 1;
+  let interval = 0;
 
-  // Funções Matemáticas do Modelo FSRS
-  const init_stability = (g) => Math.max(FSRS_W[g - 1], 0.1);
-  const init_difficulty = (g) => Math.min(Math.max(FSRS_W[4] - FSRS_W[5] * (g - 3), 1), 10);
-  
-  const next_interval = (s) => {
-    const new_interval = Math.round(9 * s * (1 / REQUEST_RETENTION - 1));
-    return Math.min(Math.max(new_interval, 1), MAX_INTERVAL);
-  };
-  
-  const next_difficulty = (d, g) => {
-    const next_d = d - FSRS_W[6] * (g - 3);
-    const mean_rev = FSRS_W[7] * FSRS_W[4] + (1 - FSRS_W[7]) * next_d; // Regressão à média
-    return Math.min(Math.max(mean_rev, 1), 10);
-  };
-  
-  const next_recall_stability = (d, s, r, g) => {
-    const hard_penalty = g === 2 ? FSRS_W[15] : 1;
-    const easy_bonus = g === 4 ? FSRS_W[16] : 1;
-    return s * (1 + Math.exp(FSRS_W[8]) * (11 - d) * Math.pow(s, -FSRS_W[9]) * (Math.exp((1 - r) * FSRS_W[10]) - 1) * hard_penalty * easy_bonus);
-  };
-  
-  const next_forget_stability = (d, s, r) => {
-    return FSRS_W[11] * Math.pow(d, -FSRS_W[12]) * Math.pow(s + 1, FSRS_W[13]) * (Math.exp((1 - r) * FSRS_W[14]) - 1);
-  };
-
-  // Máquina de Estados de Revisão FSRS
-  if (state === 0) { 
-    // Novo (New)
-    stability = init_stability(g);
-    difficulty = init_difficulty(g);
-    state = (g === 1 || g === 2) ? 1 : 2; // Se Errar ou for Difícil -> Learning, se Bom/Fácil -> Passa pra Review
-  } else if (state === 1 || state === 3) { 
-    // Aprender (Learning) ou Re-Aprender (Relearning)
-    stability = Math.max(init_stability(g), stability);
-    difficulty = next_difficulty(difficulty, g);
-    state = (g === 1) ? state : 2; // Avança para Review a não ser que tenha errado
-  } else if (state === 2) { 
-    // Em Revisão (Review)
-    if (g === 1) { 
-      // Falha (Lapse)
-      stability = next_forget_stability(difficulty, stability, r);
-      difficulty = next_difficulty(difficulty, g);
-      state = 3; // Muda o estado para Relearning
-    } else { 
-      // Sucesso
-      stability = next_recall_stability(difficulty, stability, r, g);
-      difficulty = next_difficulty(difficulty, g);
-    }
+  // Ajuste suave para cartões legados (sem estabilidade definida)
+  if (stability === 0 && state !== 0) {
+    stability = init_stability("good");
+    difficulty = init_difficulty("good");
   }
 
-  // Definição do Novo Intervalo
-  if (state === 2) {
-    interval = next_interval(stability); // Usa o agendamento natural em dias
-  } else if (state === 1 || state === 3) {
-    // Passos iniciais do Anki para cartões novos/esquecidos (Em dias: 0 = agora, 0.007 ~ 10mins)
-    interval = (g === 1) ? 0 : 0.007; 
+  if (state === 0) { // Cartão Novo
+    stability = init_stability(ratingStr);
+    difficulty = init_difficulty(ratingStr);
+    if (r_val <= 2) {
+      state = 1; // Learning
+      interval = 0; 
+    } else {
+      state = 2; // Review
+      interval = next_interval(stability);
+    }
+  } else if (state === 1 || state === 3) { // Em Aprendizagem ou Re-aprendizagem
+    stability = next_short_term_stability(stability, ratingStr);
+    difficulty = next_difficulty(difficulty, ratingStr);
+    if (r_val <= 2) {
+      interval = 0; 
+    } else {
+      state = 2; // Review
+      interval = next_interval(stability);
+    }
+  } else if (state === 2) { // Revisão Normal
+    const retrievability = forgetting_curve(elapsed_days, stability);
+    if (r_val === 1) { // Lapso (Esqueceu)
+      difficulty = next_difficulty(difficulty, ratingStr);
+      stability = next_forget_stability(difficulty, stability, retrievability);
+      state = 3; // Relearning
+      interval = 0;
+    } else { // Lembrou
+      difficulty = next_difficulty(difficulty, ratingStr);
+      stability = next_recall_stability(difficulty, stability, retrievability, ratingStr);
+      interval = next_interval(stability);
+    }
   }
 
   const nextDue = interval === 0 ? now + 60000 : now + (interval * 24 * 60 * 60 * 1000);
@@ -227,16 +270,12 @@ const calculateNextReview = (card, qualityUI) => {
 };
 
 const formatInterval = (days) => {
-  if (days === 0 || days < 0.005) return "< 1m";
-  if (days < 0.03) return "10m"; 
+  if (days === 0 || days < 0.01) return "< 1m";
   if (days < 1) return `${Math.round(days * 24)}h`;
   if (days < 30) return `${Math.round(days)}d`;
   if (days < 365) return `${Math.round(days / 30)}m`; 
   return `${Math.round(days / 365)}a`; 
 };
-
-// ============================================================================
-
 
 // SINTETIZADOR DE ÁUDIO PARA O ALARME DO POMODORO
 const playAlarmSound = () => {
