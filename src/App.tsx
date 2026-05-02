@@ -32,7 +32,7 @@ import {
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
   PieChart, Timer, Pause, RotateCcw, Settings, LayoutDashboard, Library, Flame, BarChart2, LogOut,
-  Maximize, Minimize 
+  Maximize, Minimize, Activity, TrendingUp, Filter, Award 
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -454,6 +454,8 @@ export default function App() {
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [currentView, setCurrentView] = useState('dashboard'); 
   const [mainTab, setMainTab] = useState('overview'); 
+  const [reportPeriod, setReportPeriod] = useState('week'); // Novo estado de período (Semana/Mês)
+  const [reportDeckId, setReportDeckId] = useState('all'); // Novo estado de baralho para filtro
   
   const [activeDeckId, setActiveDeckId] = useState(null);
   const activeDeck = decks.find(d => d.id === activeDeckId);
@@ -771,6 +773,18 @@ export default function App() {
       return data.filter(id => validCardIds.has(id)).length;
     }
     return 0; 
+  };
+
+  const getDailyCountFiltered = (dateStr, deckId) => {
+    const data = activityMap[dateStr];
+    if (!data || !Array.isArray(data)) return 0;
+    if (deckId === 'all') {
+      return data.filter(id => validCardIds.has(id)).length;
+    }
+    const targetDeck = validDecks.find(d => d.id === deckId);
+    if (!targetDeck) return 0;
+    const deckCardIds = new Set((targetDeck.cards || []).map(c => c.id));
+    return data.filter(id => deckCardIds.has(id)).length;
   };
 
   const calculateStreak = () => {
@@ -1455,18 +1469,193 @@ export default function App() {
     );
   };
 
+  const renderReports = () => {
+    const daysCount = reportPeriod === 'week' ? 7 : 30;
+    const days = [];
+    const today = new Date();
+    for(let i = daysCount - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      days.push(d);
+    }
+
+    let totalReviewsPeriod = 0;
+    const activityData = days.map(d => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dy = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${dy}`;
+      const count = getDailyCountFiltered(dateStr, reportDeckId);
+      totalReviewsPeriod += count;
+      return {
+        label: reportPeriod === 'week' ? d.toLocaleDateString('pt-BR', {weekday: 'short'}).replace('.','') : `${dy}/${m}`,
+        count
+      };
+    });
+    const maxActivity = Math.max(...activityData.map(a => a.count), 5);
+
+    let targetCards = [];
+    if (reportDeckId === 'all') {
+      targetCards = validDecks.flatMap(d => d.cards || []);
+    } else {
+      const deck = validDecks.find(d => d.id === reportDeckId);
+      if (deck) targetCards = deck.cards || [];
+    }
+
+    let totalR = 0;
+    let revCardsCount = 0;
+    const retentionBuckets = { exc: 0, good: 0, fair: 0, poor: 0 };
+    let matureCount = 0;
+    let youngCount = 0;
+
+    const now = Date.now();
+    targetCards.forEach(c => {
+      const state = c.state !== undefined ? c.state : (c.reviews > 0 ? 2 : 0);
+      if (state === 2 && c.stability) { // Apenas Cartões em modo "Revisão"
+        revCardsCount++;
+        const elapsed = Math.max((now - (c.last_review || now)) / 86400000, 0);
+        const r = forgetting_curve(elapsed, c.stability); // Retenção Estimada FSRS
+        totalR += r;
+        
+        if (r >= 0.9) retentionBuckets.exc++;
+        else if (r >= 0.8) retentionBuckets.good++;
+        else if (r >= 0.7) retentionBuckets.fair++;
+        else retentionBuckets.poor++;
+
+        if (c.interval >= 21) matureCount++;
+        else youngCount++;
+      } else if (state === 1 || state === 3) { // Em aprendizagem
+        youngCount++;
+      }
+    });
+
+    const avgRetention = revCardsCount > 0 ? ((totalR / revCardsCount) * 100).toFixed(1) : 'N/A';
+    const totalStudied = revCardsCount + youngCount;
+    const maturePercent = totalStudied > 0 ? Math.round((matureCount / totalStudied) * 100) : 0;
+
+    return (
+      <div className="animate-in fade-in duration-300 pb-10 space-y-6">
+        {/* Header & Controls */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/60 p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-lg">
+          <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-indigo-400" />
+            Métricas de Desempenho FSRS
+          </h2>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            <div className="relative flex-grow sm:flex-grow-0">
+              <select 
+                value={reportDeckId} 
+                onChange={e => setReportDeckId(e.target.value)}
+                className="w-full appearance-none bg-slate-950 border border-slate-700 text-slate-300 py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:border-indigo-500 text-sm font-medium transition-colors"
+              >
+                <option value="all">Todos os Baralhos</option>
+                {validDecks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <Filter className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+            <div className="flex bg-slate-950 border border-slate-700 rounded-xl overflow-hidden shadow-inner">
+              <button onClick={() => setReportPeriod('week')} className={`flex-1 sm:flex-none px-5 py-2.5 text-sm font-bold transition-colors ${reportPeriod === 'week' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>7 Dias</button>
+              <div className="w-px bg-slate-700"></div>
+              <button onClick={() => setReportPeriod('month')} className={`flex-1 sm:flex-none px-5 py-2.5 text-sm font-bold transition-colors ${reportPeriod === 'month' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>30 Dias</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Cards Principais */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Activity className="w-32 h-32" /></div>
+            <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Revisões ({daysCount}d)</span>
+            <div className="text-4xl sm:text-5xl font-black text-indigo-400 relative z-10">{totalReviewsPeriod}</div>
+            <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Cartões processados no período</div>
+          </div>
+          
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><BrainCircuit className="w-32 h-32" /></div>
+            <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Retenção Estimada</span>
+            <div className="text-4xl sm:text-5xl font-black text-emerald-400 relative z-10">{avgRetention === 'N/A' ? '--' : `${avgRetention}%`}</div>
+            <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Estimativa Algorítmica da FSRS (R)</div>
+          </div>
+
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Award className="w-32 h-32" /></div>
+            <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Cartões Maduros</span>
+            <div className="flex items-end gap-2 relative z-10">
+              <div className="text-4xl sm:text-5xl font-black text-amber-400">{maturePercent}%</div>
+              <div className="text-slate-500 font-bold mb-1.5 text-sm sm:text-base">/ {matureCount}</div>
+            </div>
+            <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Cartões com intervalo {'>'} 21 dias</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Gráfico de Atividade */}
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px]">
+            <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-6"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
+            <div className="flex-grow flex items-end justify-between gap-1 sm:gap-2">
+              {activityData.map((data, i) => {
+                const height = maxActivity === 0 ? 0 : (data.count / maxActivity) * 100;
+                return (
+                  <div key={i} className="relative flex flex-col items-center flex-1 h-full justify-end group/bar">
+                    <div className="w-full max-w-[32px] bg-slate-950 rounded-t-xl border border-b-0 border-slate-800/80 relative flex items-end justify-center overflow-hidden h-full">
+                      <div className="w-full bg-gradient-to-t from-blue-600/80 to-indigo-400/80 rounded-t-xl transition-all duration-700 ease-out" style={{ height: `${Math.max(height, 2)}%` }}></div>
+                      <span className="absolute -top-6 text-[10px] font-bold text-slate-200 opacity-0 group-hover/bar:opacity-100 transition-opacity bg-slate-800 px-1.5 py-0.5 rounded z-10">{data.count}</span>
+                    </div>
+                    <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase mt-3 truncate w-full text-center">{data.label}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Gráfico de Saúde da Memória */}
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px]">
+            <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><PieChart className="w-5 h-5 text-emerald-400" /> Saúde da Memória</h3>
+            <p className="text-sm text-slate-500 mb-8">Probabilidade de lembrança com base no FSRS</p>
+            
+            <div className="flex-grow flex flex-col justify-center gap-5 sm:gap-6">
+              {[
+                { label: 'Excelente (90-100%)', count: retentionBuckets.exc, color: 'bg-emerald-400' },
+                { label: 'Bom (80-89%)', count: retentionBuckets.good, color: 'bg-blue-400' },
+                { label: 'Razoável (70-79%)', count: retentionBuckets.fair, color: 'bg-amber-400' },
+                { label: `Crítico (${'<'}70%)`, count: retentionBuckets.poor, color: 'bg-rose-400' },
+              ].map((tier, i) => {
+                const pct = revCardsCount === 0 ? 0 : (tier.count / revCardsCount) * 100;
+                return (
+                  <div key={i} className="flex items-center gap-3 sm:gap-4">
+                    <div className="w-28 sm:w-36 shrink-0 text-xs sm:text-sm font-semibold text-slate-300">{tier.label}</div>
+                    <div className="flex-grow h-3.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                      <div className={`h-full ${tier.color} transition-all duration-1000 shadow-[0_0_8px_currentColor] opacity-90`} style={{ width: `${pct}%` }}></div>
+                    </div>
+                    <div className="w-8 sm:w-12 text-right text-xs sm:text-sm font-bold text-slate-200">{tier.count}</div>
+                  </div>
+                )
+              })}
+            </div>
+            {revCardsCount === 0 && (
+               <div className="text-center text-sm text-slate-500 mt-4 italic">Sem dados suficientes de revisão para calcular.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderDashboard = () => {
     const currentFolders = folders.filter(f => f.parentId === currentFolderId);
     const currentDecks = validDecks.filter(d => d.parentId === currentFolderId);
 
     return (
       <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 animate-in fade-in duration-300">
-        <div className="flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-full sm:w-fit mb-6 overflow-x-auto custom-scrollbar">
+        <div className="flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-full md:w-fit mb-6 overflow-x-auto custom-scrollbar">
           <button onClick={() => { setMainTab('overview'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'overview' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
             <LayoutDashboard className="w-4 h-4" /> Visão Geral
           </button>
           <button onClick={() => setMainTab('library')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'library' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
             <Library className="w-4 h-4" /> Biblioteca
+          </button>
+          <button onClick={() => { setMainTab('reports'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'reports' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
+            <Activity className="w-4 h-4" /> Relatórios
           </button>
         </div>
 
@@ -1478,6 +1667,8 @@ export default function App() {
             <div className="lg:col-span-1 xl:col-span-2">{renderDailyGoal()}</div>
           </div>
         )}
+        
+        {mainTab === 'reports' && renderReports()}
 
         {mainTab === 'library' && (
           <div className="animate-in fade-in duration-300 pb-10">
@@ -1550,7 +1741,7 @@ export default function App() {
                                <div className="absolute right-0 top-full mt-2 w-40 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
                                  <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
                                  <div className="h-px bg-slate-700 w-full"></div>
-                                 <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                                 <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash className="w-4 h-4" /> Eliminar</button>
                                </div>
                              )}
                            </div>
