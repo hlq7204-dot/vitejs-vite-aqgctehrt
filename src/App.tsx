@@ -128,39 +128,115 @@ const globalStyles = `
   .delay-400 { animation-delay: 400ms; }
 `;
 
-const calculateNextReview = (card, quality) => {
-  let { repetition, interval, easeFactor, reviews } = card;
-  const isLearning = repetition === 0;
+// ============================================================================
+// ALGORITMO FSRS (Free Spaced Repetition Scheduler) - Padrão Anki FSRS4Anki
+// ============================================================================
 
-  if (quality === 0) { 
-    repetition = 0; interval = 0;   
-    if (!isLearning) easeFactor = Math.max(1.3, easeFactor - 0.20); 
-  } else {
-    if (isLearning) {
-      if (quality === 1) interval = 1; 
-      if (quality === 2) interval = 3; 
-      if (quality === 3) interval = 6; 
-    } else {
-      if (quality === 1) { 
-        interval = Math.round(interval * 1.2); easeFactor = Math.max(1.3, easeFactor - 0.15); 
-      } else if (quality === 2) { 
-        interval = Math.round(interval * easeFactor);
-      } else if (quality === 3) { 
-        interval = Math.round(interval * easeFactor * 1.3); easeFactor += 0.15; 
-      }
+// Pesos (w) baseados nas otimizações de rede neural do FSRS v4
+const FSRS_W = [0.4, 0.6, 2.4, 5.8, 4.93, 0.94, 0.86, 0.01, 1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.29, 2.61];
+const REQUEST_RETENTION = 0.90; // Taxa de Retenção Alvo (90% padrão Anki)
+const MAX_INTERVAL = 36500; // Máximo de dias (100 Anos)
+
+const calculateNextReview = (card, qualityUI) => {
+  // O FSRS usa G (Grade) de 1 a 4. Nossa UI manda de 0 a 3 (0=Errei, 1=Difícil, 2=Bom, 3=Fácil).
+  const g = qualityUI + 1; 
+  const now = Date.now();
+
+  // Estados FSRS: 0 = New, 1 = Learning, 2 = Review, 3 = Relearning
+  // Migração suave para cartões antigos ou inicialização de novos
+  let state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
+  let difficulty = card.difficulty !== undefined ? card.difficulty : 5;
+  let stability = card.stability !== undefined ? card.stability : (card.interval > 0 ? card.interval : 0);
+  let last_review = card.last_review || now;
+  let interval = card.interval || 0;
+
+  const elapsed_days = Math.max((now - last_review) / 86400000, 0);
+  // Probabilidade de recordar (R) da memória
+  const r = stability > 0 ? Math.exp((Math.log(0.9) * elapsed_days) / stability) : 1;
+
+  // Funções Matemáticas do Modelo FSRS
+  const init_stability = (g) => Math.max(FSRS_W[g - 1], 0.1);
+  const init_difficulty = (g) => Math.min(Math.max(FSRS_W[4] - FSRS_W[5] * (g - 3), 1), 10);
+  
+  const next_interval = (s) => {
+    const new_interval = Math.round(9 * s * (1 / REQUEST_RETENTION - 1));
+    return Math.min(Math.max(new_interval, 1), MAX_INTERVAL);
+  };
+  
+  const next_difficulty = (d, g) => {
+    const next_d = d - FSRS_W[6] * (g - 3);
+    const mean_rev = FSRS_W[7] * FSRS_W[4] + (1 - FSRS_W[7]) * next_d; // Regressão à média
+    return Math.min(Math.max(mean_rev, 1), 10);
+  };
+  
+  const next_recall_stability = (d, s, r, g) => {
+    const hard_penalty = g === 2 ? FSRS_W[15] : 1;
+    const easy_bonus = g === 4 ? FSRS_W[16] : 1;
+    return s * (1 + Math.exp(FSRS_W[8]) * (11 - d) * Math.pow(s, -FSRS_W[9]) * (Math.exp((1 - r) * FSRS_W[10]) - 1) * hard_penalty * easy_bonus);
+  };
+  
+  const next_forget_stability = (d, s, r) => {
+    return FSRS_W[11] * Math.pow(d, -FSRS_W[12]) * Math.pow(s + 1, FSRS_W[13]) * (Math.exp((1 - r) * FSRS_W[14]) - 1);
+  };
+
+  // Máquina de Estados de Revisão FSRS
+  if (state === 0) { 
+    // Novo (New)
+    stability = init_stability(g);
+    difficulty = init_difficulty(g);
+    state = (g === 1 || g === 2) ? 1 : 2; // Se Errar ou for Difícil -> Learning, se Bom/Fácil -> Passa pra Review
+  } else if (state === 1 || state === 3) { 
+    // Aprender (Learning) ou Re-Aprender (Relearning)
+    stability = Math.max(init_stability(g), stability);
+    difficulty = next_difficulty(difficulty, g);
+    state = (g === 1) ? state : 2; // Avança para Review a não ser que tenha errado
+  } else if (state === 2) { 
+    // Em Revisão (Review)
+    if (g === 1) { 
+      // Falha (Lapse)
+      stability = next_forget_stability(difficulty, stability, r);
+      difficulty = next_difficulty(difficulty, g);
+      state = 3; // Muda o estado para Relearning
+    } else { 
+      // Sucesso
+      stability = next_recall_stability(difficulty, stability, r, g);
+      difficulty = next_difficulty(difficulty, g);
     }
-    repetition += 1;
   }
-  const nextDue = interval === 0 ? Date.now() + 60000 : Date.now() + (interval * 24 * 60 * 60 * 1000);
-  return { ...card, repetition, interval, easeFactor, dueDate: nextDue, reviews: (reviews || 0) + 1 };
+
+  // Definição do Novo Intervalo
+  if (state === 2) {
+    interval = next_interval(stability); // Usa o agendamento natural em dias
+  } else if (state === 1 || state === 3) {
+    // Passos iniciais do Anki para cartões novos/esquecidos (Em dias: 0 = agora, 0.007 ~ 10mins)
+    interval = (g === 1) ? 0 : 0.007; 
+  }
+
+  const nextDue = interval === 0 ? now + 60000 : now + (interval * 24 * 60 * 60 * 1000);
+
+  return { 
+    ...card, 
+    state,
+    difficulty,
+    stability,
+    interval, 
+    last_review: now,
+    dueDate: nextDue, 
+    reviews: (card.reviews || 0) + 1 
+  };
 };
 
 const formatInterval = (days) => {
-  if (days === 0) return "< 1m";
-  if (days < 30) return `${days}d`;
+  if (days === 0 || days < 0.005) return "< 1m";
+  if (days < 0.03) return "10m"; 
+  if (days < 1) return `${Math.round(days * 24)}h`;
+  if (days < 30) return `${Math.round(days)}d`;
   if (days < 365) return `${Math.round(days / 30)}m`; 
   return `${Math.round(days / 365)}a`; 
 };
+
+// ============================================================================
+
 
 // SINTETIZADOR DE ÁUDIO PARA O ALARME DO POMODORO
 const playAlarmSound = () => {
@@ -616,9 +692,11 @@ export default function App() {
   const getCardStats = (cards) => {
     const now = Date.now();
     return (cards || []).reduce((acc, card) => {
+      const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
       const r = card.reviews || 0;
-      if (r === 0) acc.new++;
-      else if (card.interval === 0) acc.learning++;
+      
+      if (state === 0 || r === 0) acc.new++;
+      else if (state === 1 || state === 3 || card.interval < 1) acc.learning++;
       else if (card.dueDate <= now) acc.review++;
       else acc.learned++;
       return acc;
@@ -674,7 +752,7 @@ export default function App() {
 
   const startReview = (deckId, forceAll = false) => {
     const deck = validDecks.find(d => d.id === deckId);
-    let dueCards = (deck?.cards || []).filter(c => c.dueDate <= Date.now());
+    let dueCards = (deck?.cards || []).filter(c => c.dueDate <= Date.now() || !c.dueDate);
     if (forceAll) dueCards = deck?.cards || [];
     if (dueCards.length === 0) return;
     setReviewQueue([...dueCards].sort(() => Math.random() - 0.5));
@@ -1634,7 +1712,7 @@ export default function App() {
           )}
         </div>
 
-        <div className="h-32 mt-8 flex flex-col justify-center max-w-5xl mx-auto w-full">
+        <div className="h-32 mt-8 flex flex-col justify-center max-w-4xl mx-auto w-full">
           {!isFlipped && type === 'standard' ? (
             <button onClick={() => setIsFlipped(true)} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xl py-6 rounded-2xl shadow-lg transition-all active:scale-95">Mostrar Resposta</button>
           ) : isFlipped ? (
