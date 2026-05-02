@@ -39,7 +39,7 @@ import {
 const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
   ? JSON.parse(__firebase_config) 
   : {
-      apiKey: "", // O ambiente Injetará a chave em tempo real
+      apiKey: "AIzaSyBBSo5uUqvyMuQ_9cZ8KOgQ3VovKZjO2p8",
       authDomain: "flash-cards-539e8.firebaseapp.com",
       projectId: "flash-cards-539e8",
       storageBucket: "flash-cards-539e8.firebasestorage.app",
