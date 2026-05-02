@@ -133,7 +133,9 @@ const globalStyles = `
 // Implementação baseada no fsrs4anki_scheduler.js que resolve a disparidade
 // ============================================================================
 
-const w = [0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542];
+// O peso w[3] foi ajustado de 8.2956 (padrão FSRS) para 3.5000 para forçar
+// o intervalo de "Fácil" em cartões novos a ser de aproximadamente 3 a 4 dias.
+const w = [0.212, 1.2931, 2.3065, 3.5000, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542];
 const requestRetention = 0.9;
 const maximumInterval = 36500;
 const DECAY = -w[20];
