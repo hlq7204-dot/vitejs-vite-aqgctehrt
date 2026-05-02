@@ -155,7 +155,7 @@ function apply_fuzz(ivl) {
   ivl = Math.round(ivl);
   let min_ivl = Math.max(2, Math.round(ivl * 0.95 - 1));
   let max_ivl = Math.round(ivl * 1.05 + 1);
-  const fuzz_factor = Math.random(); // O Anki usa seedrandom, no browser usamos Math.random() de forma limpa
+  const fuzz_factor = Math.random(); 
   return Math.floor(fuzz_factor * (max_ivl - min_ivl + 1) + min_ivl);
 }
 
@@ -220,7 +220,6 @@ function init_stability(ratingStr) {
 const calculateNextReview = (card, qualityUI) => {
   const RATING_STRINGS = ["again", "hard", "good", "easy"];
   const ratingStr = RATING_STRINGS[qualityUI];
-  const r_val = ratings[ratingStr]; 
   const now = Date.now();
 
   let state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
@@ -237,18 +236,23 @@ const calculateNextReview = (card, qualityUI) => {
     difficulty = init_difficulty("good");
   }
 
-  // --- MÁQUINA DE ESTADOS REAIS DO ANKI FSRS ---
+  // --- MÁQUINA DE ESTADOS REAIS DO ANKI FSRS PURA ---
   if (state === 0) { // New (Novo)
     stability = init_stability(ratingStr);
     difficulty = init_difficulty(ratingStr);
-    if (r_val <= 2) {
+    
+    if (ratingStr === "again") {
       state = 1; // Learning
-      interval = ratingStr === "again" ? 0 : 0.007; // 1m ou 10m
+      interval = 1 / 1440; // 1m
     } else {
-      state = 2; // Review
+      state = 2; // Review (Gradua diretamente como o Anki FSRS Puro)
+      let hard_ivl = next_interval(init_stability("hard"));
       let good_ivl = next_interval(init_stability("good"));
-      if (ratingStr === "good") interval = good_ivl;
-      else interval = Math.max(next_interval(init_stability("easy")), good_ivl + 1);
+      let easy_ivl = Math.max(next_interval(init_stability("easy")), good_ivl + 1);
+      
+      if (ratingStr === "hard") interval = hard_ivl;
+      else if (ratingStr === "good") interval = good_ivl;
+      else if (ratingStr === "easy") interval = easy_ivl;
     }
   } else if (state === 1 || state === 3) { // Learning / Relearning
     let last_s = stability;
@@ -256,13 +260,18 @@ const calculateNextReview = (card, qualityUI) => {
     difficulty = next_difficulty(last_d, ratingStr);
     stability = next_short_term_stability(last_s, ratingStr);
     
-    if (r_val <= 2) {
-      interval = ratingStr === "again" ? 0 : 0.007; 
+    if (ratingStr === "again") {
+      state = 3; 
+      interval = 1 / 1440; // 1m
     } else {
-      state = 2; // Review
+      state = 2; // Review (Gradua diretamente)
+      let hard_ivl = next_interval(next_short_term_stability(last_s, "hard"));
       let good_ivl = next_interval(next_short_term_stability(last_s, "good"));
-      if (ratingStr === "good") interval = good_ivl;
-      else interval = Math.max(next_interval(stability), good_ivl + 1);
+      let easy_ivl = Math.max(next_interval(next_short_term_stability(last_s, "easy")), good_ivl + 1);
+      
+      if (ratingStr === "hard") interval = hard_ivl;
+      else if (ratingStr === "good") interval = good_ivl;
+      else if (ratingStr === "easy") interval = easy_ivl;
     }
   } else if (state === 2) { // Review
     const retrievability = forgetting_curve(elapsed_days, stability);
@@ -272,8 +281,8 @@ const calculateNextReview = (card, qualityUI) => {
     if (ratingStr === "again") {
       difficulty = next_difficulty(last_d, "again");
       stability = next_forget_stability(last_d, last_s, retrievability);
-      state = 3; // Volta para Relearning
-      interval = 0;
+      state = 3; // Lapsed -> Relearning
+      interval = 1 / 1440; // 1m
     } else {
       difficulty = next_difficulty(last_d, ratingStr);
       stability = next_recall_stability(last_d, last_s, retrievability, ratingStr);
@@ -282,7 +291,7 @@ const calculateNextReview = (card, qualityUI) => {
       let good_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "good"));
       let easy_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "easy"));
       
-      // Limites de sobreposição de intervalos (idêntico ao fsrs4anki_scheduler.js)
+      // Limites de sobreposição de intervalos (Idêntico ao FSRS oficial)
       hard_ivl = Math.min(hard_ivl, good_ivl);
       good_ivl = Math.max(good_ivl, hard_ivl + 1);
       easy_ivl = Math.max(easy_ivl, good_ivl + 1);
@@ -293,10 +302,7 @@ const calculateNextReview = (card, qualityUI) => {
     }
   }
 
-  // Se for < 0.01 (minutos), converte os segundos, se não, converte dias em milissegundos
-  const nextDue = interval <= 0.01 
-    ? now + (interval > 0 ? 10 * 60000 : 60000) 
-    : now + (interval * 24 * 60 * 60 * 1000);
+  const nextDue = now + (interval * 24 * 60 * 60 * 1000);
 
   return { 
     ...card, 
@@ -311,12 +317,12 @@ const calculateNextReview = (card, qualityUI) => {
 };
 
 const formatInterval = (days) => {
-  if (days === 0 || days < 0.01) return "< 1m";
-  if (days < 0.03) return "10m"; 
-  if (days < 1) return `${Math.round(days * 24)}h`;
+  if (days < 0.0001) return "< 1m";
+  if (days < 0.04) return `${Math.max(1, Math.round(days * 24 * 60))}m`; // Horas pequenas formatadas em min
+  if (days < 1) return `${Math.max(1, Math.round(days * 24))}h`;
   if (days < 30) return `${Math.round(days)}d`;
-  if (days < 365) return `${Math.round(days / 30)}m`; 
-  return `${Math.round(days / 365)}a`; 
+  if (days < 365) return `${Math.round(days / 30)}m`; // 'm' utilizado em PT para meses 
+  return `${Math.round(days / 365)}a`; // 'a' utilizado em PT para anos
 };
 
 // SINTETIZADOR DE ÁUDIO PARA O ALARME DO POMODORO
