@@ -4,10 +4,94 @@
     <meta charset="UTF-8" />
     <meta name="google" content="notranslate" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Flash Cards</title>
+    <title>Lumina Flash Cards</title>
+    
+    <style>
+      /* Estilos essenciais para a tela de carregamento (Splash Screen) */
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #020617; /* Cor base do seu app (slate-950) */
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      
+      #lumina-splash {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        /* Imagem temática de estudos com uma camada escura por cima para leitura do texto */
+        background-image: linear-gradient(to bottom, rgba(2, 6, 23, 0.85), rgba(2, 6, 23, 1)), url('https://images.unsplash.com/photo-1516321497487-e288fb19713f?q=80&w=1470&auto=format&fit=crop');
+        background-size: cover;
+        background-position: center;
+        z-index: 99999;
+        transition: opacity 0.6s ease-out, visibility 0.6s ease-out;
+      }
+
+      /* Spinner de carregamento */
+      .splash-spinner {
+        width: 48px;
+        height: 48px;
+        border: 4px solid rgba(99, 102, 241, 0.2); /* indigo-500 suave */
+        border-top-color: #6366f1; /* indigo-500 vibrante */
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 24px;
+        box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
+      }
+
+      /* Título animado */
+      .splash-title {
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.025em;
+        background: linear-gradient(to right, #818cf8, #a855f7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin: 0;
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+      }
+    </style>
   </head>
   <body>
+    <!-- Tela de Carregamento Temática -->
+    <div id="lumina-splash">
+      <div class="splash-spinner"></div>
+      <h1 class="splash-title">Lumina Cards</h1>
+    </div>
+
+    <!-- Ponto de montagem do React -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Script para ocultar a tela de carregamento suavemente -->
+    <script>
+      window.addEventListener('load', () => {
+        const splash = document.getElementById('lumina-splash');
+        if (splash) {
+          // Pequeno atraso para garantir que o React montou a UI
+          setTimeout(() => {
+            splash.style.opacity = '0';
+            splash.style.visibility = 'hidden';
+            // Remove do DOM após a transição
+            setTimeout(() => splash.remove(), 600);
+          }, 300);
+        }
+      });
+    </script>
   </body>
 </html>
