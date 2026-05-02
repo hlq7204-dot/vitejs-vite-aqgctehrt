@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInWithCustomToken } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
 // --- GARANTIA DE DESIGN E BLOQUEIO DE TRADUÇÃO ---
@@ -39,7 +39,7 @@ import {
 const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
   ? JSON.parse(__firebase_config) 
   : {
-      apiKey: "AIzaSyBBSo5uUqvyMuQ_9cZ8KOgQ3VovKZjO2p8",
+      apiKey: "", // O ambiente Injetará a chave em tempo real
       authDomain: "flash-cards-539e8.firebaseapp.com",
       projectId: "flash-cards-539e8",
       storageBucket: "flash-cards-539e8.firebasestorage.app",
@@ -48,15 +48,11 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_co
       measurementId: "G-6G02K580GK"
     };
 
-const isFirebaseActive = firebaseConfig.apiKey && firebaseConfig.apiKey !== "SUA_API_KEY";
-
 let app, auth, db;
 try {
-  if (isFirebaseActive) {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-  }
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
 } catch (error) {
   console.error("Erro ao inicializar o Firebase:", error);
 }
@@ -130,12 +126,10 @@ const globalStyles = `
 
 // ============================================================================
 // ALGORITMO FSRS v6.1.1 (Free Spaced Repetition Scheduler) + Anki Native Steps
-// Implementação baseada no fsrs4anki_scheduler.js que resolve a disparidade
 // ============================================================================
 
-// O peso w[3] foi ajustado de 8.2956 (padrão FSRS) para 3.5000 para forçar
-// o intervalo de "Fácil" em cartões novos a ser de aproximadamente 3 a 4 dias.
-const w = [0.212, 1.2931, 2.3065, 3.5000, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542];
+// Pesos padrão originais do algoritmo FSRS
+const w = [0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542];
 const requestRetention = 0.9;
 const maximumInterval = 36500;
 const DECAY = -w[20];
@@ -145,16 +139,29 @@ const LEARNING_STEPS = [1, 10]; // Passos Nativos do Anki (em minutos)
 
 const ratings = { "again": 1, "hard": 2, "good": 3, "easy": 4 };
 
+// FUNÇÃO DE HASH DETERMINÍSTICO (Substitui Math.random e seedrandom.js)
+// Garante o mesmo "fuzz_factor" para o mesmo cartão no mesmo estado de revisão.
+function generate_fuzz_factor(card) {
+  const seedStr = `${card.id}_${card.reviews || 0}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seedStr.length; i++) {
+    h ^= seedStr.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= h >>> 15;
+  // Retorna um valor pseudoaleatório perfeitamente distribuído entre 0.0 e menor que 1.0
+  return (h >>> 0) / 4294967296;
+}
+
 function constrain_difficulty(difficulty) {
   return Math.min(Math.max(+Number(difficulty).toFixed(2), 1), 10);
 }
 
-function apply_fuzz(ivl) {
+function apply_fuzz(ivl, fuzz_factor) {
   if (!enable_fuzz || ivl < 2.5) return Math.round(ivl);
   ivl = Math.round(ivl);
   let min_ivl = Math.max(2, Math.round(ivl * 0.95 - 1));
   let max_ivl = Math.round(ivl * 1.05 + 1);
-  const fuzz_factor = Math.random(); 
   return Math.floor(fuzz_factor * (max_ivl - min_ivl + 1) + min_ivl);
 }
 
@@ -162,8 +169,8 @@ function forgetting_curve(elapsed_days, stability) {
   return Math.pow(1 + FACTOR * elapsed_days / stability, DECAY);
 }
 
-function next_interval(stability) {
-  const new_interval = apply_fuzz(stability / FACTOR * (Math.pow(requestRetention, 1 / DECAY) - 1));
+function next_interval(stability, fuzz_factor) {
+  const new_interval = apply_fuzz(stability / FACTOR * (Math.pow(requestRetention, 1 / DECAY) - 1), fuzz_factor);
   return Math.min(Math.max(Math.round(new_interval), 1), maximumInterval);
 }
 
@@ -211,6 +218,9 @@ const calculateNextReview = (card, qualityUI) => {
   const ratingStr = RATING_STRINGS[qualityUI];
   const now = Date.now();
 
+  // Garante semente aleatória determinística e pura para a sessão de revisão atual deste cartão
+  const fuzz_factor = generate_fuzz_factor(card); 
+
   let state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
   let stepIndex = card.stepIndex !== undefined ? card.stepIndex : 0;
   let difficulty = card.difficulty;
@@ -218,7 +228,7 @@ const calculateNextReview = (card, qualityUI) => {
   let last_review = card.last_review || now;
   
   const elapsed_days = Math.max((now - last_review) / 86400000, 0);
-  let interval = 0; // Vai armazenar valor em dias ou minutos para processamento interno
+  let interval = 0; 
   let isMinutes = false;
 
   // Proteção: Inicializar caso existam dados legados defeituosos
@@ -240,8 +250,8 @@ const calculateNextReview = (card, qualityUI) => {
       state = 1; stepIndex = 1; interval = LEARNING_STEPS[1]; isMinutes = true;
     } else if (ratingStr === "easy") {
       state = 2; // Gradua Imediatamente para FSRS Puro
-      let good_ivl = next_interval(init_stability("good"));
-      interval = Math.max(next_interval(init_stability("easy")), good_ivl + 1);
+      let good_ivl = next_interval(init_stability("good"), fuzz_factor);
+      interval = Math.max(next_interval(init_stability("easy"), fuzz_factor), good_ivl + 1);
     }
   } 
   else if (state === 1 || state === 3) { // APRENDIZAGEM / RE-APRENDIZAGEM
@@ -262,12 +272,12 @@ const calculateNextReview = (card, qualityUI) => {
       } else {
         // Passou nos Passos Nativos -> O FSRS assume o controlo (Dias)
         state = 2; 
-        interval = next_interval(stability);
+        interval = next_interval(stability, fuzz_factor);
       }
     } else if (ratingStr === "easy") {
       state = 2; // O FSRS assume o controlo
-      let good_ivl = next_interval(next_short_term_stability(last_s, "good"));
-      interval = Math.max(next_interval(stability), good_ivl + 1);
+      let good_ivl = next_interval(next_short_term_stability(last_s, "good"), fuzz_factor);
+      interval = Math.max(next_interval(stability, fuzz_factor), good_ivl + 1);
     }
   } 
   else if (state === 2) { // REVISÃO (Review) FSRS Puro
@@ -283,9 +293,9 @@ const calculateNextReview = (card, qualityUI) => {
       difficulty = next_difficulty(last_d, ratingStr);
       stability = next_recall_stability(last_d, last_s, retrievability, ratingStr);
       
-      let hard_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "hard"));
-      let good_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "good"));
-      let easy_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "easy"));
+      let hard_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "hard"), fuzz_factor);
+      let good_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "good"), fuzz_factor);
+      let easy_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "easy"), fuzz_factor);
       
       // Limites de sobreposição de intervalos (Idêntico ao script do Anki FSRS)
       hard_ivl = Math.min(hard_ivl, good_ivl);
@@ -506,7 +516,7 @@ export default function App() {
 
   // --- FIREBASE INIT & AUTH ---
   useEffect(() => {
-    if (!isFirebaseActive || !auth) {
+    if (!auth) {
       setIsAuthLoading(false);
       return;
     }
@@ -515,8 +525,13 @@ export default function App() {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth); // Fallback adicionado para garantir funcionamento
         }
-      } catch (err) { console.error("Token de auth:", err); }
+      } catch (err) { 
+        console.error("Token de auth:", err); 
+        try { await signInAnonymously(auth); } catch (e) { console.error("Falha no login anônimo", e); }
+      }
     };
     initAuth();
 
@@ -578,7 +593,7 @@ export default function App() {
 
   // --- SYNC DATA (CLOUD) ULTRA-SEGURO ---
   useEffect(() => {
-    if (!isFirebaseActive || !user || !db) return;
+    if (!user || !db) return;
 
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main');
     const unsubProfile = onSnapshot(profileRef, (docSnap) => {
@@ -821,19 +836,19 @@ export default function App() {
 
   // --- FUNÇÕES DE UPDATE NA CLOUD ---
   const updateDeckInCloud = (deckData) => {
-    if (!isFirebaseActive || !user || !db) return;
+    if (!user || !db) return;
     const cleanData = JSON.parse(JSON.stringify(deckData));
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', deckData.id), cleanData).catch(e => console.error("Firebase sync error", e));
   };
 
   const updateFolderInCloud = (folderData) => {
-    if (!isFirebaseActive || !user || !db) return;
+    if (!user || !db) return;
     const cleanData = JSON.parse(JSON.stringify(folderData));
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', folderData.id), cleanData).catch(e => console.error("Firebase sync error", e));
   };
 
   const syncActivityToCloud = (newMap) => {
-    if (!isFirebaseActive || !user || !db) return;
+    if (!user || !db) return;
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true }).catch(console.error);
   };
 
@@ -924,7 +939,7 @@ export default function App() {
       setPomoTime(pomoMode === 'work' ? finalWork * 60 : finalBreak * 60);
     }
 
-    if (isFirebaseActive && user && db) {
+    if (user && db) {
       setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { 
         pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak, pomoTotalBlocks: finalBlocks, dailyGoal: finalGoal 
       }, { merge: true }).catch(console.error);
@@ -1177,7 +1192,7 @@ export default function App() {
       setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId)));
       removeDeletedCardsFromActivity(cardIdsToScrub);
 
-      if (isFirebaseActive && user && db) {
+      if (user && db) {
         idsToDelete.forEach(id => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)).catch(e => {}));
         decksToDelete.forEach(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)).catch(e => {}));
       }
@@ -1189,7 +1204,7 @@ export default function App() {
       setDecks(prev => prev.filter(d => d.id !== itemToDelete.id));
       removeDeletedCardsFromActivity(cardIdsToScrub);
       
-      if (isFirebaseActive && user && db) {
+      if (user && db) {
         deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id)).catch(e => {});
       }
       if (activeDeckId === itemToDelete.id) { setCurrentView('dashboard'); setActiveDeckId(null); }
