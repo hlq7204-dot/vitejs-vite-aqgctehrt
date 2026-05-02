@@ -32,7 +32,7 @@ import {
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
   PieChart, Timer, Pause, RotateCcw, Settings, LayoutDashboard, Library, Flame, BarChart2, LogOut,
-  Maximize, Minimize // Ícones de ecrã inteiro adicionados
+  Maximize, Minimize 
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -1262,7 +1262,7 @@ export default function App() {
     const currentDecks = validDecks.filter(d => d.parentId === currentFolderId);
 
     return (
-      <div className="max-w-5xl mx-auto p-4 sm:p-6 animate-in fade-in duration-300">
+      <div className="w-full px-4 sm:px-8 lg:px-12 pt-2 animate-in fade-in duration-300">
         <div className="flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-full sm:w-fit mb-6 overflow-x-auto custom-scrollbar">
           <button onClick={() => { setMainTab('overview'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'overview' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
             <LayoutDashboard className="w-4 h-4" /> Visão Geral
@@ -1273,11 +1273,11 @@ export default function App() {
         </div>
 
         {mainTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-8 pb-10">
-            <div className="lg:col-span-2">{renderCalendar()}</div>
-            <div className="lg:col-span-1">{renderForecast()}</div>
-            <div className="lg:col-span-2">{renderMastery()}</div>
-            <div className="lg:col-span-1">{renderDailyGoal()}</div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8 pb-10">
+            <div className="lg:col-span-2 xl:col-span-2">{renderCalendar()}</div>
+            <div className="lg:col-span-1 xl:col-span-2">{renderForecast()}</div>
+            <div className="lg:col-span-2 xl:col-span-2">{renderMastery()}</div>
+            <div className="lg:col-span-1 xl:col-span-2">{renderDailyGoal()}</div>
           </div>
         )}
 
@@ -1295,7 +1295,7 @@ export default function App() {
 
             <div className="mb-8">
                <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><Folder className="w-5 h-5 text-slate-500" /> Pastas</h2></div>
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
                  {currentFolders.map((folder, index) => {
                    const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || 'text-indigo-400';
                    return (
@@ -1333,7 +1333,7 @@ export default function App() {
 
             <div>
                <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><BookOpen className="w-5 h-5 text-slate-500" /> Baralhos</h2></div>
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
                  {currentDecks.map((deck, index) => {
                    const stats = getCardStats(deck.cards); const due = calculateTotalDue(stats);
                    const isMenuOpen = activeMenuId === deck.id; const colorClass = deck.color?.includes('text-') ? deck.color : `${deck.color} text-white`;
@@ -1385,7 +1385,7 @@ export default function App() {
     if (!activeDeck) return null;
     const stats = getCardStats(activeDeck.cards); const due = calculateTotalDue(stats);
     return (
-      <div className="max-w-6xl mx-auto p-4 sm:p-6 pb-20 animate-in slide-in-from-right-4 fade-in duration-300">
+      <div className="w-full px-4 sm:px-8 lg:px-12 pt-2 pb-20 animate-in slide-in-from-right-4 fade-in duration-300">
         <button onClick={() => {
           setCurrentView('dashboard');
           setEditingCardId(null);
@@ -1529,15 +1529,15 @@ export default function App() {
     const type = currentCard.type || 'standard';
 
     return (
-      <div className="max-w-3xl mx-auto p-4 sm:p-6 min-h-screen flex flex-col pb-24">
+      <div className="w-full max-w-6xl mx-auto px-4 sm:px-8 lg:px-12 min-h-screen flex flex-col pb-24">
         <div className="flex items-center justify-between mb-8 pt-4 gap-4">
           <button onClick={() => setCurrentView('deck-detail')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
         </div>
 
-        <div className="flex-grow flex flex-col justify-center items-center" style={{ perspective: '1000px' }}>
+        <div className="flex-grow flex flex-col justify-center items-center w-full" style={{ perspective: '1000px' }}>
           {type === 'standard' && (
-            <div key={currentCard.id} className="w-full animate-slide-right">
+            <div key={currentCard.id} className="w-full animate-slide-right max-w-4xl mx-auto">
               <div 
                 className="relative w-full h-[500px] cursor-pointer transition-transform duration-500" 
                 style={{ transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
@@ -1553,7 +1553,7 @@ export default function App() {
                     <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique para virar</span>
                   </div>
                   <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
-                    <div className="text-2xl text-slate-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                    <div className="text-2xl sm:text-3xl text-slate-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
                   </div>
                 </div>
 
@@ -1567,7 +1567,7 @@ export default function App() {
                     <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }}><RefreshCcw className="w-4 h-4" /></button>
                   </div>
                   <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
-                    <div className="text-2xl text-indigo-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                    <div className="text-2xl sm:text-3xl text-indigo-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
                   </div>
                 </div>
               </div>
@@ -1575,9 +1575,9 @@ export default function App() {
           )}
 
           {type !== 'standard' && (
-            <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right">
+            <div key={currentCard.id} className="w-full max-w-4xl mx-auto bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right">
               <div className="p-8 border-b border-slate-800/50">
-                <div className="text-xl sm:text-2xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
               </div>
               <div className="flex-grow p-6 sm:px-10 bg-slate-950/50 flex flex-col justify-center gap-4">
                 {type === 'choice' && (
@@ -1590,7 +1590,7 @@ export default function App() {
                         else btnClass = "opacity-30";
                       }
                       return (
-                        <button key={idx} disabled={isFlipped} onClick={() => handleInteractiveSubmit(idx)} className={`p-4 rounded-xl border-2 text-left font-medium transition-all flex justify-between ${btnClass}`}>
+                        <button key={idx} disabled={isFlipped} onClick={() => handleInteractiveSubmit(idx)} className={`p-4 rounded-xl border-2 text-left font-medium transition-all flex justify-between text-lg ${btnClass}`}>
                           {opt} <span className="text-xs opacity-30 font-mono hidden sm:block">{idx+1}</span>
                         </button>
                       );
@@ -1599,15 +1599,15 @@ export default function App() {
                 )}
                 {type === 'tf' && (
                   <div className="flex gap-4 h-32">
-                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(true)} className={`flex-1 rounded-2xl border-2 font-bold text-xl transition-all ${isFlipped ? (currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10'} relative`}>VERDADEIRO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">1</span></button>
-                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(false)} className={`flex-1 rounded-2xl border-2 font-bold text-xl transition-all ${isFlipped ? (!currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-rose-500/30 text-rose-500 hover:bg-rose-500/10'} relative`}>FALSO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">2</span></button>
+                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(true)} className={`flex-1 rounded-2xl border-2 font-bold text-2xl transition-all ${isFlipped ? (currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10'} relative`}>VERDADEIRO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">1</span></button>
+                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(false)} className={`flex-1 rounded-2xl border-2 font-bold text-2xl transition-all ${isFlipped ? (!currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-rose-500/30 text-rose-500 hover:bg-rose-500/10'} relative`}>FALSO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">2</span></button>
                   </div>
                 )}
                 {type === 'typing' && (
                   <div className="w-full flex flex-col items-center gap-4">
-                    <input type="text" autoFocus disabled={isFlipped} value={isFlipped ? reviewInteraction : typedInput} onChange={e => setTypedInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && typedInput && handleInteractiveSubmit(typedInput)} className={`w-full max-w-md bg-transparent border-b-2 text-center text-2xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : ((reviewInteraction || '').toLowerCase() === (currentCard.typeAnswer || '').toLowerCase() ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`} placeholder="" />
+                    <input type="text" autoFocus disabled={isFlipped} value={isFlipped ? reviewInteraction : typedInput} onChange={e => setTypedInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && typedInput && handleInteractiveSubmit(typedInput)} className={`w-full max-w-lg bg-transparent border-b-2 text-center text-3xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : ((reviewInteraction || '').toLowerCase() === (currentCard.typeAnswer || '').toLowerCase() ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`} placeholder="" />
                     {isFlipped && (reviewInteraction || '').toLowerCase() !== (currentCard.typeAnswer || '').toLowerCase() && (
-                      <div className="text-emerald-400 font-mono text-xl animate-pop"><span className="text-slate-500 text-sm block">Correta:</span>{currentCard.typeAnswer}</div>
+                      <div className="text-emerald-400 font-mono text-2xl animate-pop"><span className="text-slate-500 text-sm block">Correta:</span>{currentCard.typeAnswer}</div>
                     )}
                   </div>
                 )}
@@ -1619,22 +1619,22 @@ export default function App() {
           )}
         </div>
 
-        <div className="h-32 mt-8 flex flex-col justify-center">
+        <div className="h-32 mt-8 flex flex-col justify-center max-w-4xl mx-auto w-full">
           {!isFlipped && type === 'standard' ? (
-            <button onClick={() => setIsFlipped(true)} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-lg py-5 rounded-2xl shadow-lg transition-all active:scale-95">Mostrar Resposta</button>
+            <button onClick={() => setIsFlipped(true)} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xl py-6 rounded-2xl shadow-lg transition-all active:scale-95">Mostrar Resposta</button>
           ) : isFlipped ? (
             <div className="grid grid-cols-4 gap-2 sm:gap-4 animate-in slide-in-from-bottom-2 fade-in duration-200">
-              <button onClick={() => handleAnswer(0)} className="p-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-2xl font-bold relative transition-colors active:scale-95">
-                Errei <span className="text-xs opacity-50 block">{intervalLabels[0]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">1</span>
+              <button onClick={() => handleAnswer(0)} className="p-4 sm:py-6 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
+                Errei <span className="text-sm opacity-50 block">{intervalLabels[0]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">1</span>
               </button>
-              <button onClick={() => handleAnswer(1)} className="p-4 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded-2xl font-bold relative transition-colors active:scale-95">
-                Difícil <span className="text-xs opacity-50 block">{intervalLabels[1]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">2</span>
+              <button onClick={() => handleAnswer(1)} className="p-4 sm:py-6 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
+                Difícil <span className="text-sm opacity-50 block">{intervalLabels[1]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">2</span>
               </button>
-              <button onClick={() => handleAnswer(2)} className="p-4 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-2xl font-bold relative transition-colors active:scale-95">
-                Bom <span className="text-xs opacity-50 block">{intervalLabels[2]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">3</span>
+              <button onClick={() => handleAnswer(2)} className="p-4 sm:py-6 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
+                Bom <span className="text-sm opacity-50 block">{intervalLabels[2]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">3</span>
               </button>
-              <button onClick={() => handleAnswer(3)} className="p-4 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-2xl font-bold relative transition-colors active:scale-95">
-                Fácil <span className="text-xs opacity-50 block">{intervalLabels[3]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">4</span>
+              <button onClick={() => handleAnswer(3)} className="p-4 sm:py-6 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
+                Fácil <span className="text-sm opacity-50 block">{intervalLabels[3]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">4</span>
               </button>
             </div>
           ) : (
@@ -1682,7 +1682,7 @@ export default function App() {
       ) : (
         <>
           {/* CABEÇALHO FLUTUANTE (Sem barra de fundo, com Título, sem Logo) */}
-          <header className="w-full max-w-5xl mx-auto px-4 py-6 sm:px-6 flex items-center justify-between z-40 relative">
+          <header className="w-full px-4 py-6 sm:px-8 lg:px-12 flex items-center justify-between z-40 relative">
             {/* Título */}
             <h1 onClick={() => setCurrentView('dashboard')} className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight cursor-pointer hover:opacity-80 transition-opacity">
               Flash Cards
