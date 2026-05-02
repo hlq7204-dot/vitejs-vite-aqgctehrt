@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="google" content="notranslate" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lumina Flash Cards</title>
+    <title>Flash Cards</title>
     
     <style>
       /* Estilos essenciais para a tela de carregamento (Splash Screen) */
@@ -15,7 +15,7 @@
         font-family: system-ui, -apple-system, sans-serif;
       }
       
-      #lumina-splash {
+      #splash-screen {
         position: fixed;
         top: 0;
         left: 0;
@@ -25,12 +25,19 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        /* Imagem temática de estudos com uma camada escura por cima para leitura do texto */
-        background-image: linear-gradient(to bottom, rgba(2, 6, 23, 0.85), rgba(2, 6, 23, 1)), url('https://images.unsplash.com/photo-1516321497487-e288fb19713f?q=80&w=1470&auto=format&fit=crop');
-        background-size: cover;
-        background-position: center;
+        background-color: #020617;
         z-index: 99999;
         transition: opacity 0.6s ease-out, visibility 0.6s ease-out;
+      }
+
+      .splash-logo {
+        width: 100px;
+        height: 100px;
+        margin-bottom: 24px;
+        border-radius: 24px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        animation: float 4s ease-in-out infinite;
+        object-fit: cover;
       }
 
       /* Spinner de carregamento */
@@ -65,13 +72,19 @@
         0%, 100% { opacity: 1; }
         50% { opacity: 0.6; }
       }
+
+      @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+      }
     </style>
   </head>
   <body>
     <!-- Tela de Carregamento Temática -->
-    <div id="lumina-splash">
+    <div id="splash-screen">
+      <img src="image_7b9ce0.png" alt="Flash Cards Icon" class="splash-logo" />
       <div class="splash-spinner"></div>
-      <h1 class="splash-title">Lumina Cards</h1>
+      <h1 class="splash-title">Flash Cards</h1>
     </div>
 
     <!-- Ponto de montagem do React -->
@@ -81,7 +94,7 @@
     <!-- Script para ocultar a tela de carregamento suavemente -->
     <script>
       window.addEventListener('load', () => {
-        const splash = document.getElementById('lumina-splash');
+        const splash = document.getElementById('splash-screen');
         if (splash) {
           // Pequeno atraso para garantir que o React montou a UI
           setTimeout(() => {
