@@ -1609,21 +1609,21 @@ export default function App() {
 
         {/* Cards Principais */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group">
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-100">
             <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Activity className="w-32 h-32" /></div>
             <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Revisões {reportPeriod === 'all' ? '(Total)' : `(${daysCount}d)`}</span>
             <div className="text-4xl sm:text-5xl font-black text-indigo-400 relative z-10">{totalReviewsPeriod}</div>
             <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Cartões processados no período</div>
           </div>
           
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group">
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-200">
             <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><BrainCircuit className="w-32 h-32" /></div>
             <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Retenção Estimada</span>
             <div className="text-4xl sm:text-5xl font-black text-emerald-400 relative z-10">{avgRetention === 'N/A' ? '--' : `${avgRetention}%`}</div>
             <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Estimativa Algorítmica da FSRS (R)</div>
           </div>
 
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group">
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-300">
             <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Award className="w-32 h-32" /></div>
             <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Cartões Maduros</span>
             <div className="flex items-end gap-2 relative z-10">
@@ -1636,7 +1636,7 @@ export default function App() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Gráfico de Atividade */}
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px]">
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
             <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-6"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
             <div className="flex-grow flex items-end justify-between chart-scroll-container">
               <div className={`flex items-end h-full min-w-full ${reportPeriod === 'all' ? 'w-max' : ''} ${gapSize}`}>
@@ -1660,7 +1660,7 @@ export default function App() {
           </div>
 
           {/* Gráfico de Saúde da Memória */}
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px]">
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
             <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><PieChart className="w-5 h-5 text-emerald-400" /> Saúde da Memória</h3>
             <p className="text-sm text-slate-500 mb-8">Probabilidade de lembrança com base no FSRS</p>
             
