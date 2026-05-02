@@ -31,7 +31,7 @@ import {
   Sparkles, Folder, ChevronRight, ChevronLeft, FolderPlus, Upload, 
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
-  PieChart, Timer, Pause, RotateCcw, Settings, LayoutDashboard, Library, Flame, BarChart2, LogOut,
+  PieChart, Timer, Pause, RotateCcw, Settings, Home, Library, Flame, BarChart2, LogOut,
   Maximize, Minimize, Activity, TrendingUp, Filter, Award 
 } from 'lucide-react';
 
@@ -158,8 +158,7 @@ const LEARNING_STEPS = [1, 10]; // Passos Nativos do Anki (em minutos)
 
 const ratings = { "again": 1, "hard": 2, "good": 3, "easy": 4 };
 
-// FUNÇÃO DE HASH DETERMINÍSTICO (Substitui Math.random e seedrandom.js)
-// Garante o mesmo "fuzz_factor" para o mesmo cartão no mesmo estado de revisão.
+// FUNÇÃO DE HASH DETERMINÍSTICO
 function generate_fuzz_factor(card) {
   const seedStr = `${card.id}_${card.reviews || 0}`;
   let h = 0x811c9dc5;
@@ -168,7 +167,6 @@ function generate_fuzz_factor(card) {
     h = Math.imul(h, 0x01000193);
   }
   h ^= h >>> 15;
-  // Retorna um valor pseudoaleatório perfeitamente distribuído entre 0.0 e menor que 1.0
   return (h >>> 0) / 4294967296;
 }
 
@@ -237,7 +235,6 @@ const calculateNextReview = (card, qualityUI) => {
   const ratingStr = RATING_STRINGS[qualityUI];
   const now = Date.now();
 
-  // Garante semente aleatória determinística e pura para a sessão de revisão atual deste cartão
   const fuzz_factor = generate_fuzz_factor(card); 
 
   let state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
@@ -250,14 +247,12 @@ const calculateNextReview = (card, qualityUI) => {
   let interval = 0; 
   let isMinutes = false;
 
-  // Proteção: Inicializar caso existam dados legados defeituosos
   if (stability == null && state !== 0) {
     stability = init_stability("good");
     difficulty = init_difficulty("good");
   }
 
-  // --- MÁQUINA DE ESTADOS HÍBRIDA (FSRS + Passos de Aprendizagem do Anki) ---
-  if (state === 0) { // NOVO (New)
+  if (state === 0) { 
     stability = init_stability(ratingStr);
     difficulty = init_difficulty(ratingStr);
 
@@ -268,12 +263,12 @@ const calculateNextReview = (card, qualityUI) => {
     } else if (ratingStr === "good") {
       state = 1; stepIndex = 1; interval = LEARNING_STEPS[1]; isMinutes = true;
     } else if (ratingStr === "easy") {
-      state = 2; // Gradua Imediatamente para FSRS Puro
+      state = 2; 
       let good_ivl = next_interval(init_stability("good"), fuzz_factor);
       interval = Math.max(next_interval(init_stability("easy"), fuzz_factor), good_ivl + 1);
     }
   } 
-  else if (state === 1 || state === 3) { // APRENDIZAGEM / RE-APRENDIZAGEM
+  else if (state === 1 || state === 3) { 
     let last_s = stability;
     let last_d = difficulty;
     
@@ -283,23 +278,22 @@ const calculateNextReview = (card, qualityUI) => {
     if (ratingStr === "again") {
       stepIndex = 0; interval = LEARNING_STEPS[0]; isMinutes = true;
     } else if (ratingStr === "hard") {
-      interval = LEARNING_STEPS[stepIndex] || 5; isMinutes = true; // Repete passo atual
+      interval = LEARNING_STEPS[stepIndex] || 5; isMinutes = true; 
     } else if (ratingStr === "good") {
       stepIndex++;
       if (stepIndex < LEARNING_STEPS.length) {
         interval = LEARNING_STEPS[stepIndex]; isMinutes = true;
       } else {
-        // Passou nos Passos Nativos -> O FSRS assume o controlo (Dias)
         state = 2; 
         interval = next_interval(stability, fuzz_factor);
       }
     } else if (ratingStr === "easy") {
-      state = 2; // O FSRS assume o controlo
+      state = 2; 
       let good_ivl = next_interval(next_short_term_stability(last_s, "good"), fuzz_factor);
       interval = Math.max(next_interval(stability, fuzz_factor), good_ivl + 1);
     }
   } 
-  else if (state === 2) { // REVISÃO (Review) FSRS Puro
+  else if (state === 2) { 
     const retrievability = forgetting_curve(elapsed_days, stability);
     let last_s = stability;
     let last_d = difficulty;
@@ -316,7 +310,6 @@ const calculateNextReview = (card, qualityUI) => {
       let good_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "good"), fuzz_factor);
       let easy_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "easy"), fuzz_factor);
       
-      // Limites de sobreposição de intervalos (Idêntico ao script do Anki FSRS)
       hard_ivl = Math.min(hard_ivl, good_ivl);
       good_ivl = Math.max(good_ivl, hard_ivl + 1);
       easy_ivl = Math.max(easy_ivl, good_ivl + 1);
@@ -327,7 +320,6 @@ const calculateNextReview = (card, qualityUI) => {
     }
   }
 
-  // Prepara Intervalo (Padrão: dias) e Timestamp de Data
   const intervalInDays = isMinutes ? interval / 1440 : interval;
   const nextDue = isMinutes ? now + (interval * 60000) : now + (interval * 24 * 60 * 60 * 1000);
 
@@ -442,7 +434,6 @@ export default function App() {
   const firstLoadRefFolders = useRef(true);
   const firstLoadRefDecks = useRef(true);
 
-  // Estados com inicialização segura
   const [decks, setDecks] = useState(() => {
     try { const saved = localStorage.getItem('lumina_decks'); if (saved) return JSON.parse(saved); } catch (e) {}
     return initialDecks;
@@ -456,7 +447,6 @@ export default function App() {
     return {};
   });
 
-  // Configurações
   const [pomoWorkDuration, setPomoWorkDuration] = useState(() => {
     try { const saved = localStorage.getItem('lumina_pomoWork'); if (saved) return parseInt(saved); } catch(e){} return 25;
   });
@@ -472,9 +462,9 @@ export default function App() {
 
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [currentView, setCurrentView] = useState('dashboard'); 
-  const [mainTab, setMainTab] = useState('overview'); 
-  const [reportPeriod, setReportPeriod] = useState('week'); // Novo estado de período (Semana/Mês)
-  const [reportDeckId, setReportDeckId] = useState('all'); // Novo estado de baralho para filtro
+  const [mainTab, setMainTab] = useState('home'); 
+  const [reportPeriod, setReportPeriod] = useState('week'); 
+  const [reportDeckId, setReportDeckId] = useState('all'); 
   
   const [activeDeckId, setActiveDeckId] = useState(null);
   const activeDeck = decks.find(d => d.id === activeDeckId);
@@ -497,10 +487,8 @@ export default function App() {
   const [isPomoSettingsOpen, setIsPomoSettingsOpen] = useState(false);
   const [isPomoExpanded, setIsPomoExpanded] = useState(true);
 
-  // Ecrã inteiro
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Modais de Criação
   const [cardType, setCardType] = useState('standard');
   const [newCardFront, setNewCardFront] = useState('');
   const [newCardBack, setNewCardBack] = useState(''); 
@@ -526,7 +514,6 @@ export default function App() {
 
   const stateRef = useRef();
 
-  // ESCUDO DE PROTEÇÃO LOCAL
   useEffect(() => { localStorage.setItem('lumina_decks', JSON.stringify(decks)); }, [decks]);
   useEffect(() => { localStorage.setItem('lumina_folders', JSON.stringify(folders)); }, [folders]);
   useEffect(() => { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); }, [activityMap]);
@@ -535,19 +522,17 @@ export default function App() {
   useEffect(() => { localStorage.setItem('lumina_pomoBlocks', pomoTotalBlocks); }, [pomoTotalBlocks]);
   useEffect(() => { localStorage.setItem('lumina_dailyGoal', dailyGoal); }, [dailyGoal]);
 
-  // --- FIREBASE INIT & AUTH ---
   useEffect(() => {
     if (!auth) {
       setIsAuthLoading(false);
       return;
     }
-
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
         } else {
-          await signInAnonymously(auth); // Fallback adicionado para garantir funcionamento
+          await signInAnonymously(auth); 
         }
       } catch (err) { 
         console.error("Token de auth:", err); 
@@ -555,7 +540,6 @@ export default function App() {
       }
     };
     initAuth();
-
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u); 
       setIsAuthLoading(false);
@@ -563,59 +547,42 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- OUVIR ALTERAÇÕES DE ECRÃ INTEIRO ---
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch((err) => {
-        console.error(`Erro ao tentar entrar em modo de ecrã inteiro: ${err.message}`);
-      });
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
+      document.documentElement.requestFullscreen().catch(err => console.error(`Erro ecrã inteiro: ${err.message}`));
+    } else if (document.exitFullscreen) {
+      document.exitFullscreen();
     }
   };
 
   const signInWithGoogle = async () => {
-    if (!auth) {
-      showToast("Firebase não inicializado corretamente.", "error");
-      return;
-    }
+    if (!auth) return showToast("Firebase não inicializado corretamente.", "error");
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error) {
-      console.error("Erro no login com Google:", error);
-      showToast("Erro ao fazer login. Verifique as configurações.", "error");
+      showToast("Erro ao fazer login.", "error");
     }
   };
 
   const handleLogout = async () => {
     try {
       if (auth) await signOut(auth);
-      setDecks([]);
-      setFolders([]);
-      setActivityMap({});
-      setCurrentView('dashboard');
-      setMainTab('overview');
+      setDecks([]); setFolders([]); setActivityMap({});
+      setCurrentView('dashboard'); setMainTab('home');
     } catch (error) {
       console.error("Erro ao sair:", error);
     }
   };
 
-  // --- SYNC DATA (CLOUD) ULTRA-SEGURO ---
   useEffect(() => {
     if (!user || !db) return;
-
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main');
     const unsubProfile = onSnapshot(profileRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -636,7 +603,6 @@ export default function App() {
     const unsubFolders = onSnapshot(foldersRef, (snap) => {
       const cloudData = [];
       snap.forEach(d => cloudData.push(d.data()));
-      
       setFolders(currentLocal => {
         if (firstLoadRefFolders.current && cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
           currentLocal.forEach(localF => setDoc(doc(foldersRef, localF.id), localF).catch(console.error));
@@ -652,7 +618,6 @@ export default function App() {
     const unsubDecks = onSnapshot(decksRef, (snap) => {
       const cloudData = [];
       snap.forEach(dc => cloudData.push(dc.data()));
-      
       setDecks(currentLocal => {
         if (firstLoadRefDecks.current && cloudData.length === 0 && currentLocal.length > 0 && !snap.metadata.hasPendingWrites) {
           currentLocal.forEach(localD => setDoc(doc(decksRef, localD.id), localD).catch(console.error));
@@ -667,13 +632,8 @@ export default function App() {
     return () => { unsubProfile(); unsubFolders(); unsubDecks(); };
   }, [user]);
 
-  // RESET REVIEW STATE
-  useEffect(() => { 
-    setReviewInteraction(null); 
-    setTypedInput(''); 
-  }, [currentCardIndex]);
+  useEffect(() => { setReviewInteraction(null); setTypedInput(''); }, [currentCardIndex]);
 
-  // POMODORO TIMER COM ALARME
   useEffect(() => {
     let interval;
     if (pomoActive) {
@@ -681,7 +641,6 @@ export default function App() {
         setPomoTime(prev => {
           if (prev <= 1) {
             playAlarmSound(); 
-            
             if (pomoMode === 'work') {
               if (currentPomoBlock < pomoTotalBlocks) {
                 showToast(`Foco concluído! Pausa.`, 'info');
@@ -709,28 +668,18 @@ export default function App() {
     return () => clearInterval(interval);
   }, [pomoActive, pomoMode, pomoBreakDuration, pomoWorkDuration, currentPomoBlock, pomoTotalBlocks]);
 
-  // ATALHOS DE TECLADO
   useEffect(() => {
     const handleKeyDown = (e) => {
       const s = stateRef.current;
       if (!s || s.currentView !== 'review') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-
-      if (e.code === 'Space') {
-        e.preventDefault(); 
-        setIsFlipped(prev => !prev);
-      } else if (s.isFlipped && s.cardType === 'standard') {
-        if (e.key === '1') s.handleAnswer(0);
-        if (e.key === '2') s.handleAnswer(1);
-        if (e.key === '3') s.handleAnswer(2);
-        if (e.key === '4') s.handleAnswer(3);
+      if (e.code === 'Space') { e.preventDefault(); setIsFlipped(prev => !prev); } 
+      else if (s.isFlipped && s.cardType === 'standard') {
+        if (e.key === '1') s.handleAnswer(0); if (e.key === '2') s.handleAnswer(1);
+        if (e.key === '3') s.handleAnswer(2); if (e.key === '4') s.handleAnswer(3);
       } else if (!s.isFlipped) {
-        if (s.cardType === 'choice' && ['1','2','3','4'].includes(e.key)) {
-           s.handleInteractiveSubmit(parseInt(e.key) - 1);
-        } else if (s.cardType === 'tf') {
-           if (e.key === '1') s.handleInteractiveSubmit(true);
-           if (e.key === '2') s.handleInteractiveSubmit(false);
-        }
+        if (s.cardType === 'choice' && ['1','2','3','4'].includes(e.key)) s.handleInteractiveSubmit(parseInt(e.key) - 1);
+        else if (s.cardType === 'tf') { if (e.key === '1') s.handleInteractiveSubmit(true); if (e.key === '2') s.handleInteractiveSubmit(false); }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -747,19 +696,21 @@ export default function App() {
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
   };
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Bom dia';
+    if (hour < 18) return 'Boa tarde';
+    return 'Boa noite';
+  };
   
-  // --- IDENTIFICAÇÃO E LIMPEZA DE FANTASMAS ---
   const reachableFolders = new Set([null]);
   let changed = true;
   let safetyLimit = 0; 
   while (changed && safetyLimit < 1000) {
-    changed = false;
-    safetyLimit++;
+    changed = false; safetyLimit++;
     for (const f of folders) {
-      if (!reachableFolders.has(f.id) && reachableFolders.has(f.parentId)) {
-        reachableFolders.add(f.id);
-        changed = true;
-      }
+      if (!reachableFolders.has(f.id) && reachableFolders.has(f.parentId)) { reachableFolders.add(f.id); changed = true; }
     }
   }
   const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
@@ -774,10 +725,7 @@ export default function App() {
         const data = newMap[dateStr];
         if (Array.isArray(data)) {
           const filtered = data.filter(id => !idsToRemoveSet.has(id));
-          if (filtered.length !== data.length) {
-            newMap[dateStr] = filtered;
-            hasChanges = true;
-          }
+          if (filtered.length !== data.length) { newMap[dateStr] = filtered; hasChanges = true; }
         }
       }
       if (hasChanges) syncActivityToCloud(newMap);
@@ -788,18 +736,14 @@ export default function App() {
   const getDailyCount = (dateStr) => {
     const data = activityMap[dateStr];
     if (!data) return 0;
-    if (Array.isArray(data)) {
-      return data.filter(id => validCardIds.has(id)).length;
-    }
+    if (Array.isArray(data)) return data.filter(id => validCardIds.has(id)).length;
     return 0; 
   };
 
   const getDailyCountFiltered = (dateStr, deckId) => {
     const data = activityMap[dateStr];
     if (!data || !Array.isArray(data)) return 0;
-    if (deckId === 'all') {
-      return data.filter(id => validCardIds.has(id)).length;
-    }
+    if (deckId === 'all') return data.filter(id => validCardIds.has(id)).length;
     const targetDeck = validDecks.find(d => d.id === deckId);
     if (!targetDeck) return 0;
     const deckCardIds = new Set((targetDeck.cards || []).map(c => c.id));
@@ -811,18 +755,11 @@ export default function App() {
     let loopSafeguard = 0; 
     while (loopSafeguard < 3650) { 
       loopSafeguard++;
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const dy = String(d.getDate()).padStart(2, '0');
+      const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const dy = String(d.getDate()).padStart(2, '0');
       const str = `${y}-${m}-${dy}`;
-
-      if (getDailyCount(str) > 0) { 
-        streak++; d.setDate(d.getDate() - 1); 
-      } else if (streak === 0 && str === getTodayStr()) { 
-        d.setDate(d.getDate() - 1); 
-      } else { 
-        break; 
-      }
+      if (getDailyCount(str) > 0) { streak++; d.setDate(d.getDate() - 1); } 
+      else if (streak === 0 && str === getTodayStr()) { d.setDate(d.getDate() - 1); } 
+      else { break; }
     }
     return streak;
   };
@@ -832,7 +769,6 @@ export default function App() {
     return (cards || []).reduce((acc, card) => {
       const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
       const r = card.reviews || 0;
-      
       if (state === 0 || r === 0) acc.new++;
       else if (state === 1 || state === 3 || card.interval < 1) acc.learning++;
       else if (card.dueDate <= now) acc.review++;
@@ -846,12 +782,9 @@ export default function App() {
   const getDecksInFolder = (folderId, visited = new Set()) => {
     if (visited.has(folderId)) return [];
     visited.add(folderId);
-    
     let result = [];
     result.push(...validDecks.filter(d => d.parentId === folderId));
-    folders.filter(f => f.parentId === folderId).forEach(sf => { 
-      result.push(...getDecksInFolder(sf.id, visited)); 
-    });
+    folders.filter(f => f.parentId === folderId).forEach(sf => { result.push(...getDecksInFolder(sf.id, visited)); });
     return result;
   };
 
@@ -867,7 +800,6 @@ export default function App() {
     if (f) { breadcrumbs.unshift(f); currId = f.parentId; } else break;
   }
 
-  // --- FUNÇÕES DE UPDATE NA CLOUD ---
   const updateDeckInCloud = (deckData) => {
     if (!user || !db) return;
     const cleanData = JSON.parse(JSON.stringify(deckData));
@@ -885,7 +817,6 @@ export default function App() {
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true }).catch(console.error);
   };
 
-  // --- LÓGICA DE ESTUDO ---
   const activeDeckRef = validDecks.find(d => d.id === activeDeckId);
 
   const startReview = (deckId, forceAll = false) => {
@@ -894,11 +825,8 @@ export default function App() {
     if (forceAll) dueCards = deck?.cards || [];
     if (dueCards.length === 0) return;
     setReviewQueue([...dueCards].sort(() => Math.random() - 0.5));
-    setCurrentCardIndex(0); 
-    setIsFlipped(false); 
-    setSessionStats({ reviewed: 0, correct: 0 });
-    setActiveDeckId(deckId); 
-    setCurrentView('review');
+    setCurrentCardIndex(0); setIsFlipped(false); setSessionStats({ reviewed: 0, correct: 0 });
+    setActiveDeckId(deckId); setCurrentView('review');
   };
 
   const handleAnswer = (quality) => {
@@ -910,78 +838,34 @@ export default function App() {
       setDecks(prev => prev.map(d => d.id === activeDeckId ? newDeckData : d)); 
       updateDeckInCloud(newDeckData);
     }
-
     setSessionStats(prev => ({ reviewed: prev.reviewed + 1, correct: prev.correct + (quality > 0 ? 1 : 0) }));
-
     const todayStr = getTodayStr();
-    
     const currentDayData = Array.isArray(activityMap[todayStr]) ? activityMap[todayStr] : [];
     const newActivityMap = { ...activityMap, [todayStr]: [...currentDayData, updatedCard.id] };
     
-    setActivityMap(newActivityMap); 
-    syncActivityToCloud(newActivityMap);
+    setActivityMap(newActivityMap); syncActivityToCloud(newActivityMap);
 
     let newQueue = [...reviewQueue];
     if (updatedCard.interval === 0) newQueue.push(updatedCard);
-
-    if (currentCardIndex + 1 < newQueue.length) {
-      setReviewQueue(newQueue); 
-      setIsFlipped(false); 
-      setCurrentCardIndex(prev => prev + 1);
-    } else {
-      setCurrentView('finished');
-    }
+    if (currentCardIndex + 1 < newQueue.length) { setReviewQueue(newQueue); setIsFlipped(false); setCurrentCardIndex(prev => prev + 1); } 
+    else { setCurrentView('finished'); }
   };
 
-  const handleInteractiveSubmit = (val) => { 
-    setReviewInteraction(val); 
-    setIsFlipped(true); 
-  };
+  const handleInteractiveSubmit = (val) => { setReviewInteraction(val); setIsFlipped(true); };
 
-  // ATUALIZAÇÃO DO REF COM AS FUNÇÕES MAIS RECENTES PARA OS ATALHOS DE TECLADO
-  stateRef.current = { 
-    currentView, 
-    isFlipped, 
-    reviewQueue, 
-    currentCardIndex, 
-    cardType: reviewQueue[currentCardIndex]?.type || 'standard',
-    handleAnswer,
-    handleInteractiveSubmit
-  };
+  stateRef.current = { currentView, isFlipped, reviewQueue, currentCardIndex, cardType: reviewQueue[currentCardIndex]?.type || 'standard', handleAnswer, handleInteractiveSubmit };
 
-  const updateChoiceOption = (idx, value) => {
-    const newOpts = [...choiceOptions];
-    newOpts[idx] = value;
-    setChoiceOptions(newOpts);
-  };
+  const updateChoiceOption = (idx, value) => { const newOpts = [...choiceOptions]; newOpts[idx] = value; setChoiceOptions(newOpts); };
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
-    const finalWork = pomoWorkDuration || 25;
-    const finalBreak = pomoBreakDuration || 5;
-    const finalBlocks = pomoTotalBlocks || 4;
-    const finalGoal = dailyGoal || 50;
-    
-    setPomoWorkDuration(finalWork);
-    setPomoBreakDuration(finalBreak);
-    setPomoTotalBlocks(finalBlocks);
-    setDailyGoal(finalGoal);
-    setIsPomoSettingsOpen(false);
-    
-    if (!pomoActive) {
-      setPomoTime(pomoMode === 'work' ? finalWork * 60 : finalBreak * 60);
-    }
-
-    if (user && db) {
-      setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { 
-        pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak, pomoTotalBlocks: finalBlocks, dailyGoal: finalGoal 
-      }, { merge: true }).catch(console.error);
-    }
-
+    const finalWork = pomoWorkDuration || 25; const finalBreak = pomoBreakDuration || 5; const finalBlocks = pomoTotalBlocks || 4; const finalGoal = dailyGoal || 50;
+    setPomoWorkDuration(finalWork); setPomoBreakDuration(finalBreak); setPomoTotalBlocks(finalBlocks); setDailyGoal(finalGoal); setIsPomoSettingsOpen(false);
+    if (!pomoActive) setPomoTime(pomoMode === 'work' ? finalWork * 60 : finalBreak * 60);
+    if (user && db) setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak, pomoTotalBlocks: finalBlocks, dailyGoal: finalGoal }, { merge: true }).catch(console.error);
     showToast("Configurações salvas!");
   };
 
-  // --- IMPORTAÇÃO DE FICHEIROS ---
   const processAnkiImport = async (file) => {
     try {
       setImportProgress('A carregar...');
@@ -989,40 +873,26 @@ export default function App() {
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js');
       await loadScript('https://cdn.jsdelivr.net/npm/fzstd/umd/index.js');
 
-      const initSqlJsFn = window.initSqlJs;
-      const JSZipClass = window.JSZip;
-      
+      const initSqlJsFn = window.initSqlJs; const JSZipClass = window.JSZip;
       if (!initSqlJsFn || !JSZipClass) throw new Error("Bibliotecas falharam.");
 
       const SQL = await initSqlJsFn({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${f}` });
       await new Promise(r => setTimeout(r, 100)); 
-      
-      const zip = new JSZipClass();
-      await zip.loadAsync(file);
+      const zip = new JSZipClass(); await zip.loadAsync(file);
       
       let dbFile = zip.file("collection.anki21b") || zip.file("collection.anki21") || zip.file("collection.anki2");
       if (!dbFile) throw new Error("Base de dados Anki não encontrada.");
       
       let dbData = await dbFile.async("uint8array");
-      if (dbFile.name === "collection.anki21b") {
-        if (!window.fzstd) throw new Error("Biblioteca de descompressão falhou.");
-        dbData = window.fzstd.decompress(dbData);
-      }
-      
+      if (dbFile.name === "collection.anki21b") { if (!window.fzstd) throw new Error("Biblioteca de descompressão falhou."); dbData = window.fzstd.decompress(dbData); }
       const db = new SQL.Database(dbData);
 
       let mediaMap = {};
       if (zip.file("media")) {
-        try {
-          const mediaData = await zip.file("media").async("string");
-          mediaMap = JSON.parse(mediaData);
-        } catch (err) { 
-          console.warn("Erro ao ler media map.", err); 
-        }
+        try { const mediaData = await zip.file("media").async("string"); mediaMap = JSON.parse(mediaData); } catch (err) {}
       }
 
-      const mediaAssets = {}; 
-      const fileNames = Object.keys(zip.files);
+      const mediaAssets = {}; const fileNames = Object.keys(zip.files);
       for (let i = 0; i < fileNames.length; i++) {
         const mappedName = mediaMap[fileNames[i]];
         if (mappedName && typeof mappedName === 'string' && mappedName.match(/\.(jpeg|jpg|gif|png|svg|webp)$/i)) {
@@ -1037,32 +907,24 @@ export default function App() {
       let decksInfo = [];
       try {
         const decksTable = db.exec("SELECT id, name FROM decks");
-        if (decksTable.length > 0 && decksTable[0].values) {
-          decksTable[0].values.forEach(row => decksInfo.push({ id: String(row[0]), name: String(row[1]) }));
-        }
+        if (decksTable.length > 0 && decksTable[0].values) decksTable[0].values.forEach(row => decksInfo.push({ id: String(row[0]), name: String(row[1]) }));
       } catch (e) {
         try {
           const colQuery = db.exec("SELECT decks FROM col");
           if (colQuery.length > 0 && colQuery[0].values && colQuery[0].values[0]) {
             const parsed = JSON.parse(colQuery[0].values[0][0]);
-            Object.values(parsed).forEach(d => {
-              decksInfo.push({ id: String(d.id), name: String(d.name) });
-            });
+            Object.values(parsed).forEach(d => decksInfo.push({ id: String(d.id), name: String(d.name) }));
           }
         } catch (err) { }
       }
 
-      const newDecksMap = {};
-      const newFoldersToCloud = [];
-      
+      const newDecksMap = {}; const newFoldersToCloud = [];
       const getOrCreateFolder = (fName, parentId) => {
         let f = newFoldersToCloud.find(x => x.name === fName && x.parentId === parentId) || folders.find(x => x.name === fName && x.parentId === parentId);
         if (f) return f.id;
         const newId = `f-anki-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const newFolder = { id: newId, name: fName, parentId, color: 'text-indigo-400' };
-        newFoldersToCloud.push(newFolder);
-        setFolders(prev => [...prev, newFolder]);
-        updateFolderInCloud(newFolder);
+        newFoldersToCloud.push(newFolder); setFolders(prev => [...prev, newFolder]); updateFolderInCloud(newFolder);
         return newId;
       };
 
@@ -1070,8 +932,7 @@ export default function App() {
         if (ankiDeck.name === "Default" && ankiDeck.id === "1") return;
         const pathParts = ankiDeck.name.split(/::|\x1f|\x1e/).map(p => p.trim()).filter(Boolean);
         if (pathParts.length === 0) return;
-        let parent = currentFolderId; 
-        const deckName = pathParts.pop();
+        let parent = currentFolderId; const deckName = pathParts.pop();
         pathParts.forEach(p => { parent = getOrCreateFolder(p, parent); });
         newDecksMap[ankiDeck.id] = { id: `d-anki-${ankiDeck.id}`, name: deckName, parentId: parent, color: 'bg-emerald-600 text-white', cards: [] };
       });
@@ -1091,8 +952,7 @@ export default function App() {
               back = back.split(imgName).join(b64).split(encodeURIComponent(imgName)).join(b64);
             });
             const newCard = { id: `c-anki-${Math.random()}`, type: 'standard', front, back, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
-            if (newDecksMap[String(row[0])]) newDecksMap[String(row[0])].cards.push(newCard);
-            else fallbackDeck.cards.push(newCard);
+            if (newDecksMap[String(row[0])]) newDecksMap[String(row[0])].cards.push(newCard); else fallbackDeck.cards.push(newCard);
             importedCount++;
           }
         });
@@ -1100,19 +960,12 @@ export default function App() {
       
       const finalDecks = Object.values(newDecksMap).filter(d => d.cards.length > 0);
       if (fallbackDeck.cards.length > 0) finalDecks.push(fallbackDeck); 
-      
-      setDecks(prev => [...prev, ...finalDecks]);
-      finalDecks.forEach(d => updateDeckInCloud(d));
+      setDecks(prev => [...prev, ...finalDecks]); finalDecks.forEach(d => updateDeckInCloud(d));
 
       if(importedCount > 0) showToast(`${importedCount} cartões importados!`);
       else showToast("Nenhum cartão lido.", "error");
 
-    } catch (e) { 
-      showToast(`Erro: ${e.message}`, "error"); 
-    } finally { 
-      setIsImporting(false); 
-      setImportProgress(''); 
-    }
+    } catch (e) { showToast(`Erro: ${e.message}`, "error"); } finally { setIsImporting(false); setImportProgress(''); }
   };
 
   const processTextImport = (file) => {
@@ -1120,21 +973,16 @@ export default function App() {
     reader.onload = (evt) => {
       const text = evt.target.result;
       if (text.includes('\x00')) { showToast('Ficheiro binário não suportado.', 'error'); setIsImporting(false); return; }
-      const lines = text.split('\n');
-      const importedCards = [];
+      const lines = text.split('\n'); const importedCards = [];
       lines.forEach((line) => {
         if (!line.trim()) return;
         const separator = line.includes('\t') ? '\t' : ',';
         const parts = line.split(separator);
-        if (parts.length >= 2) {
-          importedCards.push({ id: `c-imp-${Date.now()}-${Math.random()}`, type: 'standard', front: parts[0].replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim(), back: parts[1].replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim(), repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 });
-        }
+        if (parts.length >= 2) importedCards.push({ id: `c-imp-${Date.now()}-${Math.random()}`, type: 'standard', front: parts[0].replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim(), back: parts[1].replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim(), repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 });
       });
       if (importedCards.length > 0) {
         const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: 'bg-emerald-600 text-white', cards: importedCards };
-        setDecks(prev => [...prev, newDeck]);
-        updateDeckInCloud(newDeck);
-        showToast(`${importedCards.length} cartões importados!`);
+        setDecks(prev => [...prev, newDeck]); updateDeckInCloud(newDeck); showToast(`${importedCards.length} cartões importados!`);
       }
       setIsImporting(false);
     };
@@ -1142,89 +990,53 @@ export default function App() {
   };
 
   const handleUniversalImport = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setIsImporting(true);
+    const file = e.target.files[0]; if (!file) return; setIsImporting(true);
     const ext = file.name.split('.').pop().toLowerCase();
-    if (ext === 'colpkg' || ext === 'apkg' || ext === 'zip') await processAnkiImport(file);
-    else processTextImport(file);
+    if (ext === 'colpkg' || ext === 'apkg' || ext === 'zip') await processAnkiImport(file); else processTextImport(file);
     e.target.value = null; 
   };
 
-  // --- CRUD COM INTERFACE OTIMISTA E ANTI-FANTASMAS ---
   const openEditModal = (type, item, e) => {
-    e.stopPropagation(); 
-    setModalType(type); 
-    setModalMode('edit'); 
-    setEditingItemId(item.id);
-    setNewItemName(item.name); 
-    setNewItemDesc(item.description || ''); 
-    setNewItemColor(item.color || (type === 'folder' ? FOLDER_THEMES[0].color : DECK_THEMES[0].color));
-    setIsModalOpen(true);
+    e.stopPropagation(); setModalType(type); setModalMode('edit'); setEditingItemId(item.id);
+    setNewItemName(item.name); setNewItemDesc(item.description || ''); setNewItemColor(item.color || (type === 'folder' ? FOLDER_THEMES[0].color : DECK_THEMES[0].color)); setIsModalOpen(true);
   };
 
-  const closeAndResetModal = () => {
-    setIsModalOpen(false); 
-    setNewItemName(''); 
-    setNewItemDesc(''); 
-    setEditingItemId(null); 
-    setModalMode('create');
-  };
+  const closeAndResetModal = () => { setIsModalOpen(false); setNewItemName(''); setNewItemDesc(''); setEditingItemId(null); setModalMode('create'); };
 
   const handleCreateOrEditItem = (e) => {
-    e.preventDefault();
-    if (!newItemName.trim() || !user) return;
-
+    e.preventDefault(); if (!newItemName.trim() || !user) return;
     if (modalMode === 'edit') {
       if (modalType === 'folder') {
         const f = folders.find(x => x.id === editingItemId);
-        if(f) {
-           const updated = { ...f, name: newItemName, color: newItemColor };
-           setFolders(prev => prev.map(x => x.id === editingItemId ? updated : x));
-           updateFolderInCloud(updated);
-        }
+        if(f) { const updated = { ...f, name: newItemName, color: newItemColor }; setFolders(prev => prev.map(x => x.id === editingItemId ? updated : x)); updateFolderInCloud(updated); }
       } else {
         const d = validDecks.find(x => x.id === editingItemId);
-        if(d) {
-           const updated = { ...d, name: newItemName, description: newItemDesc, color: newItemColor };
-           setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x));
-           updateDeckInCloud(updated);
-        }
+        if(d) { const updated = { ...d, name: newItemName, description: newItemDesc, color: newItemColor }; setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x)); updateDeckInCloud(updated); }
       }
       showToast(`${modalType === 'folder' ? 'Pasta' : 'Baralho'} atualizado!`);
     } else {
       if (modalType === 'folder') {
         const newFolder = { id: `f-${Date.now()}`, name: newItemName, parentId: currentFolderId, color: newItemColor };
-        setFolders(prev => [...prev, newFolder]);
-        updateFolderInCloud(newFolder);
+        setFolders(prev => [...prev, newFolder]); updateFolderInCloud(newFolder);
       } else {
         const newDeck = { id: `d-${Date.now()}`, name: newItemName, description: newItemDesc, parentId: currentFolderId, color: newItemColor, cards: [] };
-        setDecks(prev => [...prev, newDeck]);
-        updateDeckInCloud(newDeck);
+        setDecks(prev => [...prev, newDeck]); updateDeckInCloud(newDeck);
       }
     }
-    
     closeAndResetModal();
   };
 
   const confirmDelete = () => {
     if (!itemToDelete || !user) return;
-    
     if (itemToDelete.type === 'folder') {
       const getAllNestedFolderIds = (folderId) => {
-        let ids = [folderId];
-        folders.filter(f => f.parentId === folderId).forEach(c => { ids = [...ids, ...getAllNestedFolderIds(c.id)]; });
-        return ids;
+        let ids = [folderId]; folders.filter(f => f.parentId === folderId).forEach(c => { ids = [...ids, ...getAllNestedFolderIds(c.id)]; }); return ids;
       };
       const idsToDelete = getAllNestedFolderIds(itemToDelete.id);
-      
       const decksToDelete = validDecks.filter(d => idsToDelete.includes(d.parentId));
       const cardIdsToScrub = new Set(decksToDelete.flatMap(d => (d.cards || []).map(c => c.id)));
       
-      setFolders(prev => prev.filter(f => !idsToDelete.includes(f.id)));
-      setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId)));
-      removeDeletedCardsFromActivity(cardIdsToScrub);
-
+      setFolders(prev => prev.filter(f => !idsToDelete.includes(f.id))); setDecks(prev => prev.filter(d => !idsToDelete.includes(d.parentId))); removeDeletedCardsFromActivity(cardIdsToScrub);
       if (user && db) {
         idsToDelete.forEach(id => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', id)).catch(e => {}));
         decksToDelete.forEach(d => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', d.id)).catch(e => {}));
@@ -1234,12 +1046,8 @@ export default function App() {
       const deckToDelete = validDecks.find(d => d.id === itemToDelete.id);
       const cardIdsToScrub = new Set((deckToDelete?.cards || []).map(c => c.id));
       
-      setDecks(prev => prev.filter(d => d.id !== itemToDelete.id));
-      removeDeletedCardsFromActivity(cardIdsToScrub);
-      
-      if (user && db) {
-        deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id)).catch(e => {});
-      }
+      setDecks(prev => prev.filter(d => d.id !== itemToDelete.id)); removeDeletedCardsFromActivity(cardIdsToScrub);
+      if (user && db) deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', itemToDelete.id)).catch(e => {});
       if (activeDeckId === itemToDelete.id) { setCurrentView('dashboard'); setActiveDeckId(null); }
       showToast("Baralho eliminado.");
     }
@@ -1247,9 +1055,7 @@ export default function App() {
   };
 
   const handleSaveCard = (e) => {
-    e.preventDefault();
-    if (!newCardFront.trim() || !user) return;
-
+    e.preventDefault(); if (!newCardFront.trim() || !user) return;
     let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
     const currentDeck = validDecks.find(d => d.id === activeDeckId);
 
@@ -1268,11 +1074,9 @@ export default function App() {
        else updatedCards = [...(currentDeck.cards || []), processedCard];
        
        const updatedDeck = { ...currentDeck, cards: updatedCards };
-       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
-       updateDeckInCloud(updatedDeck);
+       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); updateDeckInCloud(updatedDeck);
        showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
     }
-    
     setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setEditingCardId(null);
   };
 
@@ -1288,42 +1092,25 @@ export default function App() {
     const currentDeck = validDecks.find(d => d.id === activeDeckId);
     if(currentDeck) {
       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== cardId) };
-      setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
-      updateDeckInCloud(updatedDeck);
-      removeDeletedCardsFromActivity(new Set([cardId]));
+      setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); updateDeckInCloud(updatedDeck); removeDeletedCardsFromActivity(new Set([cardId]));
     }
   };
 
-
   // --- RENDERERS UI ---
-  if (isAuthLoading) {
-    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-indigo-400 notranslate" translate="no"><Loader2 className="w-8 h-8 animate-spin" /></div>;
-  }
+  if (isAuthLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-indigo-400 notranslate" translate="no"><Loader2 className="w-8 h-8 animate-spin" /></div>;
 
-  // --- LOGIN UI ---
   if (!user) {
     return (
       <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
         <h1 className="text-4xl sm:text-5xl font-extrabold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
-        
-        <button 
-          onClick={signInWithGoogle}
-          className="flex items-center gap-3 bg-white text-slate-900 hover:bg-slate-200 px-6 py-4 rounded-2xl font-bold transition-all transform hover:scale-105 active:scale-95 shadow-xl shadow-white/10"
-        >
-          <svg className="w-6 h-6" viewBox="0 0 24 24">
-            <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-          </svg>
+        <button onClick={signInWithGoogle} className="flex items-center gap-3 bg-white text-slate-900 hover:bg-slate-200 px-6 py-4 rounded-2xl font-bold transition-all transform hover:scale-105 active:scale-95 shadow-xl shadow-white/10">
+          <svg className="w-6 h-6" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" /><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
           Continuar com o Google
         </button>
-
         {toast && (
           <div className="fixed bottom-6 right-6 z-[90] animate-in slide-in-from-bottom-4 fade-in duration-300">
             <div className="flex items-center gap-3 px-6 py-4 rounded-2xl shadow-xl shadow-black/50 border backdrop-blur-md bg-rose-950/80 border-rose-500/30 text-rose-200">
-              <Info className="w-5 h-5 text-rose-400" />
-              <p className="font-medium text-sm">{toast.message}</p>
+              <Info className="w-5 h-5 text-rose-400" /><p className="font-medium text-sm">{toast.message}</p>
             </div>
           </div>
         )}
@@ -1342,30 +1129,9 @@ export default function App() {
     );
   };
 
-  const renderDailyGoal = () => {
-    const todayReviewed = getDailyCount(getTodayStr());
-    const goalProgress = Math.min((todayReviewed / dailyGoal) * 100, 100);
-    return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between animate-pop delay-400">
-        <div className="absolute top-0 right-0 p-32 bg-rose-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-        <div>
-            <div className="flex justify-between items-center mb-6 relative z-10">
-              <h3 className="font-bold text-slate-100 flex items-center gap-2"><Target className="w-5 h-5 text-rose-400" /> Meta Diária</h3>
-              <span className="text-xl font-black text-rose-400">{todayReviewed} <span className="text-sm text-slate-500">/ {dailyGoal}</span></span>
-            </div>
-            <div className="w-full bg-slate-950 rounded-full h-4 mb-3 overflow-hidden border border-slate-800 relative z-10">
-              <div className="bg-gradient-to-r from-orange-400 to-rose-500 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(244,63,94,0.5)]" style={{ width: `${goalProgress}%` }}></div>
-            </div>
-        </div>
-        <p className="text-sm font-medium text-slate-400 relative z-10 mt-4">{goalProgress >= 100 ? 'Meta atingida! Excelente trabalho! 🎉' : `Faltam rever ${dailyGoal - todayReviewed} cartões.`}</p>
-      </div>
-    );
-  };
-
   const renderMastery = () => {
     const gCards = validDecks.flatMap(d => d.cards || []);
-    const gStats = getCardStats(gCards);
-    const totalC = gCards.length || 1;
+    const gStats = getCardStats(gCards); const totalC = gCards.length || 1;
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between animate-pop delay-300">
         <div className="absolute top-0 right-0 p-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
@@ -1400,22 +1166,13 @@ export default function App() {
     const dayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
     const cells = []; let monthTotalRevisions = 0;
     
-    for (let i = 0; i < firstDay; i++) {
-      cells.push(<div key={`empty-${i}`} className="p-2"></div>);
-    }
-    
+    for (let i = 0; i < firstDay; i++) cells.push(<div key={`empty-${i}`} className="p-2"></div>);
     const todayStr = getTodayStr();
 
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateObj = new Date(year, month, d, 12, 0, 0); 
-      const y = dateObj.getFullYear();
-      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-      const dy = String(dateObj.getDate()).padStart(2, '0');
+      const dateObj = new Date(year, month, d, 12, 0, 0); const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const dy = String(dateObj.getDate()).padStart(2, '0');
       const dateStr = `${y}-${m}-${dy}`;
-
-      const count = getDailyCount(dateStr); 
-      const isToday = dateStr === todayStr;
-      monthTotalRevisions += count;
+      const count = getDailyCount(dateStr); const isToday = dateStr === todayStr; monthTotalRevisions += count;
       
       let bg = 'bg-slate-900/50 border-slate-800 text-slate-400';
       if (count > 0 && count < 5) bg = 'bg-emerald-900/60 border-emerald-900 text-emerald-200';
@@ -1490,48 +1247,25 @@ export default function App() {
   };
 
   const renderReports = () => {
-    let daysCount = 7;
-    let days = [];
-    const today = new Date();
+    let daysCount = 7; let days = []; const today = new Date();
 
     if (reportPeriod === 'all') {
         const dates = Object.keys(activityMap).sort();
         if (dates.length > 0) {
-            const firstDate = new Date(dates[0]);
-            const diffTime = Math.abs(today - firstDate);
+            const firstDate = new Date(dates[0]); const diffTime = Math.abs(today - firstDate);
             daysCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-            
-            for(let i = 0; i < daysCount; i++) {
-                const d = new Date(firstDate);
-                d.setDate(firstDate.getDate() + i);
-                days.push(d);
-            }
-        } else {
-            days.push(today);
-            daysCount = 1;
-        }
+            for(let i = 0; i < daysCount; i++) { const d = new Date(firstDate); d.setDate(firstDate.getDate() + i); days.push(d); }
+        } else { days.push(today); daysCount = 1; }
     } else {
         daysCount = reportPeriod === 'week' ? 7 : 30;
-        for(let i = daysCount - 1; i >= 0; i--) {
-          const d = new Date(today);
-          d.setDate(d.getDate() - i);
-          days.push(d);
-        }
+        for(let i = daysCount - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d); }
     }
 
     let totalReviewsPeriod = 0;
     const activityData = days.map(d => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const dy = String(d.getDate()).padStart(2, '0');
-      const dateStr = `${y}-${m}-${dy}`;
-      const count = getDailyCountFiltered(dateStr, reportDeckId);
-      totalReviewsPeriod += count;
-      return {
-        label: reportPeriod === 'week' ? d.toLocaleDateString('pt-BR', {weekday: 'short'}).replace('.','') : `${dy}/${m}`,
-        count,
-        date: d
-      };
+      const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const dy = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${dy}`; const count = getDailyCountFiltered(dateStr, reportDeckId); totalReviewsPeriod += count;
+      return { label: reportPeriod === 'week' ? d.toLocaleDateString('pt-BR', {weekday: 'short'}).replace('.','') : `${dy}/${m}`, count, date: d };
     });
     
     const maxActivity = Math.max(...activityData.map(a => a.count), 5);
@@ -1539,59 +1273,31 @@ export default function App() {
     const gapSize = reportPeriod === 'all' || reportPeriod === 'month' ? 'gap-0.5' : 'gap-1 sm:gap-2';
 
     let targetCards = [];
-    if (reportDeckId === 'all') {
-      targetCards = validDecks.flatMap(d => d.cards || []);
-    } else {
-      const deck = validDecks.find(d => d.id === reportDeckId);
-      if (deck) targetCards = deck.cards || [];
-    }
+    if (reportDeckId === 'all') { targetCards = validDecks.flatMap(d => d.cards || []); } 
+    else { const deck = validDecks.find(d => d.id === reportDeckId); if (deck) targetCards = deck.cards || []; }
 
-    let totalR = 0;
-    let revCardsCount = 0;
-    const retentionBuckets = { exc: 0, good: 0, fair: 0, poor: 0 };
-    let matureCount = 0;
-    let youngCount = 0;
+    let totalR = 0; let revCardsCount = 0; const retentionBuckets = { exc: 0, good: 0, fair: 0, poor: 0 };
+    let matureCount = 0; let youngCount = 0; const now = Date.now();
 
-    const now = Date.now();
     targetCards.forEach(c => {
       const state = c.state !== undefined ? c.state : (c.reviews > 0 ? 2 : 0);
-      if (state === 2 && c.stability) { // Apenas Cartões em modo "Revisão"
-        revCardsCount++;
-        const elapsed = Math.max((now - (c.last_review || now)) / 86400000, 0);
-        const r = forgetting_curve(elapsed, c.stability); // Retenção Estimada FSRS
-        totalR += r;
-        
-        if (r >= 0.9) retentionBuckets.exc++;
-        else if (r >= 0.8) retentionBuckets.good++;
-        else if (r >= 0.7) retentionBuckets.fair++;
-        else retentionBuckets.poor++;
-
-        if (c.interval >= 21) matureCount++;
-        else youngCount++;
-      } else if (state === 1 || state === 3) { // Em aprendizagem
-        youngCount++;
-      }
+      if (state === 2 && c.stability) { 
+        revCardsCount++; const elapsed = Math.max((now - (c.last_review || now)) / 86400000, 0); const r = forgetting_curve(elapsed, c.stability); totalR += r;
+        if (r >= 0.9) retentionBuckets.exc++; else if (r >= 0.8) retentionBuckets.good++; else if (r >= 0.7) retentionBuckets.fair++; else retentionBuckets.poor++;
+        if (c.interval >= 21) matureCount++; else youngCount++;
+      } else if (state === 1 || state === 3) { youngCount++; }
     });
 
     const avgRetention = revCardsCount > 0 ? ((totalR / revCardsCount) * 100).toFixed(1) : 'N/A';
-    const totalStudied = revCardsCount + youngCount;
-    const maturePercent = totalStudied > 0 ? Math.round((matureCount / totalStudied) * 100) : 0;
+    const totalStudied = revCardsCount + youngCount; const maturePercent = totalStudied > 0 ? Math.round((matureCount / totalStudied) * 100) : 0;
 
     return (
       <div className="animate-in fade-in duration-300 pb-10 space-y-6">
-        {/* Header & Controls */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/60 p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-lg">
-          <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-indigo-400" />
-            Métricas de Desempenho FSRS
-          </h2>
+          <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-indigo-400" /> Métricas de Desempenho FSRS</h2>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
             <div className="relative flex-grow sm:flex-grow-0">
-              <select 
-                value={reportDeckId} 
-                onChange={e => setReportDeckId(e.target.value)}
-                className="w-full appearance-none bg-slate-950 border border-slate-700 text-slate-300 py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:border-indigo-500 text-sm font-medium transition-colors"
-              >
+              <select value={reportDeckId} onChange={e => setReportDeckId(e.target.value)} className="w-full appearance-none bg-slate-950 border border-slate-700 text-slate-300 py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:border-indigo-500 text-sm font-medium transition-colors">
                 <option value="all">Todos os Baralhos</option>
                 {validDecks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
@@ -1607,7 +1313,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Cards Principais */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-100">
             <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Activity className="w-32 h-32" /></div>
@@ -1635,7 +1340,6 @@ export default function App() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Gráfico de Atividade */}
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
             <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-6"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
             <div className="flex-grow flex items-end justify-between chart-scroll-container">
@@ -1649,9 +1353,7 @@ export default function App() {
                         <div className="w-full bg-gradient-to-t from-blue-600/80 to-indigo-400/80 rounded-t-sm sm:rounded-t-md transition-all duration-700 ease-out" style={{ height: `${Math.max(height, 2)}%` }}></div>
                         <span className="absolute -top-6 text-[10px] font-bold text-slate-200 opacity-0 group-hover/bar:opacity-100 transition-opacity bg-slate-800 px-1.5 py-0.5 rounded z-10">{data.count}</span>
                       </div>
-                      <span className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase mt-2 h-4 truncate w-full text-center">
-                        {showLabel ? data.label : ''}
-                      </span>
+                      <span className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase mt-2 h-4 truncate w-full text-center">{showLabel ? data.label : ''}</span>
                     </div>
                   )
                 })}
@@ -1659,11 +1361,9 @@ export default function App() {
             </div>
           </div>
 
-          {/* Gráfico de Saúde da Memória */}
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
             <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><PieChart className="w-5 h-5 text-emerald-400" /> Saúde da Memória</h3>
             <p className="text-sm text-slate-500 mb-8">Probabilidade de lembrança com base no FSRS</p>
-            
             <div className="flex-grow flex flex-col justify-center gap-5 sm:gap-6">
               {[
                 { label: 'Excelente (90-100%)', count: retentionBuckets.exc, color: 'bg-emerald-400' },
@@ -1683,9 +1383,7 @@ export default function App() {
                 )
               })}
             </div>
-            {revCardsCount === 0 && (
-               <div className="text-center text-sm text-slate-500 mt-4 italic">Sem dados suficientes de revisão para calcular.</div>
-            )}
+            {revCardsCount === 0 && <div className="text-center text-sm text-slate-500 mt-4 italic">Sem dados suficientes de revisão para calcular.</div>}
           </div>
         </div>
       </div>
@@ -1700,11 +1398,11 @@ export default function App() {
       <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 pb-16 sm:pb-0 animate-in fade-in duration-300">
         {/* Desktop Tabs */}
         <div className="hidden sm:flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-fit mb-6">
-          <button onClick={() => { setMainTab('overview'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'overview' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
-            <LayoutDashboard className="w-4 h-4" /> Visão Geral
+          <button onClick={() => { setMainTab('home'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'home' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
+            <Home className="w-4 h-4" /> Início
           </button>
-          <button onClick={() => setMainTab('library')} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'library' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
-            <Library className="w-4 h-4" /> Biblioteca
+          <button onClick={() => { setMainTab('stats'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'stats' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
+            <PieChart className="w-4 h-4" /> Estatísticas
           </button>
           <button onClick={() => { setMainTab('reports'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'reports' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
             <Activity className="w-4 h-4" /> Relatórios
@@ -1713,13 +1411,13 @@ export default function App() {
 
         {/* Mobile Fixed Bottom Navigation */}
         <div className="sm:hidden fixed bottom-0 left-0 right-0 z-[60] bg-slate-950/95 backdrop-blur-xl border-t border-slate-800 flex justify-around items-center px-2 py-3 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-          <button onClick={() => { setMainTab('overview'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'overview' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-            <LayoutDashboard className="w-5 h-5" />
-            <span className="text-[10px] font-bold">Visão Geral</span>
+          <button onClick={() => { setMainTab('home'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'home' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+            <Home className="w-5 h-5" />
+            <span className="text-[10px] font-bold">Início</span>
           </button>
-          <button onClick={() => setMainTab('library')} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'library' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-            <Library className="w-5 h-5" />
-            <span className="text-[10px] font-bold">Biblioteca</span>
+          <button onClick={() => { setMainTab('stats'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'stats' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+            <PieChart className="w-5 h-5" />
+            <span className="text-[10px] font-bold">Estatísticas</span>
           </button>
           <button onClick={() => { setMainTab('reports'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'reports' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
             <Activity className="w-5 h-5" />
@@ -1727,36 +1425,52 @@ export default function App() {
           </button>
         </div>
 
-        {mainTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8 pb-10">
-            <div className="lg:col-span-2 xl:col-span-2">{renderCalendar()}</div>
-            <div className="lg:col-span-1 xl:col-span-2">{renderForecast()}</div>
-            <div className="lg:col-span-2 xl:col-span-2">{renderMastery()}</div>
-            <div className="lg:col-span-1 xl:col-span-2">{renderDailyGoal()}</div>
-          </div>
-        )}
-        
-        {mainTab === 'reports' && renderReports()}
-
-        {mainTab === 'library' && (
+        {/* --- INÍCIO (HOME) --- */}
+        {mainTab === 'home' && (
           <div className="animate-in fade-in duration-300 pb-10">
-            <div className="flex items-center gap-2 mb-8 text-sm font-medium text-slate-400 bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-full overflow-x-auto custom-scrollbar">
-              <button onClick={() => setCurrentFolderId(null)} className={`flex items-center gap-2 transition-colors whitespace-nowrap ${currentFolderId === null ? 'text-indigo-400' : 'hover:text-slate-200'}`}><Folder className="w-4 h-4" /> Início</button>
-              {breadcrumbs.map(crumb => (
-                <React.Fragment key={crumb.id}>
-                  <ChevronRight className="w-4 h-4 text-slate-600 flex-shrink-0" />
-                  <button onClick={() => setCurrentFolderId(crumb.id)} className={`transition-colors whitespace-nowrap ${currentFolderId === crumb.id ? 'text-indigo-400' : 'hover:text-slate-200'}`}>{crumb.name}</button>
-                </React.Fragment>
-              ))}
-            </div>
+            
+            {/* Secção Hero com Meta Diária no ecrã inicial principal */}
+            {currentFolderId === null && (
+              <div className="mb-8 bg-gradient-to-br from-indigo-900/40 to-purple-900/10 border border-indigo-500/20 p-6 sm:p-8 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden shadow-xl shadow-indigo-900/10">
+                <div className="absolute top-0 right-0 p-32 bg-indigo-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+                <div className="relative z-10 w-full md:w-1/2">
+                   <h2 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2">{getGreeting()}, pronto para focar?</h2>
+                   <p className="text-slate-400">Você tem <strong className="text-indigo-400 text-lg">{calculateTotalDue(globalStats)}</strong> cartões pendentes hoje.</p>
+                </div>
+                <div className="relative z-10 w-full md:w-1/2 bg-slate-950/60 p-5 rounded-2xl border border-slate-800/80 backdrop-blur-sm">
+                   <div className="flex justify-between text-sm font-medium mb-3">
+                     <span className="text-slate-300 flex items-center gap-1.5"><Target className="w-4 h-4 text-rose-400"/> Meta Diária</span>
+                     <span className="text-rose-400 font-bold">{getDailyCount(getTodayStr())} / {dailyGoal}</span>
+                   </div>
+                   <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
+                     <div className="bg-gradient-to-r from-orange-400 to-rose-500 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(244,63,94,0.5)]" style={{ width: `${Math.min((getDailyCount(getTodayStr()) / dailyGoal) * 100, 100)}%` }}></div>
+                   </div>
+                </div>
+              </div>
+            )}
 
-            <div className="mb-8">
-               <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><Folder className="w-5 h-5 text-slate-500" /> Pastas</h2></div>
+            {/* Breadcrumbs da Biblioteca */}
+            {currentFolderId !== null && (
+              <div className="flex items-center gap-2 mb-8 text-sm font-medium text-slate-400 bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-full overflow-x-auto custom-scrollbar">
+                <button onClick={() => setCurrentFolderId(null)} className="flex items-center gap-2 transition-colors whitespace-nowrap hover:text-slate-200"><Home className="w-4 h-4" /> Início</button>
+                {breadcrumbs.map(crumb => (
+                  <React.Fragment key={crumb.id}>
+                    <ChevronRight className="w-4 h-4 text-slate-600 flex-shrink-0" />
+                    <button onClick={() => setCurrentFolderId(crumb.id)} className={`transition-colors whitespace-nowrap ${currentFolderId === crumb.id ? 'text-indigo-400' : 'hover:text-slate-200'}`}>{crumb.name}</button>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+
+            <div className="mb-10">
+               <div className="flex items-center justify-between mb-5">
+                 <h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><Folder className="w-5 h-5 text-indigo-400" /> Coleções</h2>
+               </div>
                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
                  {currentFolders.map((folder, index) => {
                    const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || 'text-indigo-400';
                    return (
-                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className={`bg-slate-900/40 rounded-2xl p-5 border border-slate-800 hover:border-slate-700 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-xl hover:shadow-${folder.color?.split('-')[1]-500/10}`} style={{animationDelay: `${index * 50}ms`}}>
+                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className={`bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-700 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-xl hover:shadow-${folder.color?.split('-')[1]-500/10}`} style={{animationDelay: `${index * 50}ms`}}>
                        <div className="flex items-center gap-4 truncate">
                          <div className={`p-3 bg-slate-950 rounded-xl shrink-0 ${colorClass}`}>
                            <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
@@ -1781,15 +1495,17 @@ export default function App() {
                      </div>
                    )
                  })}
-                 <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-5 border-2 border-dashed border-slate-800/50 hover:border-indigo-500/30 cursor-pointer flex items-center gap-4 text-slate-500 hover:text-indigo-400 animate-pop hover:-translate-y-1 transition-all duration-300">
+                 <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-5 border-2 border-dashed border-slate-800/60 hover:border-indigo-500/40 cursor-pointer flex items-center gap-4 text-slate-500 hover:text-indigo-400 animate-pop hover:-translate-y-1 transition-all duration-300">
                     <div className="p-3 bg-slate-950/50 rounded-xl"><FolderPlus className="w-6 h-6" /></div>
-                    <span className="font-medium">Nova Pasta</span>
+                    <span className="font-medium">Nova Coleção</span>
                  </div>
                </div>
             </div>
 
             <div>
-               <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><BookOpen className="w-5 h-5 text-slate-500" /> Baralhos</h2></div>
+               <div className="flex items-center justify-between mb-5">
+                 <h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><BookOpen className="w-5 h-5 text-indigo-400" /> Baralhos</h2>
+               </div>
                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
                  {currentDecks.map((deck, index) => {
                    const stats = getCardStats(deck.cards); const due = calculateTotalDue(stats);
@@ -1798,7 +1514,7 @@ export default function App() {
                    return (
                      <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className={`bg-slate-900/80 rounded-2xl p-6 border border-slate-800 hover:border-slate-700 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-xl hover:shadow-${deck.color?.split('-')[1] || 'indigo'}-500/10`} style={{animationDelay: `${index * 50}ms`}}>
                        <div className="flex items-start justify-between mb-4">
-                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
+                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-inner ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
                          <div className="flex items-center gap-3 shrink-0 ml-2">
                            {renderStatBadges(stats)}
                            <div className="relative" onClick={e => e.stopPropagation()}>
@@ -1815,18 +1531,18 @@ export default function App() {
                            </div>
                          </div>
                        </div>
-                       <h3 className="text-xl font-bold text-slate-200 mb-2">{deck.name}</h3>
+                       <h3 className="text-xl font-bold text-slate-200 mb-2 group-hover:text-indigo-300 transition-colors">{deck.name}</h3>
                        <p className="text-slate-400 text-sm flex-grow line-clamp-2">{deck.description}</p>
                        <div className="mt-6 pt-4 border-t border-slate-800/50 flex justify-between items-center text-sm text-slate-500">
                          <span>{deck.cards?.length || 0} cartões totais</span>
-                         <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={due === 0} className={`p-2 rounded-full transition-colors ${due > 0 ? 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed'}`}>
+                         <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={due === 0} className={`p-2 rounded-full transition-all ${due > 0 ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:scale-110' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed'}`}>
                            <Play className="w-5 h-5" fill="currentColor" />
                          </button>
                        </div>
                      </div>
                    )
                  })}
-                 <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/30 rounded-2xl p-6 border-2 border-dashed border-slate-800 flex flex-col items-center justify-center text-slate-600 hover:text-indigo-400 hover:border-indigo-500/30 transition-all duration-300 cursor-pointer min-h-[220px] animate-pop hover:-translate-y-1">
+                 <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/30 rounded-2xl p-6 border-2 border-dashed border-slate-800/80 flex flex-col items-center justify-center text-slate-500 hover:text-indigo-400 hover:border-indigo-500/40 hover:bg-indigo-950/10 transition-all duration-300 cursor-pointer min-h-[220px] animate-pop hover:-translate-y-1">
                    <Plus className="w-10 h-10 mb-2" />
                    <span className="font-medium">Novo Baralho</span>
                  </div>
@@ -1834,6 +1550,19 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* --- ESTATÍSTICAS (STATS) --- */}
+        {mainTab === 'stats' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 mb-8 pb-10">
+            <div className="lg:col-span-2 xl:col-span-2">{renderCalendar()}</div>
+            <div className="lg:col-span-1 xl:col-span-1">{renderMastery()}</div>
+            <div className="lg:col-span-2 xl:col-span-3">{renderForecast()}</div>
+          </div>
+        )}
+        
+        {/* --- RELATÓRIOS (REPORTS) --- */}
+        {mainTab === 'reports' && renderReports()}
+
       </div>
     );
   };
