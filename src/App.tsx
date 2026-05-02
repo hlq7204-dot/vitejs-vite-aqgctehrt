@@ -328,7 +328,6 @@ export default function App() {
   const [toast, setToast] = useState(null);
 
   const stateRef = useRef();
-  stateRef.current = { currentView, isFlipped, reviewQueue, currentCardIndex, cardType: reviewQueue[currentCardIndex]?.type || 'standard' };
 
   // ESCUDO DE PROTEÇÃO LOCAL
   useEffect(() => { localStorage.setItem('lumina_decks', JSON.stringify(decks)); }, [decks]);
@@ -512,23 +511,23 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       const s = stateRef.current;
-      if (s.currentView !== 'review') return;
+      if (!s || s.currentView !== 'review') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
       if (e.code === 'Space') {
         e.preventDefault(); 
         setIsFlipped(prev => !prev);
       } else if (s.isFlipped && s.cardType === 'standard') {
-        if (e.key === '1') handleAnswer(0);
-        if (e.key === '2') handleAnswer(1);
-        if (e.key === '3') handleAnswer(2);
-        if (e.key === '4') handleAnswer(3);
+        if (e.key === '1') s.handleAnswer(0);
+        if (e.key === '2') s.handleAnswer(1);
+        if (e.key === '3') s.handleAnswer(2);
+        if (e.key === '4') s.handleAnswer(3);
       } else if (!s.isFlipped) {
         if (s.cardType === 'choice' && ['1','2','3','4'].includes(e.key)) {
-           handleInteractiveSubmit(parseInt(e.key) - 1);
+           s.handleInteractiveSubmit(parseInt(e.key) - 1);
         } else if (s.cardType === 'tf') {
-           if (e.key === '1') handleInteractiveSubmit(true);
-           if (e.key === '2') handleInteractiveSubmit(false);
+           if (e.key === '1') s.handleInteractiveSubmit(true);
+           if (e.key === '2') s.handleInteractiveSubmit(false);
         }
       }
     };
@@ -721,6 +720,17 @@ export default function App() {
   const handleInteractiveSubmit = (val) => { 
     setReviewInteraction(val); 
     setIsFlipped(true); 
+  };
+
+  // ATUALIZAÇÃO DO REF COM AS FUNÇÕES MAIS RECENTES PARA OS ATALHOS DE TECLADO
+  stateRef.current = { 
+    currentView, 
+    isFlipped, 
+    reviewQueue, 
+    currentCardIndex, 
+    cardType: reviewQueue[currentCardIndex]?.type || 'standard',
+    handleAnswer,
+    handleInteractiveSubmit
   };
 
   const updateChoiceOption = (idx, value) => {
