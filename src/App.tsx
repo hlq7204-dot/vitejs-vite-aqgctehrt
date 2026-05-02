@@ -122,6 +122,25 @@ const globalStyles = `
   .delay-200 { animation-delay: 200ms; }
   .delay-300 { animation-delay: 300ms; }
   .delay-400 { animation-delay: 400ms; }
+
+  /* Ajuste para scroll horizontal suave no gráfico */
+  .chart-scroll-container {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-behavior: smooth;
+  }
+  
+  /* Esconder a barra de scroll no gráfico, mas manter a funcionalidade */
+  .chart-scroll-container::-webkit-scrollbar {
+    height: 4px;
+  }
+  .chart-scroll-container::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .chart-scroll-container::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 4px;
+  }
 `;
 
 // ============================================================================
@@ -1285,8 +1304,7 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
-        <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
-        <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
+        <h1 className="text-4xl sm:text-5xl font-extrabold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
         
         <button 
           onClick={signInWithGoogle}
@@ -1451,32 +1469,54 @@ export default function App() {
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-200">
         <div className="absolute top-0 left-0 p-32 bg-indigo-500/5 rounded-full blur-3xl -ml-16 -mt-16 pointer-events-none"></div>
         <h3 className="text-xl font-bold text-slate-100 mb-8 flex items-center gap-2 relative z-10"><BarChart2 className="w-5 h-5 text-indigo-400" /> Previsão Semanal</h3>
-        <div className="flex items-end justify-between flex-grow min-h-[160px] gap-2 relative z-10 mt-auto">
-           {forecast.map((val, i) => {
-             const height = Math.max((val / max) * 100, 4);
-             return (
-               <div key={i} className="flex flex-col items-center gap-3 flex-1 h-full justify-end">
-                 <div className="w-full max-w-[40px] relative flex items-end justify-center group/bar h-full bg-slate-950 rounded-t-xl border border-b-0 border-slate-800/80">
-                   <div className="w-full bg-indigo-500/80 rounded-t-xl transition-all duration-500 group-hover/bar:bg-indigo-400" style={{ height: `${height}%` }}></div>
-                   <span className="absolute -top-7 text-xs font-bold text-slate-300 opacity-0 group-hover/bar:opacity-100 transition-opacity">{val}</span>
+        <div className="flex items-end justify-between flex-grow min-h-[160px] gap-2 relative z-10 mt-auto chart-scroll-container">
+           <div className="flex items-end justify-between w-full h-full min-w-min gap-2">
+             {forecast.map((val, i) => {
+               const height = Math.max((val / max) * 100, 4);
+               return (
+                 <div key={i} className="flex flex-col items-center gap-3 flex-1 h-full justify-end">
+                   <div className="w-full max-w-[40px] relative flex items-end justify-center group/bar h-full bg-slate-950 rounded-t-xl border border-b-0 border-slate-800/80">
+                     <div className="w-full bg-indigo-500/80 rounded-t-xl transition-all duration-500 group-hover/bar:bg-indigo-400" style={{ height: `${height}%` }}></div>
+                     <span className="absolute -top-7 text-xs font-bold text-slate-300 opacity-0 group-hover/bar:opacity-100 transition-opacity">{val}</span>
+                   </div>
+                   <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{i === 0 ? 'Hoje' : labels[i]}</span>
                  </div>
-                 <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{i === 0 ? 'Hoje' : labels[i]}</span>
-               </div>
-             )
-           })}
+               )
+             })}
+           </div>
         </div>
       </div>
     );
   };
 
   const renderReports = () => {
-    const daysCount = reportPeriod === 'week' ? 7 : 30;
-    const days = [];
+    let daysCount = 7;
+    let days = [];
     const today = new Date();
-    for(let i = daysCount - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      days.push(d);
+
+    if (reportPeriod === 'all') {
+        const dates = Object.keys(activityMap).sort();
+        if (dates.length > 0) {
+            const firstDate = new Date(dates[0]);
+            const diffTime = Math.abs(today - firstDate);
+            daysCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+            
+            for(let i = 0; i < daysCount; i++) {
+                const d = new Date(firstDate);
+                d.setDate(firstDate.getDate() + i);
+                days.push(d);
+            }
+        } else {
+            days.push(today);
+            daysCount = 1;
+        }
+    } else {
+        daysCount = reportPeriod === 'week' ? 7 : 30;
+        for(let i = daysCount - 1; i >= 0; i--) {
+          const d = new Date(today);
+          d.setDate(d.getDate() - i);
+          days.push(d);
+        }
     }
 
     let totalReviewsPeriod = 0;
@@ -1489,10 +1529,14 @@ export default function App() {
       totalReviewsPeriod += count;
       return {
         label: reportPeriod === 'week' ? d.toLocaleDateString('pt-BR', {weekday: 'short'}).replace('.','') : `${dy}/${m}`,
-        count
+        count,
+        date: d
       };
     });
+    
     const maxActivity = Math.max(...activityData.map(a => a.count), 5);
+    const minBarWidth = reportPeriod === 'all' || reportPeriod === 'month' ? 'min-w-[12px]' : 'w-full max-w-[32px]';
+    const gapSize = reportPeriod === 'all' || reportPeriod === 'month' ? 'gap-0.5' : 'gap-1 sm:gap-2';
 
     let targetCards = [];
     if (reportDeckId === 'all') {
@@ -1553,10 +1597,12 @@ export default function App() {
               </select>
               <Filter className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
-            <div className="flex bg-slate-950 border border-slate-700 rounded-xl overflow-hidden shadow-inner">
-              <button onClick={() => setReportPeriod('week')} className={`flex-1 sm:flex-none px-5 py-2.5 text-sm font-bold transition-colors ${reportPeriod === 'week' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>7 Dias</button>
+            <div className="flex bg-slate-950 border border-slate-700 rounded-xl overflow-hidden shadow-inner flex-wrap">
+              <button onClick={() => setReportPeriod('week')} className={`flex-1 sm:flex-none px-4 py-2.5 text-xs sm:text-sm font-bold transition-colors ${reportPeriod === 'week' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>7 Dias</button>
               <div className="w-px bg-slate-700"></div>
-              <button onClick={() => setReportPeriod('month')} className={`flex-1 sm:flex-none px-5 py-2.5 text-sm font-bold transition-colors ${reportPeriod === 'month' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>30 Dias</button>
+              <button onClick={() => setReportPeriod('month')} className={`flex-1 sm:flex-none px-4 py-2.5 text-xs sm:text-sm font-bold transition-colors ${reportPeriod === 'month' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>30 Dias</button>
+              <div className="w-px bg-slate-700"></div>
+              <button onClick={() => setReportPeriod('all')} className={`flex-1 sm:flex-none px-4 py-2.5 text-xs sm:text-sm font-bold transition-colors ${reportPeriod === 'all' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>Tudo</button>
             </div>
           </div>
         </div>
@@ -1565,7 +1611,7 @@ export default function App() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group">
             <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Activity className="w-32 h-32" /></div>
-            <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Revisões ({daysCount}d)</span>
+            <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Revisões {reportPeriod === 'all' ? '(Total)' : `(${daysCount}d)`}</span>
             <div className="text-4xl sm:text-5xl font-black text-indigo-400 relative z-10">{totalReviewsPeriod}</div>
             <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Cartões processados no período</div>
           </div>
@@ -1592,19 +1638,24 @@ export default function App() {
           {/* Gráfico de Atividade */}
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px]">
             <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-6"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
-            <div className="flex-grow flex items-end justify-between gap-1 sm:gap-2">
-              {activityData.map((data, i) => {
-                const height = maxActivity === 0 ? 0 : (data.count / maxActivity) * 100;
-                return (
-                  <div key={i} className="relative flex flex-col items-center flex-1 h-full justify-end group/bar">
-                    <div className="w-full max-w-[32px] bg-slate-950 rounded-t-xl border border-b-0 border-slate-800/80 relative flex items-end justify-center overflow-hidden h-full">
-                      <div className="w-full bg-gradient-to-t from-blue-600/80 to-indigo-400/80 rounded-t-xl transition-all duration-700 ease-out" style={{ height: `${Math.max(height, 2)}%` }}></div>
-                      <span className="absolute -top-6 text-[10px] font-bold text-slate-200 opacity-0 group-hover/bar:opacity-100 transition-opacity bg-slate-800 px-1.5 py-0.5 rounded z-10">{data.count}</span>
+            <div className="flex-grow flex items-end justify-between chart-scroll-container">
+              <div className={`flex items-end h-full min-w-full ${reportPeriod === 'all' ? 'w-max' : ''} ${gapSize}`}>
+                {activityData.map((data, i) => {
+                  const height = maxActivity === 0 ? 0 : (data.count / maxActivity) * 100;
+                  const showLabel = reportPeriod === 'week' || (reportPeriod === 'month' && i % 3 === 0) || (reportPeriod === 'all' && i % Math.max(1, Math.floor(daysCount / 10)) === 0);
+                  return (
+                    <div key={i} className="relative flex flex-col items-center flex-1 h-full justify-end group/bar">
+                      <div className={`${minBarWidth} bg-slate-950 rounded-t-sm sm:rounded-t-md border border-b-0 border-slate-800/80 relative flex items-end justify-center overflow-hidden h-full`}>
+                        <div className="w-full bg-gradient-to-t from-blue-600/80 to-indigo-400/80 rounded-t-sm sm:rounded-t-md transition-all duration-700 ease-out" style={{ height: `${Math.max(height, 2)}%` }}></div>
+                        <span className="absolute -top-6 text-[10px] font-bold text-slate-200 opacity-0 group-hover/bar:opacity-100 transition-opacity bg-slate-800 px-1.5 py-0.5 rounded z-10">{data.count}</span>
+                      </div>
+                      <span className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase mt-2 h-4 truncate w-full text-center">
+                        {showLabel ? data.label : ''}
+                      </span>
                     </div>
-                    <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase mt-3 truncate w-full text-center">{data.label}</span>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
           </div>
 
@@ -1741,7 +1792,7 @@ export default function App() {
                                <div className="absolute right-0 top-full mt-2 w-40 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
                                  <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
                                  <div className="h-px bg-slate-700 w-full"></div>
-                                 <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash className="w-4 h-4" /> Eliminar</button>
+                                 <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
                                </div>
                              )}
                            </div>
@@ -2049,8 +2100,7 @@ export default function App() {
       
       {!user ? (
         <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 flex-grow">
-          <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
-          <p className="text-slate-400 mb-10 text-center max-w-sm">A sua plataforma inteligente. Entre com a sua conta para sincronizar os seus estudos.</p>
+          <h1 className="text-4xl sm:text-5xl font-extrabold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
           
           <button 
             onClick={signInWithGoogle}
