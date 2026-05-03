@@ -32,7 +32,7 @@ import {
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
   PieChart, Timer, Pause, RotateCcw, Settings, Home, Library, Flame, BarChart2, LogOut,
-  Maximize, Minimize, Activity, TrendingUp, Filter, Award 
+  Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -123,14 +123,12 @@ const globalStyles = `
   .delay-300 { animation-delay: 300ms; }
   .delay-400 { animation-delay: 400ms; }
 
-  /* Ajuste para scroll horizontal suave no gráfico */
   .chart-scroll-container {
     overflow-x: auto;
     overflow-y: hidden;
     scroll-behavior: smooth;
   }
   
-  /* Esconder a barra de scroll no gráfico, mas manter a funcionalidade */
   .chart-scroll-container::-webkit-scrollbar {
     height: 4px;
   }
@@ -147,7 +145,6 @@ const globalStyles = `
 // ALGORITMO FSRS v6.1.1 (Free Spaced Repetition Scheduler) + Anki Native Steps
 // ============================================================================
 
-// Pesos padrão originais do algoritmo FSRS
 const w = [0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542];
 const requestRetention = 0.9;
 const maximumInterval = 36500;
@@ -158,7 +155,6 @@ const LEARNING_STEPS = [1, 10]; // Passos Nativos do Anki (em minutos)
 
 const ratings = { "again": 1, "hard": 2, "good": 3, "easy": 4 };
 
-// FUNÇÃO DE HASH DETERMINÍSTICO
 function generate_fuzz_factor(card) {
   const seedStr = `${card.id}_${card.reviews || 0}`;
   let h = 0x811c9dc5;
@@ -170,9 +166,7 @@ function generate_fuzz_factor(card) {
   return (h >>> 0) / 4294967296;
 }
 
-function constrain_difficulty(difficulty) {
-  return Math.min(Math.max(+Number(difficulty).toFixed(2), 1), 10);
-}
+function constrain_difficulty(difficulty) { return Math.min(Math.max(+Number(difficulty).toFixed(2), 1), 10); }
 
 function apply_fuzz(ivl, fuzz_factor) {
   if (!enable_fuzz || ivl < 2.5) return Math.round(ivl);
@@ -182,22 +176,15 @@ function apply_fuzz(ivl, fuzz_factor) {
   return Math.floor(fuzz_factor * (max_ivl - min_ivl + 1) + min_ivl);
 }
 
-function forgetting_curve(elapsed_days, stability) {
-  return Math.pow(1 + FACTOR * elapsed_days / stability, DECAY);
-}
+function forgetting_curve(elapsed_days, stability) { return Math.pow(1 + FACTOR * elapsed_days / stability, DECAY); }
 
 function next_interval(stability, fuzz_factor) {
   const new_interval = apply_fuzz(stability / FACTOR * (Math.pow(requestRetention, 1 / DECAY) - 1), fuzz_factor);
   return Math.min(Math.max(Math.round(new_interval), 1), maximumInterval);
 }
 
-function linear_damping(delta_d, old_d) {
-  return delta_d * (10 - old_d) / 9;
-}
-
-function mean_reversion(init, current) {
-  return w[7] * init + (1 - w[7]) * current;
-}
+function linear_damping(delta_d, old_d) { return delta_d * (10 - old_d) / 9; }
+function mean_reversion(init, current) { return w[7] * init + (1 - w[7]) * current; }
 
 function next_difficulty(d, ratingStr) {
   let delta_d = -w[6] * (ratings[ratingStr] - 3);
@@ -222,13 +209,8 @@ function next_short_term_stability(s, ratingStr) {
   return +(s * sinc).toFixed(2);
 }
 
-function init_difficulty(ratingStr) {
-  return +constrain_difficulty(w[4] - Math.exp(w[5] * (ratings[ratingStr] - 1)) + 1).toFixed(2);
-}
-
-function init_stability(ratingStr) {
-  return +Math.max(w[ratings[ratingStr] - 1], 0.1).toFixed(2);
-}
+function init_difficulty(ratingStr) { return +constrain_difficulty(w[4] - Math.exp(w[5] * (ratings[ratingStr] - 1)) + 1).toFixed(2); }
+function init_stability(ratingStr) { return +Math.max(w[ratings[ratingStr] - 1], 0.1).toFixed(2); }
 
 const calculateNextReview = (card, qualityUI) => {
   const RATING_STRINGS = ["again", "hard", "good", "easy"];
@@ -467,7 +449,21 @@ export default function App() {
   const [reportDeckId, setReportDeckId] = useState('all'); 
   
   const [activeDeckId, setActiveDeckId] = useState(null);
-  const activeDeck = decks.find(d => d.id === activeDeckId);
+
+  // --- RESOLUÇÃO DO REFERENCE ERROR: CALCULOS MOVIDOS PARA ANTES DO SEU USO ---
+  const reachableFolders = new Set([null]);
+  let changed = true;
+  let safetyLimit = 0; 
+  while (changed && safetyLimit < 1000) {
+    changed = false; safetyLimit++;
+    for (const f of folders) {
+      if (!reachableFolders.has(f.id) && reachableFolders.has(f.parentId)) { reachableFolders.add(f.id); changed = true; }
+    }
+  }
+  const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
+  const validCardIds = new Set(validDecks.flatMap(d => (d.cards || []).map(c => c.id)));
+  const activeDeck = validDecks.find(d => d.id === activeDeckId) || decks.find(d => d.id === activeDeckId);
+  // -------------------------------------------------------------------------
   
   const [calendarMonth, setCalendarMonth] = useState(() => {
      const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -508,6 +504,11 @@ export default function App() {
   const [newItemColor, setNewItemColor] = useState(FOLDER_THEMES[0].color);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
+  
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [itemToMove, setItemToMove] = useState(null);
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState(null);
+
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState('');
   const [toast, setToast] = useState(null);
@@ -703,18 +704,6 @@ export default function App() {
     if (hour < 18) return 'Boa tarde';
     return 'Boa noite';
   };
-  
-  const reachableFolders = new Set([null]);
-  let changed = true;
-  let safetyLimit = 0; 
-  while (changed && safetyLimit < 1000) {
-    changed = false; safetyLimit++;
-    for (const f of folders) {
-      if (!reachableFolders.has(f.id) && reachableFolders.has(f.parentId)) { reachableFolders.add(f.id); changed = true; }
-    }
-  }
-  const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
-  const validCardIds = new Set(validDecks.flatMap(d => (d.cards || []).map(c => c.id)));
 
   const removeDeletedCardsFromActivity = (idsToRemoveSet) => {
     if (idsToRemoveSet.size === 0) return;
@@ -774,7 +763,7 @@ export default function App() {
       else if (card.dueDate <= now) acc.review++;
       else acc.learned++;
       return acc;
-    }, { new: 0, learning: 0, review: 0, learned: 0, totalDue: 0 });
+    }, { new: 0, learning: 0, review: 0, learned: 0 });
   };
 
   const calculateTotalDue = (stats) => stats.new + stats.learning + stats.review;
@@ -790,6 +779,22 @@ export default function App() {
 
   const getFolderStats = (folderId) => getCardStats(getDecksInFolder(folderId).flatMap(d => d.cards || []));
   const globalStats = getCardStats(validDecks.flatMap(d => d.cards || []));
+
+  const getFolderPaths = (excludeFolderId = null) => {
+    const paths = [];
+    paths.push({ id: null, path: 'Raiz (Início)' });
+
+    const traverse = (parentId, currentPath) => {
+      folders.filter(f => f.parentId === parentId).forEach(f => {
+        if (f.id === excludeFolderId) return; 
+        const newPath = currentPath ? `${currentPath} > ${f.name}` : f.name;
+        paths.push({ id: f.id, path: newPath });
+        traverse(f.id, newPath);
+      });
+    };
+    traverse(null, '');
+    return paths;
+  };
 
   const breadcrumbs = [];
   let currId = currentFolderId;
@@ -817,27 +822,53 @@ export default function App() {
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true }).catch(console.error);
   };
 
-  const activeDeckRef = validDecks.find(d => d.id === activeDeckId);
+  const startReview = (deckId, forceAll = false, folderId = null) => {
+    let dueCards = [];
+    if (folderId) {
+      const decksToStudy = getDecksInFolder(folderId);
+      decksToStudy.forEach(deck => {
+        let cards = (deck.cards || []).filter(c => c.dueDate <= Date.now() || !c.dueDate);
+        if (forceAll) cards = deck.cards || [];
+        cards = cards.map(c => ({ ...c, _deckId: deck.id }));
+        dueCards.push(...cards);
+      });
+      setActiveDeckId(null);
+    } else {
+      const deck = validDecks.find(d => d.id === deckId);
+      if (!deck) return;
+      let cards = (deck.cards || []).filter(c => c.dueDate <= Date.now() || !c.dueDate);
+      if (forceAll) cards = deck.cards || [];
+      cards = cards.map(c => ({ ...c, _deckId: deck.id }));
+      dueCards.push(...cards);
+      setActiveDeckId(deckId);
+    }
 
-  const startReview = (deckId, forceAll = false) => {
-    const deck = validDecks.find(d => d.id === deckId);
-    let dueCards = (deck?.cards || []).filter(c => c.dueDate <= Date.now() || !c.dueDate);
-    if (forceAll) dueCards = deck?.cards || [];
-    if (dueCards.length === 0) return;
+    if (dueCards.length === 0) {
+      showToast("Sem cartões para estudar aqui.", "info");
+      return;
+    }
+
     setReviewQueue([...dueCards].sort(() => Math.random() - 0.5));
     setCurrentCardIndex(0); setIsFlipped(false); setSessionStats({ reviewed: 0, correct: 0 });
-    setActiveDeckId(deckId); setCurrentView('review');
+    setCurrentView('review');
   };
 
   const handleAnswer = (quality) => {
     const currentCard = reviewQueue[currentCardIndex];
     const updatedCard = calculateNextReview(currentCard, quality);
     
-    if (activeDeckRef) {
-      const newDeckData = { ...activeDeckRef, cards: activeDeckRef.cards.map(c => c.id === updatedCard.id ? updatedCard : c) };
-      setDecks(prev => prev.map(d => d.id === activeDeckId ? newDeckData : d)); 
+    const targetDeckId = currentCard._deckId || activeDeckId;
+    const targetDeck = validDecks.find(d => d.id === targetDeckId);
+
+    if (targetDeck) {
+      const cleanUpdatedCard = { ...updatedCard };
+      delete cleanUpdatedCard._deckId; 
+      
+      const newDeckData = { ...targetDeck, cards: targetDeck.cards.map(c => c.id === updatedCard.id ? cleanUpdatedCard : c) };
+      setDecks(prev => prev.map(d => d.id === targetDeckId ? newDeckData : d)); 
       updateDeckInCloud(newDeckData);
     }
+
     setSessionStats(prev => ({ reviewed: prev.reviewed + 1, correct: prev.correct + (quality > 0 ? 1 : 0) }));
     const todayStr = getTodayStr();
     const currentDayData = Array.isArray(activityMap[todayStr]) ? activityMap[todayStr] : [];
@@ -846,7 +877,10 @@ export default function App() {
     setActivityMap(newActivityMap); syncActivityToCloud(newActivityMap);
 
     let newQueue = [...reviewQueue];
-    if (updatedCard.interval === 0) newQueue.push(updatedCard);
+    if (updatedCard.interval === 0) {
+      // mantém tracking no mesmo baralho durante os fails
+      newQueue.push({ ...updatedCard, _deckId: currentCard._deckId });
+    }
     if (currentCardIndex + 1 < newQueue.length) { setReviewQueue(newQueue); setIsFlipped(false); setCurrentCardIndex(prev => prev + 1); } 
     else { setCurrentView('finished'); }
   };
@@ -1054,10 +1088,35 @@ export default function App() {
     setItemToDelete(null);
   };
 
+  const handleMoveItem = () => {
+    if (!itemToMove || !user) return;
+    if (itemToMove.type === 'folder') {
+      const f = folders.find(x => x.id === itemToMove.id);
+      if (f) {
+        const updated = { ...f, parentId: moveTargetFolderId };
+        setFolders(prev => prev.map(x => x.id === itemToMove.id ? updated : x));
+        updateFolderInCloud(updated);
+      }
+    } else {
+      const d = validDecks.find(x => x.id === itemToMove.id);
+      if (d) {
+        const updated = { ...d, parentId: moveTargetFolderId };
+        setDecks(prev => prev.map(x => x.id === itemToMove.id ? updated : x));
+        updateDeckInCloud(updated);
+      }
+    }
+    setIsMoveModalOpen(false);
+    setItemToMove(null);
+    showToast(`${itemToMove.type === 'folder' ? 'Pasta movida' : 'Baralho movido'} com sucesso!`);
+  };
+
   const handleSaveCard = (e) => {
     e.preventDefault(); if (!newCardFront.trim() || !user) return;
     let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
-    const currentDeck = validDecks.find(d => d.id === activeDeckId);
+    
+    // Se o user está na vista detail do baralho, este activeDeckId estará definido
+    const targetDeckId = reviewQueue[currentCardIndex]?._deckId || activeDeckId;
+    const currentDeck = validDecks.find(d => d.id === targetDeckId);
 
     if (editingCardId && currentDeck) {
       const existing = currentDeck.cards.find(c => c.id === editingCardId);
@@ -1089,7 +1148,8 @@ export default function App() {
   };
 
   const deleteCard = (cardId) => {
-    const currentDeck = validDecks.find(d => d.id === activeDeckId);
+    const targetDeckId = reviewQueue[currentCardIndex]?._deckId || activeDeckId;
+    const currentDeck = validDecks.find(d => d.id === targetDeckId);
     if(currentDeck) {
       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== cardId) };
       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); updateDeckInCloud(updatedDeck); removeDeletedCardsFromActivity(new Set([cardId]));
@@ -1451,7 +1511,7 @@ export default function App() {
 
             {/* Breadcrumbs da Biblioteca */}
             {currentFolderId !== null && (
-              <div className="flex items-center gap-2 mb-8 text-sm font-medium text-slate-400 bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-full overflow-x-auto custom-scrollbar">
+              <div className="flex items-center gap-2 mb-6 text-sm font-medium text-slate-400 bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-full overflow-x-auto custom-scrollbar">
                 <button onClick={() => setCurrentFolderId(null)} className="flex items-center gap-2 transition-colors whitespace-nowrap hover:text-slate-200"><Home className="w-4 h-4" /> Início</button>
                 {breadcrumbs.map(crumb => (
                   <React.Fragment key={crumb.id}>
@@ -1459,6 +1519,29 @@ export default function App() {
                     <button onClick={() => setCurrentFolderId(crumb.id)} className={`transition-colors whitespace-nowrap ${currentFolderId === crumb.id ? 'text-indigo-400' : 'hover:text-slate-200'}`}>{crumb.name}</button>
                   </React.Fragment>
                 ))}
+              </div>
+            )}
+
+            {/* Novo Painel para Estudar Toda a Pasta Atual (quando aplicável) */}
+            {currentFolderId !== null && (
+              <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-gradient-to-r from-indigo-900/30 to-slate-900 border border-indigo-500/20 p-5 rounded-2xl shadow-lg gap-4">
+                 <div>
+                    <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                       <Folder className="w-5 h-5 text-indigo-400" />
+                       {folders.find(f => f.id === currentFolderId)?.name}
+                    </h2>
+                    <p className="text-sm text-slate-400 mt-1">
+                       <strong className="text-indigo-400">{calculateTotalDue(getFolderStats(currentFolderId))}</strong> cartões pendentes em sub-baralhos.
+                    </p>
+                 </div>
+                 <div className="flex gap-2 w-full sm:w-auto">
+                     <button onClick={() => startReview(null, false, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${calculateTotalDue(getFolderStats(currentFolderId)) > 0 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
+                         <Play className="w-4 h-4" fill="currentColor" /> Estudar Tudo
+                     </button>
+                     <button onClick={() => startReview(null, true, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0 && getFolderStats(currentFolderId).learned === 0} className={`flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95`} title="Rever ignorando agendamento">
+                         <FastForward className="w-4 h-4" fill="currentColor" /> Modo Livre
+                     </button>
+                 </div>
               </div>
             )}
 
@@ -1484,8 +1567,9 @@ export default function App() {
                             <MoreVertical className="w-5 h-5" />
                           </button>
                           {isMenuOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-40 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                            <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
                               <button onClick={(e) => { openEditModal('folder', folder, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                              <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: folder.id, type: 'folder', name: folder.name, parentId: folder.parentId}); setMoveTargetFolderId(folder.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
                               <div className="h-px bg-slate-700 w-full"></div>
                               <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: folder.id, type: 'folder', name: folder.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
                             </div>
@@ -1522,8 +1606,9 @@ export default function App() {
                                <MoreVertical className="w-5 h-5" />
                              </button>
                              {isMenuOpen && (
-                               <div className="absolute right-0 top-full mt-2 w-40 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                               <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
                                  <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                                 <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
                                  <div className="h-px bg-slate-700 w-full"></div>
                                  <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
                                </div>
@@ -1717,7 +1802,7 @@ export default function App() {
     return (
       <div className="w-full px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col pb-24">
         <div className="flex items-center justify-between mb-8 pt-4 gap-4">
-          <button onClick={() => setCurrentView('deck-detail')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
+          <button onClick={() => setCurrentView('dashboard')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
         </div>
 
@@ -1996,6 +2081,31 @@ export default function App() {
                 <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL MOVER ITEM */}
+      {isMoveModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveModalOpen(false)}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-slate-100 mb-6 flex items-center gap-2"><CornerUpRight className="w-6 h-6 text-indigo-400" /> Mover "{itemToMove?.name}"</h3>
+            <div className="space-y-4">
+               <label className="block text-sm font-medium text-slate-400">Selecionar Destino</label>
+               <select
+                   value={moveTargetFolderId || ''}
+                   onChange={(e) => setMoveTargetFolderId(e.target.value === '' ? null : e.target.value)}
+                   className="w-full bg-slate-950 border border-slate-800 text-slate-300 py-3 px-4 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors"
+               >
+                   {getFolderPaths(itemToMove?.type === 'folder' ? itemToMove.id : null).map(path => (
+                       <option key={path.id || 'root'} value={path.id || ''}>{path.path}</option>
+                   ))}
+               </select>
+            </div>
+            <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800/50">
+               <button onClick={() => setIsMoveModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+               <button onClick={handleMoveItem} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Mover</button>
+            </div>
           </div>
         </div>
       )}
