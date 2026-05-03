@@ -429,6 +429,7 @@ export default function App() {
 
   const firstLoadRefFolders = useRef(true);
   const firstLoadRefDecks = useRef(true);
+  const isProcessingRef = useRef(false);
 
   const [decks, setDecks] = useState(() => {
     try { const saved = localStorage.getItem('lumina_decks'); if (saved) return JSON.parse(saved); } catch (e) {}
@@ -1050,10 +1051,12 @@ export default function App() {
     setNewItemName(item.name); setNewItemDesc(item.description || ''); setNewItemColor(item.color || (type === 'folder' ? FOLDER_THEMES[0].color : DECK_THEMES[0].color)); setIsModalOpen(true);
   };
 
-  const closeAndResetModal = () => { setIsModalOpen(false); setNewItemName(''); setNewItemDesc(''); setEditingItemId(null); setModalMode('create'); };
+  const closeAndResetModal = () => { setIsModalOpen(false); setNewItemName(''); setNewItemDesc(''); setEditingItemId(null); };
 
   const handleCreateOrEditItem = (e) => {
-    e.preventDefault(); if (!newItemName.trim() || !user) return;
+    e.preventDefault(); if (!newItemName.trim() || !user || isProcessingRef.current) return;
+    isProcessingRef.current = true;
+
     if (modalMode === 'edit') {
       if (modalType === 'folder') {
         const f = folders.find(x => x.id === editingItemId);
@@ -1073,10 +1076,13 @@ export default function App() {
       }
     }
     closeAndResetModal();
+    setTimeout(() => { isProcessingRef.current = false; }, 300);
   };
 
   const confirmDelete = () => {
-    if (!itemToDelete || !user) return;
+    if (!itemToDelete || !user || isProcessingRef.current) return;
+    isProcessingRef.current = true;
+
     if (itemToDelete.type === 'folder') {
       const getAllNestedFolderIds = (folderId) => {
         let ids = [folderId]; folders.filter(f => f.parentId === folderId).forEach(c => { ids = [...ids, ...getAllNestedFolderIds(c.id)]; }); return ids;
@@ -1101,10 +1107,13 @@ export default function App() {
       showToast("Baralho eliminado.");
     }
     setItemToDelete(null);
+    setTimeout(() => { isProcessingRef.current = false; }, 300);
   };
 
   const handleMoveItem = () => {
-    if (!itemToMove || !user) return;
+    if (!itemToMove || !user || isProcessingRef.current) return;
+    isProcessingRef.current = true;
+
     if (itemToMove.type === 'folder') {
       const f = folders.find(x => x.id === itemToMove.id);
       if (f) {
@@ -1123,10 +1132,13 @@ export default function App() {
     setIsMoveModalOpen(false);
     setItemToMove(null);
     showToast(`${itemToMove.type === 'folder' ? 'Pasta movida' : 'Baralho movido'} com sucesso!`);
+    setTimeout(() => { isProcessingRef.current = false; }, 300);
   };
 
   const handleSaveCard = (e) => {
-    e.preventDefault(); if (!newCardFront.trim() || !user) return;
+    e.preventDefault(); if (!newCardFront.trim() || !user || isProcessingRef.current) return;
+    isProcessingRef.current = true;
+
     let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
     
     // Se o user está na vista detail do baralho, este activeDeckId estará definido
@@ -1157,6 +1169,7 @@ export default function App() {
        showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
     }
     setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setEditingCardId(null);
+    setTimeout(() => { isProcessingRef.current = false; }, 300);
   };
 
   const editCard = (card) => {
