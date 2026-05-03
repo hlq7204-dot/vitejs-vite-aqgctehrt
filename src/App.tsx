@@ -506,6 +506,7 @@ export default function App() {
   const [tfCorrect, setTfCorrect] = useState(true);
   const [typeAnswer, setTypeAnswer] = useState('');
   const [editingCardId, setEditingCardId] = useState(null); 
+  const [isCardEditModalOpen, setIsCardEditModalOpen] = useState(false);
   
   const fileInputRef = useRef(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1147,6 +1148,11 @@ export default function App() {
        
        const updatedDeck = { ...currentDeck, cards: updatedCards };
        setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); updateDeckInCloud(updatedDeck);
+       
+       if (editingCardId && currentView === 'review') {
+           setReviewQueue(prev => prev.map(c => c.id === editingCardId ? { ...c, front: processedCard.front, back: processedCard.back, type: processedCard.type, options: processedCard.options, correctOption: processedCard.correctOption, isTrue: processedCard.isTrue, typeAnswer: processedCard.typeAnswer } : c));
+       }
+
        showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
     }
     setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setEditingCardId(null);
@@ -1903,9 +1909,12 @@ export default function App() {
                   className="absolute inset-0 w-full h-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl"
                   style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
                 >
-                  <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center">
+                  <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center group">
                     <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
-                    <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique para virar</span>
+                    <div className="flex items-center gap-2">
+                      <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="p-1.5 text-slate-600 opacity-20 hover:opacity-100 hover:bg-slate-800 hover:text-indigo-400 rounded-lg transition-all" title="Editar Cartão"><Pencil className="w-4 h-4" /></button>
+                      <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique para virar</span>
+                    </div>
                   </div>
                   <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
                     <div className="text-2xl sm:text-3xl text-slate-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
@@ -1917,9 +1926,12 @@ export default function App() {
                   className="absolute inset-0 w-full h-full bg-indigo-950/40 rounded-3xl border border-indigo-500/20 flex flex-col shadow-2xl"
                   style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
                 >
-                  <div className="p-6 text-left border-b border-indigo-500/20 flex justify-between items-center">
+                  <div className="p-6 text-left border-b border-indigo-500/20 flex justify-between items-center group">
                     <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
-                    <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }}><RefreshCcw className="w-4 h-4" /></button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="p-1.5 text-indigo-400/30 opacity-40 hover:opacity-100 hover:bg-indigo-900/50 hover:text-indigo-300 rounded-lg transition-all" title="Editar Cartão"><Pencil className="w-4 h-4" /></button>
+                      <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }}><RefreshCcw className="w-4 h-4" /></button>
+                    </div>
                   </div>
                   <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
                     <div className="text-2xl sm:text-3xl text-indigo-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
@@ -1930,7 +1942,8 @@ export default function App() {
           )}
 
           {type !== 'standard' && (
-            <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right">
+            <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right relative group">
+              <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="absolute top-4 right-4 p-1.5 text-slate-600 opacity-20 hover:opacity-100 hover:bg-slate-800 hover:text-indigo-400 rounded-lg transition-all z-20" title="Editar Cartão"><Pencil className="w-4 h-4" /></button>
               <div className="p-8 border-b border-slate-800/50">
                 <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
               </div>
@@ -2245,6 +2258,69 @@ export default function App() {
                 <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">{modalMode === 'edit' ? 'Guardar' : 'Criar'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR CARTÃO NA REVISÃO */}
+      {isCardEditModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsCardEditModalOpen(false)}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-slate-200 mb-6 flex items-center gap-2 shrink-0">
+              <Pencil className="w-5 h-5 text-indigo-400" /> Editar Cartão
+            </h3>
+            
+            <div className="overflow-y-auto custom-scrollbar pr-2 flex-grow">
+              <div className="grid grid-cols-2 gap-2 bg-slate-950 p-2 rounded-xl mb-6 border border-slate-800">
+                {CARD_TYPES.map(type => {
+                  const IconComp = type.Icon;
+                  return (
+                    <button key={type.id} type="button" onClick={() => setCardType(type.id)} className={`flex items-center justify-center gap-2 px-3 py-3 rounded-lg text-sm font-medium transition-all ${cardType === type.id ? 'bg-indigo-500/20 text-indigo-400 shadow-sm border border-indigo-500/30' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800 border border-transparent'}`}>
+                      <IconComp className="w-4 h-4" /> {type.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <form id="edit-card-form" onSubmit={(e) => { handleSaveCard(e); setIsCardEditModalOpen(false); }} className="space-y-4">
+                 <RichTextEditor label="Frente" placeholder="" value={newCardFront} onChange={setNewCardFront} />
+
+                 {cardType === 'choice' && (
+                   <div className="space-y-2 pt-2 border-t border-slate-800">
+                     <label className="block text-sm font-medium text-slate-400">Opções</label>
+                     {choiceOptions.map((opt, idx) => (
+                       <div key={idx} className="flex items-center gap-2">
+                         <button type="button" onClick={() => setCorrectOption(idx)} className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center border transition-all ${correctOption === idx ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-700 text-transparent hover:border-slate-500'}`}><Check className="w-3 h-3" /></button>
+                         <input type="text" value={opt} onChange={(e) => updateChoiceOption(idx, e.target.value)} className={`w-full bg-slate-950 border text-sm rounded-lg p-2 focus:outline-none transition-colors ${correctOption === idx ? 'border-emerald-500/50 text-emerald-100' : 'border-slate-800 text-slate-300 focus:border-indigo-500'}`} placeholder="" />
+                       </div>
+                     ))}
+                   </div>
+                 )}
+                 {cardType === 'tf' && (
+                   <div className="pt-2 border-t border-slate-800">
+                     <label className="block text-sm font-medium text-slate-400 mb-2">Qual a certa?</label>
+                     <div className="flex gap-2">
+                       <button type="button" onClick={() => setTfCorrect(true)} className={`flex-1 py-2 rounded-lg font-bold border transition-all ${tfCorrect ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Verdadeiro</button>
+                       <button type="button" onClick={() => setTfCorrect(false)} className={`flex-1 py-2 rounded-lg font-bold border transition-all ${!tfCorrect ? 'bg-rose-500/20 border-rose-500 text-rose-400' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Falso</button>
+                     </div>
+                   </div>
+                 )}
+                 {cardType === 'typing' && (
+                   <div className="pt-2 border-t border-slate-800">
+                     <label className="block text-sm font-medium text-slate-400 mb-1">Gabarito</label>
+                     <input type="text" value={typeAnswer} onChange={(e) => setTypeAnswer(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-indigo-300 font-mono rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="" />
+                   </div>
+                 )}
+                 <div className="pt-2 border-t border-slate-800">
+                   <RichTextEditor label="Verso" placeholder="" value={newCardBack} onChange={setNewCardBack} />
+                 </div>
+              </form>
+            </div>
+            
+            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-800 shrink-0">
+               <button type="button" onClick={() => setIsCardEditModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+               <button type="submit" form="edit-card-form" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar Alterações</button>
+            </div>
           </div>
         </div>
       )}
