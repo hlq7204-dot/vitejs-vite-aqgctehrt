@@ -66,17 +66,30 @@ const initialDecks = [];
 const FOLDER_THEMES = [
   { id: 'indigo', label: 'Índigo', color: 'text-indigo-400' },
   { id: 'blue', label: 'Azul', color: 'text-blue-400' },
+  { id: 'cyan', label: 'Ciano', color: 'text-cyan-400' },
+  { id: 'teal', label: 'Teal', color: 'text-teal-400' },
   { id: 'emerald', label: 'Esmeralda', color: 'text-emerald-400' },
-  { id: 'rose', label: 'Rosa', color: 'text-rose-400' },
+  { id: 'lime', label: 'Lima', color: 'text-lime-400' },
   { id: 'amber', label: 'Âmbar', color: 'text-amber-400' },
+  { id: 'orange', label: 'Laranja', color: 'text-orange-400' },
+  { id: 'rose', label: 'Rosa', color: 'text-rose-400' },
+  { id: 'fuchsia', label: 'Fúcsia', color: 'text-fuchsia-400' },
+  { id: 'violet', label: 'Violeta', color: 'text-violet-400' },
+  { id: 'slate', label: 'Cinza', color: 'text-slate-400' },
 ];
 
 const DECK_THEMES = [
   { id: 'classic-blue', label: 'Clássico', color: 'bg-blue-500 text-white' },
   { id: 'ocean', label: 'Oceano', color: 'bg-gradient-to-br from-cyan-400 to-blue-600 text-white shadow-lg shadow-blue-500/30' },
+  { id: 'forest', label: 'Floresta', color: 'bg-gradient-to-br from-emerald-400 to-green-700 text-white shadow-lg shadow-green-500/30' },
   { id: 'fire', label: 'Fogo', color: 'bg-gradient-to-br from-orange-400 to-red-600 text-white shadow-lg shadow-orange-500/30' },
+  { id: 'sunset', label: 'Pôr do Sol', color: 'bg-gradient-to-br from-pink-500 to-orange-400 text-white shadow-lg shadow-orange-500/30' },
+  { id: 'grape', label: 'Uva', color: 'bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white shadow-lg shadow-fuchsia-500/30' },
+  { id: 'gold', label: 'Ouro', color: 'bg-gradient-to-br from-amber-300 to-yellow-600 text-white shadow-lg shadow-yellow-500/30' },
   { id: 'midnight', label: 'Noturno', color: 'bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-500 text-slate-300' },
-  { id: 'cyberpunk', label: 'Cyberpunk', color: 'bg-slate-900 border border-fuchsia-500 shadow-[0_0_15px_rgba(217,70,239,0.5)] text-fuchsia-400' }
+  { id: 'void', label: 'Vazio', color: 'bg-black border border-slate-800 text-slate-400 shadow-inner' },
+  { id: 'cyberpunk', label: 'Cyberpunk', color: 'bg-slate-900 border border-fuchsia-500 shadow-[0_0_15px_rgba(217,70,239,0.5)] text-fuchsia-400' },
+  { id: 'neon-mint', label: 'Neon Mint', color: 'bg-slate-900 border border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4)] text-emerald-400' }
 ];
 
 const CARD_TYPES = [
