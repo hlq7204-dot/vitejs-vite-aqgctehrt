@@ -397,12 +397,47 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
     const items = (e.clipboardData || window.clipboardData).items;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
         const reader = new FileReader();
         reader.onload = (event) => {
-          document.execCommand('insertImage', false, event.target.result);
-          onChange(editorRef.current.innerHTML);
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_SIZE = 600; // Limite inteligente para flashcards
+            let width = img.width;
+            let height = img.height;
+
+            // Mantém a proporção da imagem
+            if (width > height) {
+              if (width > MAX_SIZE) {
+                height *= MAX_SIZE / width;
+                width = MAX_SIZE;
+              }
+            } else {
+              if (height > MAX_SIZE) {
+                width *= MAX_SIZE / height;
+                height = MAX_SIZE;
+              }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            // Preencher com fundo branco (evita fundo preto caso seja um PNG transparente ao converter para JPEG)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Comprime agressivamente em JPEG para garantir que caiba no limite de 1MB da nuvem
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+            
+            document.execCommand('insertImage', false, compressedBase64);
+            onChange(editorRef.current.innerHTML);
+          };
+          img.src = event.target.result;
         };
-        reader.readAsDataURL(items[i].getAsFile());
+        reader.readAsDataURL(file);
         e.preventDefault(); 
       }
     }
@@ -512,9 +547,11 @@ export default function App() {
   const [editingCardId, setEditingCardId] = useState(null); 
   const [isCardEditModalOpen, setIsCardEditModalOpen] = useState(false);
   
-  const [selectedCards, setSelectedCards] = useState(new Set());
+  // --- NOVOS ESTADOS PARA MIGRAÇÃO DE CARTÕES ---
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedCardIds, setSelectedCardIds] = useState(new Set());
   const [isMoveCardsModalOpen, setIsMoveCardsModalOpen] = useState(false);
-  const [targetDeckForMove, setTargetDeckForMove] = useState('');
+  const [moveCardsTargetDeckId, setMoveCardsTargetDeckId] = useState(null);
 
   const fileInputRef = useRef(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -928,6 +965,15 @@ export default function App() {
     });
   };
 
+  const toggleCardSelection = (id) => {
+    setSelectedCardIds(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        return newSet;
+    });
+  };
+
   const updateChoiceOption = (idx, value) => { const newOpts = [...choiceOptions]; newOpts[idx] = value; setChoiceOptions(newOpts); };
 
   const addChoiceOption = () => {
@@ -941,49 +987,6 @@ export default function App() {
       if (correctOption === idx) setCorrectOption(0);
       else if (correctOption > idx) setCorrectOption(correctOption - 1);
     }
-  };
-
-  const toggleCardSelection = (cardId) => {
-    setSelectedCards(prev => {
-        const next = new Set(prev);
-        if (next.has(cardId)) next.delete(cardId);
-        else next.add(cardId);
-        return next;
-    });
-  };
-
-  const handleMoveSelectedCards = () => {
-    if (!targetDeckForMove || !user || selectedCards.size === 0 || isProcessingRef.current) return;
-    isProcessingRef.current = true;
-
-    const sourceDeck = activeDeck;
-    const destDeck = validDecks.find(d => d.id === targetDeckForMove);
-    if (!sourceDeck || !destDeck || sourceDeck.id === destDeck.id) {
-       isProcessingRef.current = false;
-       return;
-    }
-
-    const cardsToMove = sourceDeck.cards.filter(c => selectedCards.has(c.id));
-    const updatedSourceCards = sourceDeck.cards.filter(c => !selectedCards.has(c.id));
-    const updatedDestCards = [...(destDeck.cards || []), ...cardsToMove];
-
-    const updatedSourceDeck = { ...sourceDeck, cards: updatedSourceCards };
-    const updatedDestDeck = { ...destDeck, cards: updatedDestCards };
-
-    setDecks(prev => prev.map(d => {
-        if (d.id === sourceDeck.id) return updatedSourceDeck;
-        if (d.id === destDeck.id) return updatedDestDeck;
-        return d;
-    }));
-
-    updateDeckInCloud(updatedSourceDeck);
-    updateDeckInCloud(updatedDestDeck);
-
-    setSelectedCards(new Set());
-    setIsMoveCardsModalOpen(false);
-    setTargetDeckForMove('');
-    showToast(`${cardsToMove.length} cartões movidos com sucesso!`);
-    setTimeout(() => { isProcessingRef.current = false; }, 300);
   };
 
   const handleSaveSettings = async (e) => {
@@ -1214,17 +1217,39 @@ export default function App() {
     setTimeout(() => { isProcessingRef.current = false; }, 300);
   };
 
+  const handleMoveCards = () => {
+      const sourceDeck = activeDeck;
+      const targetDeck = validDecks.find(d => d.id === moveCardsTargetDeckId);
+      if (!sourceDeck || !targetDeck || selectedCardIds.size === 0) return;
+
+      const cardsToMove = sourceDeck.cards.filter(c => selectedCardIds.has(c.id));
+      const updatedSourceDeck = { ...sourceDeck, cards: sourceDeck.cards.filter(c => !selectedCardIds.has(c.id)) };
+      const updatedTargetDeck = { ...targetDeck, cards: [...(targetDeck.cards || []), ...cardsToMove] };
+
+      setDecks(prev => prev.map(d => {
+          if (d.id === sourceDeck.id) return updatedSourceDeck;
+          if (d.id === targetDeck.id) return updatedTargetDeck;
+          return d;
+      }));
+
+      updateDeckInCloud(updatedSourceDeck);
+      updateDeckInCloud(updatedTargetDeck);
+
+      setIsMoveCardsModalOpen(false);
+      setIsSelectMode(false);
+      setSelectedCardIds(new Set());
+      showToast(`${cardsToMove.length} cartões movidos com sucesso!`);
+  };
+
   const handleSaveCard = (e) => {
     e.preventDefault(); if (!newCardFront.trim() || !user || isProcessingRef.current) return;
     isProcessingRef.current = true;
 
     let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
     
-    // CORREÇÃO DO BUG: Apenas usar o ID do reviewQueue SE estiver na vista de revisão. Caso contrário usa o deck atualmente aberto.
-    const targetDeckId = (currentView === 'review' && reviewQueue[currentCardIndex]) 
-        ? (reviewQueue[currentCardIndex]._deckId || activeDeckId) 
-        : activeDeckId;
-        
+    // LINHA CRÍTICA PARA CORRIGIR O BUG DA CRIAÇÃO NO BARALHO ERRADO:
+    // Garante que só usa a reviewQueue se efetivamente estiver na view de Review.
+    const targetDeckId = currentView === 'review' ? (reviewQueue[currentCardIndex]?._deckId || activeDeckId) : activeDeckId;
     const currentDeck = validDecks.find(d => d.id === targetDeckId);
 
     if (editingCardId && currentDeck) {
@@ -1916,7 +1941,7 @@ export default function App() {
           setCurrentView('dashboard');
           setEditingCardId(null);
           setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer('');
-          setSelectedCards(new Set());
+          setIsSelectMode(false); setSelectedCardIds(new Set());
         }} className="flex items-center gap-2 text-slate-400 hover:text-slate-200 mb-6 transition-colors"><ArrowLeft className="w-4 h-4" /> Voltar</button>
 
         <div className="bg-slate-900/80 backdrop-blur-sm rounded-3xl p-6 sm:p-8 border border-slate-800 mb-8 flex flex-col gap-6 relative group">
@@ -2009,19 +2034,27 @@ export default function App() {
             </div>
           </div>
 
-          <div className="lg:col-span-3 space-y-4 relative">
-            <div className="flex items-center justify-between mb-4">
+          <div className="lg:col-span-3 space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
               <h3 className="font-bold text-slate-200 flex items-center gap-2">Cartões <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full text-xs">{activeDeck.cards?.length || 0}</span></h3>
-              {activeDeck.cards?.length > 0 && (
-                 <button onClick={() => {
-                     if (selectedCards.size === activeDeck.cards.length) setSelectedCards(new Set());
-                     else setSelectedCards(new Set(activeDeck.cards.map(c => c.id)));
-                 }} className="text-sm font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
-                     {selectedCards.size === activeDeck.cards.length ? 'Desmarcar Todos' : 'Selecionar Todos'}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                 {isSelectMode && (
+                   <button onClick={() => {
+                      if (selectedCardIds.size === activeDeck.cards?.length && activeDeck.cards?.length > 0) {
+                         setSelectedCardIds(new Set());
+                      } else {
+                         setSelectedCardIds(new Set(activeDeck.cards?.map(c => c.id)));
+                      }
+                   }} className="text-sm px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-slate-100 border border-slate-700 transition-colors flex-1 sm:flex-none">
+                     {selectedCardIds.size === activeDeck.cards?.length && activeDeck.cards?.length > 0 ? 'Desmarcar Todos' : 'Selecionar Todos'}
+                   </button>
+                 )}
+                 <button onClick={() => { setIsSelectMode(!isSelectMode); setSelectedCardIds(new Set()); }} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors flex-1 sm:flex-none ${isSelectMode ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'}`}>
+                    {isSelectMode ? 'Concluir Seleção' : 'Selecionar Múltiplos'}
                  </button>
-              )}
+              </div>
             </div>
-            
+
             {(activeDeck.cards || []).slice().reverse().map((card) => {
               let statusLabel = ''; let statusColor = '';
               if (card.reviews === 0) { statusLabel = 'Novo'; statusColor = 'text-blue-400 bg-blue-500/10 border-blue-500/20'; }
@@ -2033,13 +2066,18 @@ export default function App() {
               const TypeIconComp = typeObj.Icon;
 
               return (
-                <div key={card.id} className={`bg-slate-900/80 p-5 rounded-2xl border flex items-start gap-3 sm:gap-4 group transition-all duration-300 anki-content ${editingCardId === card.id ? 'border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : (selectedCards.has(card.id) ? 'border-indigo-500/80 bg-indigo-950/20' : 'border-slate-800 hover:border-slate-700 hover:-translate-y-1')}`}>
-                  <div className="pt-1 shrink-0">
-                     <button onClick={(e) => { e.stopPropagation(); toggleCardSelection(card.id); }} className={`w-6 h-6 rounded-md border flex items-center justify-center transition-all ${selectedCards.has(card.id) ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-slate-600 text-transparent hover:border-indigo-400'}`}>
-                       <Check className="w-4 h-4" />
-                     </button>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow pr-2 sm:pr-4">
+                <div key={card.id} 
+                     className={`bg-slate-900/80 p-5 rounded-2xl border flex items-start justify-between group transition-all duration-300 anki-content ${isSelectMode && selectedCardIds.has(card.id) ? 'border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : (editingCardId === card.id ? 'border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'border-slate-800 hover:border-slate-700 hover:-translate-y-1')} ${isSelectMode ? 'cursor-pointer' : ''}`}
+                     onClick={() => { if (isSelectMode) toggleCardSelection(card.id); }}
+                >
+                  {isSelectMode && (
+                     <div className="flex items-center h-full mr-4 pt-1 shrink-0">
+                         <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors border ${selectedCardIds.has(card.id) ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-slate-950 border-slate-600 text-transparent'}`}>
+                            <Check className="w-3.5 h-3.5" />
+                         </div>
+                     </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow pr-4">
                     <div>
                       <div className="flex items-center gap-2 mb-2">
                         <span className="flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">
@@ -2049,33 +2087,38 @@ export default function App() {
                       </div>
                       <div className="text-slate-200 font-medium line-clamp-4 text-sm sm:text-base overflow-hidden break-words" dangerouslySetInnerHTML={{ __html: card.front }} />
                     </div>
-                    <div className="pt-4 md:pt-8 border-t border-slate-800 md:border-0">
+                    <div className="pt-8">
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">
                         {card.type === 'standard' ? 'Verso' : card.type === 'typing' ? `Gabarito: ${card.typeAnswer}` : card.type === 'tf' ? `Gabarito: ${card.isTrue ? 'V' : 'F'}` : 'Detalhes'}
                       </span>
                       <div className="text-slate-400 line-clamp-4 text-sm sm:text-base overflow-hidden break-words" dangerouslySetInnerHTML={{ __html: card.back }} />
                     </div>
                   </div>
-                  <div className="flex flex-col gap-2 shrink-0">
-                    <button onClick={() => editCard(card)} className="text-slate-600 hover:text-indigo-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-indigo-500/10" title="Editar"><Pencil className="w-5 h-5" /></button>
-                    <button onClick={() => deleteCard(card.id)} className="text-slate-600 hover:text-red-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-red-500/10" title="Eliminar"><Trash2 className="w-5 h-5" /></button>
-                  </div>
+                  {!isSelectMode && (
+                      <div className="flex flex-col gap-2 shrink-0">
+                        <button onClick={(e) => { e.stopPropagation(); editCard(card); }} className="text-slate-600 hover:text-indigo-400 p-2 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-indigo-500/10" title="Editar"><Pencil className="w-5 h-5" /></button>
+                        <button onClick={(e) => { e.stopPropagation(); deleteCard(card.id); }} className="text-slate-600 hover:text-red-400 p-2 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-red-500/10" title="Eliminar"><Trash2 className="w-5 h-5" /></button>
+                      </div>
+                  )}
                 </div>
               )
             })}
             {(!activeDeck.cards || activeDeck.cards.length === 0) && <div className="text-center py-10 text-slate-600 border border-dashed border-slate-800 rounded-2xl">Este baralho está vazio.</div>}
-            
-            {/* FLOATING ACTION BAR PARA SELEÇÕES */}
-            {selectedCards.size > 0 && (
-              <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/95 backdrop-blur-md p-3 sm:p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] border border-slate-700 flex items-center gap-4 z-50 animate-pop">
-                 <span className="text-slate-200 font-bold whitespace-nowrap"><span className="text-indigo-400">{selectedCards.size}</span> selecionados</span>
-                 <div className="w-px h-6 bg-slate-700"></div>
-                 <button onClick={() => setIsMoveCardsModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-xl font-bold transition-all shadow-lg active:scale-95 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
-                 <button onClick={() => setSelectedCards(new Set())} className="text-slate-400 hover:text-slate-200 px-3 py-2 rounded-xl font-medium transition-colors hidden sm:block">Desmarcar</button>
-              </div>
-            )}
           </div>
         </div>
+
+        {/* Action Bar para Move de Cartões em Lote */}
+        {isSelectMode && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/95 backdrop-blur-xl border border-slate-700 px-6 py-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] z-50 flex items-center gap-4 sm:gap-6 w-[90%] sm:w-auto animate-in slide-in-from-bottom-8 duration-300">
+             <span className="font-bold text-slate-200 text-sm sm:text-base whitespace-nowrap">{selectedCardIds.size} selecionados</span>
+             <div className="h-6 w-px bg-slate-700 hidden sm:block"></div>
+             <div className="flex gap-2 w-full sm:w-auto">
+                 <button onClick={() => { setIsSelectMode(false); setSelectedCardIds(new Set()); }} className="flex-1 sm:flex-none bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-sm font-medium transition-colors">Cancelar</button>
+                 <button onClick={() => setIsMoveCardsModalOpen(true)} disabled={selectedCardIds.size === 0} className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50 transition-colors shadow-lg shadow-indigo-500/20">Mover</button>
+             </div>
+          </div>
+        )}
+
       </div>
     );
   };
@@ -2406,7 +2449,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL MOVER ITEM */}
+      {/* MODAL MOVER PASTA/BARALHO ÚNICO */}
       {isMoveModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -2431,16 +2474,16 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL MOVER CARTÕES EM LOTE */}
+      {/* MODAL MOVER MÚLTIPLOS CARTÕES */}
       {isMoveCardsModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[75] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveCardsModalOpen(false)}>
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveCardsModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-slate-100 mb-6 flex items-center gap-2"><CornerUpRight className="w-6 h-6 text-indigo-400" /> Mover {selectedCards.size} cartões</h3>
+            <h3 className="text-xl font-bold text-slate-100 mb-6 flex items-center gap-2"><CornerUpRight className="w-6 h-6 text-indigo-400" /> Mover {selectedCardIds.size} cartões</h3>
             <div className="space-y-4">
                <label className="block text-sm font-medium text-slate-400">Selecionar Baralho de Destino</label>
                <select
-                   value={targetDeckForMove}
-                   onChange={(e) => setTargetDeckForMove(e.target.value)}
+                   value={moveCardsTargetDeckId || ''}
+                   onChange={(e) => setMoveCardsTargetDeckId(e.target.value === '' ? null : e.target.value)}
                    className="w-full bg-slate-950 border border-slate-800 text-slate-300 py-3 px-4 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors"
                >
                    <option value="" disabled>Escolha um baralho...</option>
@@ -2451,7 +2494,7 @@ export default function App() {
             </div>
             <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800/50">
                <button onClick={() => setIsMoveCardsModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-               <button onClick={handleMoveSelectedCards} disabled={!targetDeckForMove} className={`flex-1 font-medium py-3 rounded-xl transition-all shadow-lg active:scale-95 ${targetDeckForMove ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/25' : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'}`}>Confirmar</button>
+               <button onClick={handleMoveCards} disabled={!moveCardsTargetDeckId} className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Mover</button>
             </div>
           </div>
         </div>
@@ -2472,7 +2515,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL CRIAR/EDITAR */}
+      {/* MODAL CRIAR/EDITAR PASTA/BARALHO */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={closeAndResetModal}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
