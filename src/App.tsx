@@ -1644,11 +1644,11 @@ export default function App() {
                    const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || 'text-indigo-400';
                    return (
                      <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className={`bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-700 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-xl hover:shadow-${folder.color?.split('-')[1]-500/10}`} style={{animationDelay: `${index * 50}ms`}}>
-                       <div className="flex items-center gap-4 truncate">
+                       <div className="flex items-center gap-4 flex-grow min-w-0 pr-3">
                          <div className={`p-3 bg-slate-950 rounded-xl shrink-0 ${colorClass}`}>
                            <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
                          </div>
-                         <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg truncate">{folder.name}</span>
+                         <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 break-words" title={folder.name}>{folder.name}</span>
                        </div>
                        <div className="flex items-center gap-3 shrink-0 ml-2">
                         {renderStatBadges(getFolderStats(folder.id))}
@@ -1706,8 +1706,8 @@ export default function App() {
                            </div>
                          </div>
                        </div>
-                       <h3 className="text-xl font-bold text-slate-200 mb-2 group-hover:text-indigo-300 transition-colors">{deck.name}</h3>
-                       <p className="text-slate-400 text-sm flex-grow line-clamp-2">{deck.description}</p>
+                       <h3 className="text-xl font-bold text-slate-200 mb-2 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words" title={deck.name}>{deck.name}</h3>
+                       <p className="text-slate-400 text-sm flex-grow line-clamp-2" title={deck.description}>{deck.description}</p>
                        <div className="mt-6 pt-4 border-t border-slate-800/50 flex justify-between items-center text-sm text-slate-500">
                          <span>{deck.cards?.length || 0} cartões totais</span>
                          <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={due === 0} className={`p-2 rounded-full transition-all ${due > 0 ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:scale-110' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed'}`}>
