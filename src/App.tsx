@@ -1341,10 +1341,6 @@ export default function App() {
       return { label: reportPeriod === 'week' ? d.toLocaleDateString('pt-BR', {weekday: 'short'}).replace('.','') : `${dy}/${m}`, count, date: d };
     });
     
-    const maxActivity = Math.max(...activityData.map(a => a.count), 5);
-    const minBarWidth = reportPeriod === 'all' || reportPeriod === 'month' ? 'min-w-[12px]' : 'w-full max-w-[32px]';
-    const gapSize = reportPeriod === 'all' || reportPeriod === 'month' ? 'gap-0.5' : 'gap-1 sm:gap-2';
-
     let targetCards = [];
     if (reportDeckId === 'all') { targetCards = validDecks.flatMap(d => d.cards || []); } 
     else { const deck = validDecks.find(d => d.id === reportDeckId); if (deck) targetCards = deck.cards || []; }
@@ -1363,6 +1359,25 @@ export default function App() {
 
     const avgRetention = revCardsCount > 0 ? ((totalR / revCardsCount) * 100).toFixed(1) : 'N/A';
     const totalStudied = revCardsCount + youngCount; const maturePercent = totalStudied > 0 ? Math.round((matureCount / totalStudied) * 100) : 0;
+
+    // --- LÓGICA DO GRÁFICO DE LINHA ---
+    const maxActivity = Math.max(...activityData.map(a => a.count), 5);
+    const n = activityData.length;
+    const points = activityData.map((data, i) => {
+      const showLabel = reportPeriod === 'week' || (reportPeriod === 'month' && i % 3 === 0) || (reportPeriod === 'all' && i % Math.max(1, Math.floor(daysCount / 10)) === 0);
+      const x = n <= 1 ? 50 : (i / (n - 1)) * 100;
+      const y = maxActivity === 0 ? 0 : (data.count / maxActivity) * 90; // O topo será de no máx 90% para não cortar o ponto
+      return { ...data, x, y, showLabel };
+    });
+
+    // Gera o caminho de curva Bezier (C) para ligar os pontos suavemente
+    const smoothLinePath = points.length > 1 
+      ? `M ${points[0].x} ${100 - points[0].y}` + points.slice(1).map((p, i) => {
+          const p0 = points[i];
+          const cpX = (p0.x + p.x) / 2;
+          return ` C ${cpX} ${100 - p0.y}, ${cpX} ${100 - p.y}, ${p.x} ${100 - p.y}`;
+        }).join('')
+      : '';
 
     return (
       <div className="animate-in fade-in duration-300 pb-10 space-y-6">
@@ -1413,23 +1428,79 @@ export default function App() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* GRÁFICO DE LINHA DO HISTÓRICO DE VOLUME */}
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
-            <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-6"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
-            <div className="flex-grow flex items-end justify-between chart-scroll-container">
-              <div className={`flex items-end h-full min-w-full ${reportPeriod === 'all' ? 'w-max' : ''} ${gapSize}`}>
-                {activityData.map((data, i) => {
-                  const height = maxActivity === 0 ? 0 : (data.count / maxActivity) * 100;
-                  const showLabel = reportPeriod === 'week' || (reportPeriod === 'month' && i % 3 === 0) || (reportPeriod === 'all' && i % Math.max(1, Math.floor(daysCount / 10)) === 0);
-                  return (
-                    <div key={i} className="relative flex flex-col items-center flex-1 h-full justify-end group/bar">
-                      <div className={`${minBarWidth} bg-slate-950 rounded-t-sm sm:rounded-t-md border border-b-0 border-slate-800/80 relative flex items-end justify-center overflow-hidden h-full`}>
-                        <div className="w-full bg-gradient-to-t from-blue-600/80 to-indigo-400/80 rounded-t-sm sm:rounded-t-md transition-all duration-700 ease-out" style={{ height: `${Math.max(height, 2)}%` }}></div>
-                        <span className="absolute -top-6 text-[10px] font-bold text-slate-200 opacity-0 group-hover/bar:opacity-100 transition-opacity bg-slate-800 px-1.5 py-0.5 rounded z-10">{data.count}</span>
+            <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
+            <p className="text-sm text-slate-500 mb-6">Cartões revistos ao longo do tempo</p>
+            
+            <div className="flex-grow w-full chart-scroll-container overflow-x-auto overflow-y-visible relative pb-2 px-2 sm:px-4">
+              <div 
+                className="relative h-full min-h-[200px]" 
+                style={{ minWidth: reportPeriod === 'all' ? `${Math.max(100, points.length * 30)}px` : '100%' }}
+              >
+                <div className="absolute inset-0 top-2 bottom-[30px] w-full">
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible">
+                    <defs>
+                      <linearGradient id="line-gradient" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#818cf8" stopOpacity="0.5" />
+                        <stop offset="100%" stopColor="#818cf8" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+                    {points.length > 1 ? (
+                      <>
+                        <path
+                          d={`${smoothLinePath} L 100 100 L 0 100 Z`}
+                          fill="url(#line-gradient)"
+                        />
+                        <path
+                          d={smoothLinePath}
+                          fill="none"
+                          stroke="#818cf8"
+                          strokeWidth="3"
+                          vectorEffect="non-scaling-stroke"
+                          strokeLinecap="round"
+                        />
+                      </>
+                    ) : points.length === 1 ? (
+                       <circle cx={points[0].x} cy={100 - points[0].y} r="3" fill="#818cf8" />
+                    ) : null}
+                  </svg>
+
+                  {/* Interactive Points */}
+                  {points.map((p, i) => (
+                    <div
+                      key={i}
+                      className="absolute flex flex-col items-center group cursor-pointer"
+                      style={{ left: `${p.x}%`, top: `${100 - p.y}%`, transform: 'translate(-50%, -50%)', zIndex: 10 }}
+                    >
+                      <div className="absolute bottom-full mb-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-20 shadow-xl border border-slate-700 flex flex-col items-center gap-0.5">
+                        <span className="text-indigo-300 text-sm">{p.count}</span>
+                        <span className="text-[9px] text-slate-400 font-medium uppercase tracking-wider">{p.label}</span>
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-800"></div>
                       </div>
-                      <span className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase mt-2 h-4 truncate w-full text-center">{showLabel ? data.label : ''}</span>
+                      
+                      <div className="w-3 h-3 bg-slate-900 border-2 border-indigo-400 rounded-full transition-all duration-300 group-hover:scale-150 group-hover:bg-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>
+                      
+                      {/* Área extra grande invisível para facilitar o hover com o rato */}
+                      <div className="absolute -inset-4 z-0"></div>
                     </div>
-                  )
-                })}
+                  ))}
+                </div>
+                
+                {/* Labels Bottom */}
+                <div className="absolute bottom-0 left-0 w-full h-[24px]">
+                  {points.map((p, i) => (
+                    p.showLabel && (
+                      <span
+                        key={`label-${i}`}
+                        className="absolute bottom-0 text-[10px] font-bold text-slate-500 uppercase whitespace-nowrap"
+                        style={{ left: `${p.x}%`, transform: 'translateX(-50%)' }}
+                      >
+                        {p.label}
+                      </span>
+                    )
+                  ))}
+                </div>
               </div>
             </div>
           </div>
