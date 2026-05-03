@@ -1912,7 +1912,7 @@ export default function App() {
                   <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center group">
                     <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
                     <div className="flex items-center gap-2">
-                      <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="p-1.5 text-slate-600 opacity-20 hover:opacity-100 hover:bg-slate-800 hover:text-indigo-400 rounded-lg transition-all" title="Editar Cartão"><Pencil className="w-4 h-4" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-700 hover:text-indigo-300 rounded-lg transition-colors border border-slate-700/50" title="Editar Cartão"><Pencil className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Editar</span></button>
                       <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique para virar</span>
                     </div>
                   </div>
@@ -1929,8 +1929,8 @@ export default function App() {
                   <div className="p-6 text-left border-b border-indigo-500/20 flex justify-between items-center group">
                     <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
                     <div className="flex items-center gap-2">
-                      <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="p-1.5 text-indigo-400/30 opacity-40 hover:opacity-100 hover:bg-indigo-900/50 hover:text-indigo-300 rounded-lg transition-all" title="Editar Cartão"><Pencil className="w-4 h-4" /></button>
-                      <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }}><RefreshCcw className="w-4 h-4" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-indigo-400/70 bg-indigo-900/40 hover:bg-indigo-800 hover:text-indigo-200 rounded-lg transition-colors border border-indigo-500/30" title="Editar Cartão"><Pencil className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Editar</span></button>
+                      <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors border border-indigo-500/30" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }}><RefreshCcw className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
@@ -1943,7 +1943,7 @@ export default function App() {
 
           {type !== 'standard' && (
             <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right relative group">
-              <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="absolute top-4 right-4 p-1.5 text-slate-600 opacity-20 hover:opacity-100 hover:bg-slate-800 hover:text-indigo-400 rounded-lg transition-all z-20" title="Editar Cartão"><Pencil className="w-4 h-4" /></button>
+              <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 bg-slate-950 border border-slate-700 hover:bg-slate-800 hover:text-indigo-300 rounded-lg transition-colors z-20 shadow-md" title="Editar Cartão"><Pencil className="w-3.5 h-3.5" /> Editar</button>
               <div className="p-8 border-b border-slate-800/50">
                 <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
               </div>
