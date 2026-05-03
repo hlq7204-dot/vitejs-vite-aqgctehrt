@@ -1659,7 +1659,7 @@ export default function App() {
                    return (
                      <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-600 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
                        <div className="flex items-center gap-4 flex-grow min-w-0 pr-3">
-                         <div className={`p-3 rounded-xl shrink-0 ${colorClass}`}>
+                         <div className={`relative p-3 rounded-xl shrink-0 ${colorClass}`}>
                            <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
                          </div>
                          <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 break-words" title={folder.name}>{folder.name}</span>
@@ -2256,8 +2256,8 @@ export default function App() {
                 <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center gap-2"><Palette className="w-4 h-4" /> Estilo Visual</label>
                 <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
                   {modalType === 'folder' && FOLDER_THEMES.map(theme => (
-                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 ${theme.color} ${newItemColor === theme.color ? 'ring-2 ring-white ring-offset-2 ring-slate-900 scale-110 z-10 shadow-lg shadow-black/50' : 'opacity-70 hover:opacity-100 hover:scale-105'}`} title={theme.label}>
-                      <Folder className="w-6 h-6 fill-current opacity-20 absolute" /><Folder className="w-6 h-6" />
+                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`relative shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 ${theme.color} ${newItemColor === theme.color ? 'ring-2 ring-white ring-offset-2 ring-slate-900 scale-110 z-10 shadow-lg shadow-black/50' : 'opacity-70 hover:opacity-100 hover:scale-105'}`} title={theme.label}>
+                      <Folder className="w-6 h-6 fill-current opacity-20 absolute" /><Folder className="w-6 h-6 relative z-10" />
                     </button>
                   ))}
                   {modalType !== 'folder' && DECK_THEMES.map(theme => (
