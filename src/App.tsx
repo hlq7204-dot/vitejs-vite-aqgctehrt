@@ -63,33 +63,34 @@ const appId = appIdRaw.replace(/\//g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
 const initialFolders = [];
 const initialDecks = [];
 
+// TEMAS REFORMULADOS COM MAIS DESTAQUE VISUAL
 const FOLDER_THEMES = [
-  { id: 'indigo', label: 'Índigo', color: 'text-indigo-400' },
-  { id: 'blue', label: 'Azul', color: 'text-blue-400' },
-  { id: 'cyan', label: 'Ciano', color: 'text-cyan-400' },
-  { id: 'teal', label: 'Teal', color: 'text-teal-400' },
-  { id: 'emerald', label: 'Esmeralda', color: 'text-emerald-400' },
-  { id: 'lime', label: 'Lima', color: 'text-lime-400' },
-  { id: 'amber', label: 'Âmbar', color: 'text-amber-400' },
-  { id: 'orange', label: 'Laranja', color: 'text-orange-400' },
-  { id: 'rose', label: 'Rosa', color: 'text-rose-400' },
-  { id: 'fuchsia', label: 'Fúcsia', color: 'text-fuchsia-400' },
-  { id: 'violet', label: 'Violeta', color: 'text-violet-400' },
-  { id: 'slate', label: 'Cinza', color: 'text-slate-400' },
+  { id: 'indigo', label: 'Índigo', color: 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' },
+  { id: 'blue', label: 'Azul', color: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' },
+  { id: 'cyan', label: 'Ciano', color: 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' },
+  { id: 'teal', label: 'Teal', color: 'bg-teal-500/10 text-teal-400 border border-teal-500/20' },
+  { id: 'emerald', label: 'Esmeralda', color: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' },
+  { id: 'lime', label: 'Lima', color: 'bg-lime-500/10 text-lime-400 border border-lime-500/20' },
+  { id: 'amber', label: 'Âmbar', color: 'bg-amber-500/10 text-amber-400 border border-amber-500/20' },
+  { id: 'orange', label: 'Laranja', color: 'bg-orange-500/10 text-orange-400 border border-orange-500/20' },
+  { id: 'rose', label: 'Rosa', color: 'bg-rose-500/10 text-rose-400 border border-rose-500/20' },
+  { id: 'fuchsia', label: 'Fúcsia', color: 'bg-fuchsia-500/10 text-fuchsia-400 border border-fuchsia-500/20' },
+  { id: 'violet', label: 'Violeta', color: 'bg-violet-500/10 text-violet-400 border border-violet-500/20' },
+  { id: 'slate', label: 'Cinza', color: 'bg-slate-500/10 text-slate-400 border border-slate-500/20' },
 ];
 
 const DECK_THEMES = [
-  { id: 'classic-blue', label: 'Clássico', color: 'bg-blue-500 text-white' },
-  { id: 'ocean', label: 'Oceano', color: 'bg-gradient-to-br from-cyan-400 to-blue-600 text-white shadow-lg shadow-blue-500/30' },
-  { id: 'forest', label: 'Floresta', color: 'bg-gradient-to-br from-emerald-400 to-green-700 text-white shadow-lg shadow-green-500/30' },
-  { id: 'fire', label: 'Fogo', color: 'bg-gradient-to-br from-orange-400 to-red-600 text-white shadow-lg shadow-orange-500/30' },
-  { id: 'sunset', label: 'Pôr do Sol', color: 'bg-gradient-to-br from-pink-500 to-orange-400 text-white shadow-lg shadow-orange-500/30' },
-  { id: 'grape', label: 'Uva', color: 'bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white shadow-lg shadow-fuchsia-500/30' },
-  { id: 'gold', label: 'Ouro', color: 'bg-gradient-to-br from-amber-300 to-yellow-600 text-white shadow-lg shadow-yellow-500/30' },
-  { id: 'midnight', label: 'Noturno', color: 'bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-500 text-slate-300' },
-  { id: 'void', label: 'Vazio', color: 'bg-black border border-slate-800 text-slate-400 shadow-inner' },
-  { id: 'cyberpunk', label: 'Cyberpunk', color: 'bg-slate-900 border border-fuchsia-500 shadow-[0_0_15px_rgba(217,70,239,0.5)] text-fuchsia-400' },
-  { id: 'neon-mint', label: 'Neon Mint', color: 'bg-slate-900 border border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4)] text-emerald-400' }
+  { id: 'ocean', label: 'Oceano', color: 'bg-gradient-to-br from-cyan-400 to-blue-600 text-white shadow-[0_0_15px_rgba(6,182,212,0.4)]' },
+  { id: 'forest', label: 'Floresta', color: 'bg-gradient-to-br from-emerald-400 to-green-700 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]' },
+  { id: 'fire', label: 'Fogo', color: 'bg-gradient-to-br from-orange-400 to-red-600 text-white shadow-[0_0_15px_rgba(249,115,22,0.4)]' },
+  { id: 'sunset', label: 'Pôr do Sol', color: 'bg-gradient-to-br from-pink-500 to-orange-400 text-white shadow-[0_0_15px_rgba(251,113,133,0.4)]' },
+  { id: 'grape', label: 'Uva', color: 'bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white shadow-[0_0_15px_rgba(192,38,211,0.4)]' },
+  { id: 'gold', label: 'Ouro', color: 'bg-gradient-to-br from-yellow-300 to-amber-600 text-slate-900 shadow-[0_0_15px_rgba(252,211,77,0.4)]' },
+  { id: 'abyss', label: 'Abismo', color: 'bg-gradient-to-br from-slate-900 to-black border border-slate-800 text-indigo-400 shadow-inner' },
+  { id: 'cyberpunk', label: 'Cyberpunk', color: 'bg-slate-950 border border-fuchsia-500 shadow-[0_0_15px_rgba(217,70,239,0.5)] text-fuchsia-400' },
+  { id: 'toxic', label: 'Tóxico', color: 'bg-slate-950 border border-lime-400 shadow-[0_0_15px_rgba(163,230,53,0.5)] text-lime-400' },
+  { id: 'hologram', label: 'Holograma', color: 'bg-gradient-to-tr from-cyan-300 via-indigo-400 to-fuchsia-400 text-white shadow-[0_0_20px_rgba(129,140,248,0.5)]' },
+  { id: 'blood', label: 'Sangue', color: 'bg-gradient-to-br from-red-700 to-slate-900 border border-red-500/50 text-red-100 shadow-[0_0_15px_rgba(220,38,38,0.4)]' }
 ];
 
 const CARD_TYPES = [
@@ -971,7 +972,7 @@ export default function App() {
         let f = newFoldersToCloud.find(x => x.name === fName && x.parentId === parentId) || folders.find(x => x.name === fName && x.parentId === parentId);
         if (f) return f.id;
         const newId = `f-anki-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const newFolder = { id: newId, name: fName, parentId, color: 'text-indigo-400' };
+        const newFolder = { id: newId, name: fName, parentId, color: FOLDER_THEMES[0].color };
         newFoldersToCloud.push(newFolder); setFolders(prev => [...prev, newFolder]); updateFolderInCloud(newFolder);
         return newId;
       };
@@ -982,10 +983,10 @@ export default function App() {
         if (pathParts.length === 0) return;
         let parent = currentFolderId; const deckName = pathParts.pop();
         pathParts.forEach(p => { parent = getOrCreateFolder(p, parent); });
-        newDecksMap[ankiDeck.id] = { id: `d-anki-${ankiDeck.id}`, name: deckName, parentId: parent, color: 'bg-emerald-600 text-white', cards: [] };
+        newDecksMap[ankiDeck.id] = { id: `d-anki-${ankiDeck.id}`, name: deckName, parentId: parent, color: DECK_THEMES[0].color, cards: [] };
       });
 
-      const fallbackDeck = { id: `d-fb-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, color: 'bg-emerald-600 text-white', cards: [] };
+      const fallbackDeck = { id: `d-fb-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, color: DECK_THEMES[0].color, cards: [] };
       const cardsQuery = db.exec("SELECT c.did, n.flds FROM cards c JOIN notes n ON c.nid = n.id");
       
       let importedCount = 0;
@@ -1029,7 +1030,7 @@ export default function App() {
         if (parts.length >= 2) importedCards.push({ id: `c-imp-${Date.now()}-${Math.random()}`, type: 'standard', front: parts[0].replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim(), back: parts[1].replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim(), repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 });
       });
       if (importedCards.length > 0) {
-        const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: 'bg-emerald-600 text-white', cards: importedCards };
+        const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: DECK_THEMES[0].color, cards: importedCards };
         setDecks(prev => [...prev, newDeck]); updateDeckInCloud(newDeck); showToast(`${importedCards.length} cartões importados!`);
       }
       setIsImporting(false);
@@ -1641,11 +1642,11 @@ export default function App() {
                </div>
                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
                  {currentFolders.map((folder, index) => {
-                   const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || 'text-indigo-400';
+                   const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || FOLDER_THEMES[0].color;
                    return (
-                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className={`bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-700 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-xl hover:shadow-${folder.color?.split('-')[1]-500/10}`} style={{animationDelay: `${index * 50}ms`}}>
+                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-600 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
                        <div className="flex items-center gap-4 flex-grow min-w-0 pr-3">
-                         <div className={`p-3 bg-slate-950 rounded-xl shrink-0 ${colorClass}`}>
+                         <div className={`p-3 rounded-xl shrink-0 ${colorClass}`}>
                            <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
                          </div>
                          <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 break-words" title={folder.name}>{folder.name}</span>
@@ -1683,12 +1684,12 @@ export default function App() {
                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
                  {currentDecks.map((deck, index) => {
                    const stats = getCardStats(deck.cards); const due = calculateTotalDue(stats);
-                   const isMenuOpen = activeMenuId === deck.id; const colorClass = deck.color?.includes('text-') ? deck.color : `${deck.color} text-white`;
+                   const isMenuOpen = activeMenuId === deck.id; const colorClass = deck.color || DECK_THEMES[0].color;
 
                    return (
-                     <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className={`bg-slate-900/80 rounded-2xl p-6 border border-slate-800 hover:border-slate-700 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-xl hover:shadow-${deck.color?.split('-')[1] || 'indigo'}-500/10`} style={{animationDelay: `${index * 50}ms`}}>
+                     <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className="bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
                        <div className="flex items-start justify-between mb-4">
-                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-inner ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
+                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
                          <div className="flex items-center gap-3 shrink-0 ml-2">
                            {renderStatBadges(stats)}
                            <div className="relative" onClick={e => e.stopPropagation()}>
@@ -1756,7 +1757,7 @@ export default function App() {
         <div className="bg-slate-900/80 backdrop-blur-sm rounded-3xl p-6 sm:p-8 border border-slate-800 mb-8 flex flex-col gap-6 relative group">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex items-center gap-6">
-              <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center shrink-0 ${activeDeck.color?.includes('text-') ? activeDeck.color : activeDeck.color + ' text-white'}`}><BookOpen className="w-8 h-8 sm:w-10 sm:h-10" /></div>
+              <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center shrink-0 ${activeDeck.color || DECK_THEMES[0].color}`}><BookOpen className="w-8 h-8 sm:w-10 sm:h-10" /></div>
               <div><h1 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2">{activeDeck.name}</h1><p className="text-slate-400">Gerir e adicionar cartões de estudo</p></div>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
@@ -2242,7 +2243,7 @@ export default function App() {
                 <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center gap-2"><Palette className="w-4 h-4" /> Estilo Visual</label>
                 <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
                   {modalType === 'folder' && FOLDER_THEMES.map(theme => (
-                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center bg-slate-950 border transition-all duration-200 ${newItemColor === theme.color ? 'border-slate-400 scale-110 shadow-lg shadow-black/50' : 'border-slate-800 opacity-70 hover:opacity-100 hover:scale-105'} ${theme.color}`} title={theme.label}>
+                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 ${theme.color} ${newItemColor === theme.color ? 'ring-2 ring-white ring-offset-2 ring-slate-900 scale-110 z-10 shadow-lg shadow-black/50' : 'opacity-70 hover:opacity-100 hover:scale-105'}`} title={theme.label}>
                       <Folder className="w-6 h-6 fill-current opacity-20 absolute" /><Folder className="w-6 h-6" />
                     </button>
                   ))}
