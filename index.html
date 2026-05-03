@@ -82,7 +82,8 @@
   <body>
     <!-- Tela de Carregamento Temática -->
     <div id="splash-screen">
-      <img src="image_7aacfc.png" alt="Flash Cards Icon" class="splash-logo" />
+      <!-- Referência com barra inicial e fallback elegante -->
+      <img src="/image_7aacfc.png" alt="Flash Cards Icon" class="splash-logo" onerror="this.onerror=null; this.src='https://placehold.co/100x100/0f172a/818cf8?text=FC&font=Montserrat'" />
       <div class="splash-spinner"></div>
       <h1 class="splash-title">Flash Cards</h1>
     </div>
