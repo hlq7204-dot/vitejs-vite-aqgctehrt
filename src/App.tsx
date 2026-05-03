@@ -32,7 +32,7 @@ import {
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
   PieChart, Timer, Pause, RotateCcw, Settings, Home, Library, Flame, BarChart2, LogOut,
-  Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight
+  Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight, X
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -490,6 +490,7 @@ export default function App() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [reviewInteraction, setReviewInteraction] = useState(null); 
   const [typedInput, setTypedInput] = useState(''); 
+  const [eliminatedOptions, setEliminatedOptions] = useState(new Set()); // Para riscar opções na revisão
   const [sessionStats, setSessionStats] = useState({ reviewed: 0, correct: 0 });
 
   const [pomoActive, setPomoActive] = useState(false);
@@ -504,7 +505,7 @@ export default function App() {
   const [cardType, setCardType] = useState('standard');
   const [newCardFront, setNewCardFront] = useState('');
   const [newCardBack, setNewCardBack] = useState(''); 
-  const [choiceOptions, setChoiceOptions] = useState(['', '', '', '']);
+  const [choiceOptions, setChoiceOptions] = useState(['', '', '', '']); // Modificável entre 2 a 6
   const [correctOption, setCorrectOption] = useState(0);
   const [tfCorrect, setTfCorrect] = useState(true);
   const [typeAnswer, setTypeAnswer] = useState('');
@@ -650,7 +651,11 @@ export default function App() {
     return () => { unsubProfile(); unsubFolders(); unsubDecks(); };
   }, [user]);
 
-  useEffect(() => { setReviewInteraction(null); setTypedInput(''); }, [currentCardIndex]);
+  useEffect(() => { 
+    setReviewInteraction(null); 
+    setTypedInput(''); 
+    setEliminatedOptions(new Set()); // Limpa as opções riscadas ao trocar de cartão
+  }, [currentCardIndex]);
 
   useEffect(() => {
     let interval;
@@ -696,13 +701,19 @@ export default function App() {
         if (e.key === '1') s.handleAnswer(0); if (e.key === '2') s.handleAnswer(1);
         if (e.key === '3') s.handleAnswer(2); if (e.key === '4') s.handleAnswer(3);
       } else if (!s.isFlipped) {
-        if (s.cardType === 'choice' && ['1','2','3','4'].includes(e.key)) s.handleInteractiveSubmit(parseInt(e.key) - 1);
+        if (s.cardType === 'choice' && ['1','2','3','4','5','6'].includes(e.key)) {
+            const idx = parseInt(e.key) - 1;
+            const currentOptsLen = s.reviewQueue[s.currentCardIndex]?.options?.length || 4;
+            if (idx < currentOptsLen && !eliminatedOptions.has(idx)) {
+                s.handleInteractiveSubmit(idx);
+            }
+        }
         else if (s.cardType === 'tf') { if (e.key === '1') s.handleInteractiveSubmit(true); if (e.key === '2') s.handleInteractiveSubmit(false); }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [eliminatedOptions]); // Re-bind event listener when eliminatedOptions change
 
   const formatPomoTime = (secs) => `${Math.floor(secs/60).toString().padStart(2,'0')}:${(secs%60).toString().padStart(2,'0')}`;
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
@@ -904,9 +915,29 @@ export default function App() {
 
   const handleInteractiveSubmit = (val) => { setReviewInteraction(val); setIsFlipped(true); };
 
-  stateRef.current = { currentView, isFlipped, reviewQueue, currentCardIndex, cardType: reviewQueue[currentCardIndex]?.type || 'standard', handleAnswer, handleInteractiveSubmit };
+  const toggleEliminateOption = (idx) => {
+    setEliminatedOptions(prev => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx);
+        else next.add(idx);
+        return next;
+    });
+  };
 
   const updateChoiceOption = (idx, value) => { const newOpts = [...choiceOptions]; newOpts[idx] = value; setChoiceOptions(newOpts); };
+
+  const addChoiceOption = () => {
+    if (choiceOptions.length < 6) setChoiceOptions([...choiceOptions, '']);
+  };
+
+  const removeChoiceOption = (idx) => {
+    if (choiceOptions.length > 2) {
+      const newOpts = choiceOptions.filter((_, i) => i !== idx);
+      setChoiceOptions(newOpts);
+      if (correctOption === idx) setCorrectOption(0);
+      else if (correctOption > idx) setCorrectOption(correctOption - 1);
+    }
+  };
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
@@ -1888,8 +1919,14 @@ export default function App() {
                       <div key={idx} className="flex items-center gap-2">
                         <button type="button" onClick={() => setCorrectOption(idx)} className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center border transition-all ${correctOption === idx ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-700 text-transparent hover:border-slate-500'}`}><Check className="w-3 h-3" /></button>
                         <input type="text" value={opt} onChange={(e) => updateChoiceOption(idx, e.target.value)} className={`w-full bg-slate-950 border text-sm rounded-lg p-2 focus:outline-none transition-colors ${correctOption === idx ? 'border-emerald-500/50 text-emerald-100' : 'border-slate-800 text-slate-300 focus:border-indigo-500'}`} placeholder="" />
+                        {choiceOptions.length > 2 && (
+                          <button type="button" onClick={() => removeChoiceOption(idx)} className="p-2 text-slate-500 hover:text-rose-400 transition-colors rounded-lg"><X className="w-4 h-4" /></button>
+                        )}
                       </div>
                     ))}
+                    {choiceOptions.length < 6 && (
+                      <button type="button" onClick={addChoiceOption} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mt-2 p-1"><Plus className="w-4 h-4"/> Adicionar opção</button>
+                    )}
                   </div>
                 )}
                 {cardType === 'tf' && (
@@ -2033,18 +2070,44 @@ export default function App() {
               </div>
               <div className="flex-grow p-6 sm:px-10 bg-slate-950/50 flex flex-col justify-center gap-4">
                 {type === 'choice' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
                     {currentCard.options?.map((opt, idx) => {
+                      const isEliminated = eliminatedOptions.has(idx);
                       let btnClass = "bg-slate-900 border-slate-700 text-slate-300 hover:border-indigo-500";
+                      
                       if (isFlipped) {
                         if (idx === currentCard.correctOption) btnClass = "bg-emerald-500/20 border-emerald-500 text-emerald-300";
                         else if (reviewInteraction === idx) btnClass = "bg-rose-500/20 border-rose-500 text-rose-300";
                         else btnClass = "opacity-30";
+                      } else if (isEliminated) {
+                        btnClass = "bg-slate-950 border-slate-800 text-slate-600 line-through opacity-40 grayscale";
                       }
+
+                      // Lógica de grid dinâmico: se houver número ímpar de opções e esta for a última, ela ocupa a largura toda.
+                      const isOdd = currentCard.options.length % 2 !== 0;
+                      const isLast = idx === currentCard.options.length - 1;
+                      const spanClass = isOdd && isLast ? "md:col-span-2" : "";
+
                       return (
-                        <button key={idx} disabled={isFlipped} onClick={() => handleInteractiveSubmit(idx)} className={`p-4 rounded-xl border-2 text-left font-medium transition-all flex justify-between text-lg ${btnClass}`}>
-                          {opt} <span className="text-xs opacity-30 font-mono hidden sm:block">{idx+1}</span>
-                        </button>
+                        <div key={idx} className={`relative flex ${spanClass}`}>
+                           <button 
+                             disabled={isFlipped || isEliminated} 
+                             onClick={() => handleInteractiveSubmit(idx)} 
+                             className={`w-full p-4 pr-12 rounded-xl border-2 text-left font-medium transition-all flex justify-between items-center text-lg ${btnClass}`}
+                           >
+                             <span>{opt}</span> 
+                             <span className="text-xs opacity-30 font-mono hidden sm:block">{idx+1}</span>
+                           </button>
+                           {!isFlipped && (
+                             <button 
+                               onClick={(e) => { e.stopPropagation(); toggleEliminateOption(idx); }}
+                               className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${isEliminated ? 'text-indigo-400 hover:text-indigo-300' : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'}`}
+                               title={isEliminated ? "Restaurar alternativa" : "Riscar alternativa (Eliminar)"}
+                             >
+                               {isEliminated ? <RotateCcw className="w-4 h-4"/> : <X className="w-4 h-4"/>}
+                             </button>
+                           )}
+                        </div>
                       );
                     })}
                   </div>
@@ -2376,8 +2439,14 @@ export default function App() {
                        <div key={idx} className="flex items-center gap-2">
                          <button type="button" onClick={() => setCorrectOption(idx)} className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center border transition-all ${correctOption === idx ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-700 text-transparent hover:border-slate-500'}`}><Check className="w-3 h-3" /></button>
                          <input type="text" value={opt} onChange={(e) => updateChoiceOption(idx, e.target.value)} className={`w-full bg-slate-950 border text-sm rounded-lg p-2 focus:outline-none transition-colors ${correctOption === idx ? 'border-emerald-500/50 text-emerald-100' : 'border-slate-800 text-slate-300 focus:border-indigo-500'}`} placeholder="" />
+                         {choiceOptions.length > 2 && (
+                           <button type="button" onClick={() => removeChoiceOption(idx)} className="p-2 text-slate-500 hover:text-rose-400 transition-colors rounded-lg"><X className="w-4 h-4" /></button>
+                         )}
                        </div>
                      ))}
+                     {choiceOptions.length < 6 && (
+                       <button type="button" onClick={addChoiceOption} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mt-2 p-1"><Plus className="w-4 h-4"/> Adicionar opção</button>
+                     )}
                    </div>
                  )}
                  {cardType === 'tf' && (
