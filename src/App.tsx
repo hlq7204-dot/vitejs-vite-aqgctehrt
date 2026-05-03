@@ -139,7 +139,7 @@ const globalStyles = `
 
   .chart-scroll-container {
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: visible; /* Ajustado para permitir tooltips */
     scroll-behavior: smooth;
   }
   
@@ -461,6 +461,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard'); 
   const [mainTab, setMainTab] = useState('home'); 
   const [reportPeriod, setReportPeriod] = useState('week'); 
+  const [forecastPeriod, setForecastPeriod] = useState('week');
   const [reportDeckId, setReportDeckId] = useState('all'); 
   
   const [activeDeckId, setActiveDeckId] = useState(null);
@@ -1306,30 +1307,99 @@ export default function App() {
   };
 
   const renderForecast = () => {
-    const allCards = validDecks.flatMap(d => d.cards || []); const today = new Date(); today.setHours(0,0,0,0);
-    const forecast = Array(7).fill(0); const labels = [];
-    for(let i=0; i<7; i++) {
-       const d = new Date(today); d.setDate(today.getDate() + i); labels.push(d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.',''));
-       allCards.forEach(c => { if (c.dueDate) { const cDate = new Date(c.dueDate); cDate.setHours(0,0,0,0); if (cDate.getTime() === d.getTime()) forecast[i]++; } });
+    const allCards = validDecks.flatMap(d => d.cards || []); 
+    const today = new Date(); today.setHours(0,0,0,0);
+    
+    let bucketCount = 7;
+    let labels = [];
+    let buckets = [];
+
+    if (forecastPeriod === 'week') {
+      bucketCount = 7;
+      for(let i=0; i<bucketCount; i++) {
+        const d = new Date(today); d.setDate(today.getDate() + i);
+        labels.push(i === 0 ? 'Hoje' : d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.',''));
+        buckets.push({ date: d.getTime(), count: 0, label: labels[i] });
+      }
+    } else if (forecastPeriod === 'month') {
+      bucketCount = 30;
+      for(let i=0; i<bucketCount; i++) {
+        const d = new Date(today); d.setDate(today.getDate() + i);
+        const day = String(d.getDate()).padStart(2, '0');
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        labels.push(i === 0 ? 'Hoje' : `${day}/${mo}`);
+        buckets.push({ date: d.getTime(), count: 0, label: labels[i] });
+      }
+    } else if (forecastPeriod === 'year') {
+      bucketCount = 12;
+      for(let i=0; i<bucketCount; i++) {
+        const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+        labels.push(d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.',''));
+        buckets.push({ month: d.getMonth(), year: d.getFullYear(), count: 0, label: labels[i] });
+      }
     }
-    let overdue = 0; allCards.forEach(c => { if (c.dueDate < today.getTime()) overdue++; });
-    forecast[0] += overdue; const max = Math.max(...forecast, 10);
+
+    let overdue = 0;
+    allCards.forEach(c => {
+      if (c.dueDate) {
+        const cDateStart = new Date(c.dueDate); 
+        cDateStart.setHours(0,0,0,0);
+        
+        if (cDateStart.getTime() < today.getTime()) {
+           overdue++;
+        } else {
+           if (forecastPeriod === 'week' || forecastPeriod === 'month') {
+              const diffTime = cDateStart.getTime() - today.getTime();
+              const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+              if (diffDays >= 0 && diffDays < bucketCount) {
+                  buckets[diffDays].count++;
+              }
+           } else if (forecastPeriod === 'year') {
+              const bIdx = buckets.findIndex(b => b.month === cDateStart.getMonth() && b.year === cDateStart.getFullYear());
+              if (bIdx !== -1) {
+                  buckets[bIdx].count++;
+              }
+           }
+        }
+      }
+    });
+    
+    buckets[0].count += overdue;
+    const max = Math.max(...buckets.map(b => b.count), 10);
 
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-200">
         <div className="absolute top-0 left-0 p-32 bg-indigo-500/5 rounded-full blur-3xl -ml-16 -mt-16 pointer-events-none"></div>
-        <h3 className="text-xl font-bold text-slate-100 mb-8 flex items-center gap-2 relative z-10"><BarChart2 className="w-5 h-5 text-indigo-400" /> Previsão Semanal</h3>
-        <div className="flex items-end justify-between flex-grow min-h-[160px] gap-2 relative z-10 mt-auto chart-scroll-container">
-           <div className="flex items-end justify-between w-full h-full min-w-min gap-2">
-             {forecast.map((val, i) => {
-               const height = Math.max((val / max) * 100, 4);
+        
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 relative z-10">
+          <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><BarChart2 className="w-5 h-5 text-indigo-400" /> Previsão</h3>
+          
+          <div className="flex bg-slate-950 border border-slate-700 rounded-xl overflow-hidden shadow-inner text-xs">
+            <button onClick={() => setForecastPeriod('week')} className={`px-3 py-1.5 font-bold transition-colors ${forecastPeriod === 'week' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>7 Dias</button>
+            <div className="w-px bg-slate-700"></div>
+            <button onClick={() => setForecastPeriod('month')} className={`px-3 py-1.5 font-bold transition-colors ${forecastPeriod === 'month' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>30 Dias</button>
+            <div className="w-px bg-slate-700"></div>
+            <button onClick={() => setForecastPeriod('year')} className={`px-3 py-1.5 font-bold transition-colors ${forecastPeriod === 'year' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>1 Ano</button>
+          </div>
+        </div>
+
+        <div className="flex items-end justify-between flex-grow min-h-[200px] gap-1.5 sm:gap-2 relative z-10 mt-auto chart-scroll-container overflow-x-auto pb-2 pt-16">
+           <div className={`flex items-end justify-between h-full w-full gap-1.5 sm:gap-2 ${forecastPeriod === 'month' ? 'min-w-[600px]' : 'min-w-min'}`}>
+             {buckets.map((b, i) => {
+               const height = Math.max((b.count / max) * 100, 4);
+               const showLabel = forecastPeriod === 'week' || forecastPeriod === 'year' || (forecastPeriod === 'month' && i % 3 === 0);
                return (
-                 <div key={i} className="flex flex-col items-center gap-3 flex-1 h-full justify-end">
-                   <div className="w-full max-w-[40px] relative flex items-end justify-center group/bar h-full bg-slate-950 rounded-t-xl border border-b-0 border-slate-800/80">
-                     <div className="w-full bg-indigo-500/80 rounded-t-xl transition-all duration-500 group-hover/bar:bg-indigo-400" style={{ height: `${height}%` }}></div>
-                     <span className="absolute -top-7 text-xs font-bold text-slate-300 opacity-0 group-hover/bar:opacity-100 transition-opacity">{val}</span>
+                 <div key={i} className="relative flex flex-col items-center flex-1 h-full justify-end group/bar">
+                   <div className="absolute bottom-full mb-2 opacity-0 group-hover/bar:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700 flex flex-col items-center origin-bottom">
+                     <span className="text-indigo-300 text-sm">{b.count} <span className="text-xs text-slate-400 font-medium">cartões</span></span>
+                     <span className="text-[9px] text-slate-500 uppercase tracking-wider mt-0.5">{b.label}</span>
+                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-800"></div>
                    </div>
-                   <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{i === 0 ? 'Hoje' : labels[i]}</span>
+
+                   <div className="w-full max-w-[40px] relative flex items-end justify-center h-full bg-slate-950 rounded-t-sm sm:rounded-t-xl border border-b-0 border-slate-800/80 hover:border-indigo-500/50 transition-colors">
+                     <div className="w-full bg-gradient-to-t from-indigo-600/80 to-purple-400/80 rounded-t-sm sm:rounded-t-xl transition-all duration-500 group-hover/bar:from-indigo-500 group-hover/bar:to-purple-300" style={{ height: `${height}%` }}></div>
+                   </div>
+                   <span className="text-[9px] sm:text-xs font-bold text-slate-500 uppercase tracking-widest mt-2 h-4 text-center w-full truncate">{showLabel ? b.label : ''}</span>
                  </div>
                )
              })}
