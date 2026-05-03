@@ -6,15 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Flash Cards</title>
     
-    <!-- Ícone da aba do navegador (Favicon) -->
-    <link rel="icon" type="image/png" href="/image_7aacfc.png" />
+    <!-- Ícone da aba do navegador (Favicon) gerado diretamente no código -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='10' y='20' width='70' height='70' rx='12' fill='%23312e81' /%3E%3Crect x='20' y='10' width='70' height='70' rx='12' fill='%236366f1' /%3E%3Cpath d='M40 40h30M40 55h20' stroke='white' stroke-width='6' stroke-linecap='round' /%3E%3C/svg%3E" />
     
     <style>
       /* Estilos essenciais para a tela de carregamento (Splash Screen) */
       body {
         margin: 0;
         padding: 0;
-        background-color: #020617; /* Cor base do seu app (slate-950) */
+        background-color: #020617; /* Cor base do app */
         font-family: system-ui, -apple-system, sans-serif;
       }
       
@@ -37,18 +37,16 @@
         width: 100px;
         height: 100px;
         margin-bottom: 24px;
-        border-radius: 24px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        border-radius: 20px;
         animation: float 4s ease-in-out infinite;
-        object-fit: cover;
       }
 
       /* Spinner de carregamento */
       .splash-spinner {
         width: 48px;
         height: 48px;
-        border: 4px solid rgba(99, 102, 241, 0.2); /* indigo-500 suave */
-        border-top-color: #6366f1; /* indigo-500 vibrante */
+        border: 4px solid rgba(99, 102, 241, 0.2);
+        border-top-color: #6366f1;
         border-radius: 50%;
         animation: spin 1s linear infinite;
         margin-bottom: 24px;
@@ -83,10 +81,10 @@
     </style>
   </head>
   <body>
-    <!-- Tela de Carregamento Temática -->
+    <!-- Tela de Carregamento -->
     <div id="splash-screen">
-      <!-- Imagem do ícone limpa, sem o "FC" feio de fallback -->
-      <img src="/image_7aacfc.png" alt="Flash Cards Icon" class="splash-logo" />
+      <!-- Imagem embutida diretamente usando SVG (Data URI) -->
+      <img src="data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='10' y='20' width='70' height='70' rx='12' fill='%23312e81' /%3E%3Crect x='20' y='10' width='70' height='70' rx='12' fill='%236366f1' /%3E%3Cpath d='M40 40h30M40 55h20' stroke='white' stroke-width='6' stroke-linecap='round' /%3E%3C/svg%3E" alt="Flash Cards Icon" class="splash-logo" />
       <div class="splash-spinner"></div>
       <h1 class="splash-title">Flash Cards</h1>
     </div>
@@ -100,11 +98,9 @@
       window.addEventListener('load', () => {
         const splash = document.getElementById('splash-screen');
         if (splash) {
-          // Pequeno atraso para garantir que o React montou a UI
           setTimeout(() => {
             splash.style.opacity = '0';
             splash.style.visibility = 'hidden';
-            // Remove do DOM após a transição
             setTimeout(() => splash.remove(), 600);
           }, 300);
         }
