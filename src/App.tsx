@@ -399,67 +399,136 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_SIZE = 1080; // Aumentado para 1080px (Alta Resolução) para manter boa nitidez de texto
+        const MAX_SIZE = 1080;
         let width = img.width;
         let height = img.height;
 
-        // Mantém a proporção da imagem
         if (width > height) {
-          if (width > MAX_SIZE) {
-            height *= MAX_SIZE / width;
-            width = MAX_SIZE;
-          }
+          if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
         } else {
-          if (height > MAX_SIZE) {
-            width *= MAX_SIZE / height;
-            height = MAX_SIZE;
-          }
+          if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
         }
         
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         
-        // Preencher com fundo branco
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, width, height);
         
-        // Comprime usando WebP para máxima eficiência (suportado por todos navegadores modernos)
-        let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
-        
-        // Fallback seguro caso browser antigo não suporte WebP no canvas (ex: Safaris velhos)
-        if (!compressedBase64.startsWith('data:image/webp')) {
-           compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
-        }
-        
-        document.execCommand('insertImage', false, compressedBase64);
-        onChange(editorRef.current.innerHTML);
+        try {
+            let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
+            if (!compressedBase64.startsWith('data:image/webp')) {
+               compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
+            }
+            
+            document.execCommand('insertImage', false, compressedBase64);
+            if (editorRef.current) {
+                const imgs = editorRef.current.querySelectorAll('img');
+                imgs.forEach(i => {
+                    if (i.src === compressedBase64) i.dataset.compressed = "true";
+                });
+            }
+            onChange(editorRef.current.innerHTML);
+        } catch(e) { console.error(e) }
       };
       img.src = event.target.result;
     };
     reader.readAsDataURL(file);
   };
+
+  const compressEditorImages = () => {
+     if (!editorRef.current) return;
+     const imgs = editorRef.current.querySelectorAll('img:not([data-compressed="true"])');
+     if (imgs.length === 0) return;
+     
+     imgs.forEach(img => {
+        img.dataset.compressed = "true"; // Marca imediatamente para evitar loop duplo
+
+        if (img.src.includes('image/gif') || img.src.toLowerCase().endsWith('.gif')) return;
+        
+        const tempImg = new Image();
+        if (!img.src.startsWith('data:image')) {
+            tempImg.crossOrigin = "Anonymous";
+        }
+        tempImg.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_SIZE = 1080;
+            let width = tempImg.width;
+            let height = tempImg.height;
+
+            if (width > height) {
+              if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
+            } else {
+              if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(tempImg, 0, 0, width, height);
+            
+            try {
+                let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
+                if (!compressedBase64.startsWith('data:image/webp')) {
+                   compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
+                }
+                img.src = compressedBase64;
+                onChange(editorRef.current.innerHTML);
+            } catch(e) {
+                console.warn("CORS impediu a compressão. Mantendo original.");
+            }
+        };
+        tempImg.src = img.src;
+     });
+  };
   
   const handlePaste = (e) => {
     const items = (e.clipboardData || window.clipboardData).items;
+    let handled = false;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
-        processImageFile(items[i].getAsFile());
-        e.preventDefault(); 
-        return;
+        const file = items[i].getAsFile();
+        if (file) {
+            processImageFile(file);
+            handled = true;
+            e.preventDefault(); 
+            return;
+        }
       }
+    }
+    if (!handled) {
+        setTimeout(() => {
+            compressEditorImages();
+            if (editorRef.current) onChange(editorRef.current.innerHTML);
+        }, 100);
     }
   };
 
   const handleDrop = (e) => {
-    e.preventDefault();
     const items = e.dataTransfer.items;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        processImageFile(items[i].getAsFile());
-        return;
-      }
+    let handled = false;
+    if (items) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== -1) {
+            const file = items[i].getAsFile();
+            if (file) {
+                processImageFile(file);
+                handled = true;
+                e.preventDefault();
+                return;
+            }
+          }
+        }
+    }
+    if (!handled) {
+        setTimeout(() => {
+            compressEditorImages();
+            if (editorRef.current) onChange(editorRef.current.innerHTML);
+        }, 100);
     }
   };
 
