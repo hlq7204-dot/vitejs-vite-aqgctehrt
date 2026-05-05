@@ -139,7 +139,7 @@ const globalStyles = `
 
   .chart-scroll-container {
     overflow-x: auto;
-    overflow-y: visible; /* Ajustado para permitir tooltips */
+    overflow-y: visible;
     scroll-behavior: smooth;
   }
   
@@ -165,7 +165,7 @@ const maximumInterval = 36500;
 const DECAY = -w[20];
 const FACTOR = Math.pow(0.9, 1 / DECAY) - 1;
 const enable_fuzz = true;
-const LEARNING_STEPS = [1, 10]; // Passos Nativos do Anki (em minutos)
+const LEARNING_STEPS = [1, 10]; 
 
 const ratings = { "again": 1, "hard": 2, "good": 3, "easy": 4 };
 
@@ -382,6 +382,7 @@ const loadScript = (src) => new Promise((resolve, reject) => {
   s.src = src; s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
 });
 
+// EDITOR RESTAURADO PARA O ORIGINAL (SEM PROCESSAMENTO EXTRA DE IMAGENS)
 const RichTextEditor = ({ value, onChange, placeholder, label }) => {
   const editorRef = useRef(null);
   
@@ -392,148 +393,20 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
   }, [value]);
   
   const handleInput = (e) => onChange(e.currentTarget.innerHTML);
-
-  const processImageFile = (file) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_SIZE = 1080;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
-        } else {
-          if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        try {
-            let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
-            if (!compressedBase64.startsWith('data:image/webp')) {
-               compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
-            }
-            
-            document.execCommand('insertImage', false, compressedBase64);
-            if (editorRef.current) {
-                const imgs = editorRef.current.querySelectorAll('img');
-                imgs.forEach(i => {
-                    if (i.src === compressedBase64) i.dataset.compressed = "true";
-                });
-            }
-            onChange(editorRef.current.innerHTML);
-        } catch(e) { console.error(e) }
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const compressEditorImages = () => {
-     if (!editorRef.current) return;
-     const imgs = editorRef.current.querySelectorAll('img:not([data-compressed="true"])');
-     if (imgs.length === 0) return;
-     
-     imgs.forEach(img => {
-        img.dataset.compressed = "true"; // Marca imediatamente para evitar loop duplo
-
-        if (img.src.includes('image/gif') || img.src.toLowerCase().endsWith('.gif')) return;
-        
-        const tempImg = new Image();
-        if (!img.src.startsWith('data:image')) {
-            tempImg.crossOrigin = "Anonymous";
-        }
-        tempImg.onload = () => {
-            const canvas = document.createElement('canvas');
-            const MAX_SIZE = 1080;
-            let width = tempImg.width;
-            let height = tempImg.height;
-
-            if (width > height) {
-              if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
-            } else {
-              if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
-            }
-            
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(tempImg, 0, 0, width, height);
-            
-            try {
-                let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
-                if (!compressedBase64.startsWith('data:image/webp')) {
-                   compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
-                }
-                img.src = compressedBase64;
-                onChange(editorRef.current.innerHTML);
-            } catch(e) {
-                console.warn("CORS impediu a compressão. Mantendo original.");
-            }
-        };
-        tempImg.src = img.src;
-     });
-  };
   
   const handlePaste = (e) => {
     const items = (e.clipboardData || window.clipboardData).items;
-    let handled = false;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        if (file) {
-            processImageFile(file);
-            handled = true;
-            e.preventDefault(); 
-            return;
-        }
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          document.execCommand('insertImage', false, event.target.result);
+          onChange(editorRef.current.innerHTML);
+        };
+        reader.readAsDataURL(items[i].getAsFile());
+        e.preventDefault(); 
       }
     }
-    if (!handled) {
-        setTimeout(() => {
-            compressEditorImages();
-            if (editorRef.current) onChange(editorRef.current.innerHTML);
-        }, 100);
-    }
-  };
-
-  const handleDrop = (e) => {
-    const items = e.dataTransfer.items;
-    let handled = false;
-    if (items) {
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].type.indexOf('image') !== -1) {
-            const file = items[i].getAsFile();
-            if (file) {
-                processImageFile(file);
-                handled = true;
-                e.preventDefault();
-                return;
-            }
-          }
-        }
-    }
-    if (!handled) {
-        setTimeout(() => {
-            compressEditorImages();
-            if (editorRef.current) onChange(editorRef.current.innerHTML);
-        }, 100);
-    }
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
   };
   
   return (
@@ -544,8 +417,6 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
         contentEditable 
         onInput={handleInput} 
         onPaste={handlePaste} 
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
         className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 overflow-y-auto min-h-[5rem] max-h-[15rem] cursor-text relative empty:before:content-[attr(data-placeholder)] empty:before:text-slate-700 custom-scrollbar anki-content transition-colors" 
         data-placeholder={placeholder} 
       />
@@ -596,7 +467,6 @@ export default function App() {
   
   const [activeDeckId, setActiveDeckId] = useState(null);
 
-  // --- RESOLUÇÃO DO REFERENCE ERROR: CALCULOS MOVIDOS PARA ANTES DO SEU USO ---
   const reachableFolders = new Set([null]);
   let changed = true;
   let safetyLimit = 0; 
@@ -609,7 +479,6 @@ export default function App() {
   const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
   const validCardIds = new Set(validDecks.flatMap(d => (d.cards || []).map(c => c.id)));
   const activeDeck = validDecks.find(d => d.id === activeDeckId) || decks.find(d => d.id === activeDeckId);
-  // -------------------------------------------------------------------------
   
   const [calendarMonth, setCalendarMonth] = useState(() => {
      const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -620,8 +489,10 @@ export default function App() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [reviewInteraction, setReviewInteraction] = useState(null); 
   const [typedInput, setTypedInput] = useState(''); 
-  const [eliminatedOptions, setEliminatedOptions] = useState(new Set()); // Para riscar opções na revisão
+  const [eliminatedOptions, setEliminatedOptions] = useState(new Set()); 
   const [sessionStats, setSessionStats] = useState({ reviewed: 0, correct: 0 });
+  
+  const [reviewHistory, setReviewHistory] = useState([]); // Histórico para o botão "Desfazer"
 
   const [pomoActive, setPomoActive] = useState(false);
   const [pomoTime, setPomoTime] = useState(pomoWorkDuration * 60);
@@ -635,14 +506,13 @@ export default function App() {
   const [cardType, setCardType] = useState('standard');
   const [newCardFront, setNewCardFront] = useState('');
   const [newCardBack, setNewCardBack] = useState(''); 
-  const [choiceOptions, setChoiceOptions] = useState(['', '', '', '']); // Modificável entre 2 a 6
+  const [choiceOptions, setChoiceOptions] = useState(['', '', '', '']); 
   const [correctOption, setCorrectOption] = useState(0);
   const [tfCorrect, setTfCorrect] = useState(true);
   const [typeAnswer, setTypeAnswer] = useState('');
   const [editingCardId, setEditingCardId] = useState(null); 
   const [isCardEditModalOpen, setIsCardEditModalOpen] = useState(false);
   
-  // --- NOVOS ESTADOS PARA MIGRAÇÃO DE CARTÕES ---
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedCardIds, setSelectedCardIds] = useState(new Set());
   const [isMoveCardsModalOpen, setIsMoveCardsModalOpen] = useState(false);
@@ -798,7 +668,7 @@ export default function App() {
   useEffect(() => { 
     setReviewInteraction(null); 
     setTypedInput(''); 
-    setEliminatedOptions(new Set()); // Limpa as opções riscadas ao trocar de cartão
+    setEliminatedOptions(new Set()); 
   }, [currentCardIndex]);
 
   useEffect(() => {
@@ -841,9 +711,11 @@ export default function App() {
       if (!s || s.currentView !== 'review') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
       if (e.code === 'Space') { e.preventDefault(); setIsFlipped(prev => !prev); } 
-      else if (s.isFlipped && s.cardType === 'standard') {
-        if (e.key === '1') s.handleAnswer(0); if (e.key === '2') s.handleAnswer(1);
-        if (e.key === '3') s.handleAnswer(2); if (e.key === '4') s.handleAnswer(3);
+      else if (s.isFlipped) {
+        if (e.key === '1') s.handleAnswer(0); 
+        if (e.key === '2') s.handleAnswer(1);
+        if (e.key === '3') s.handleAnswer(2); 
+        if (e.key === '4') s.handleAnswer(3);
       } else if (!s.isFlipped) {
         if (s.cardType === 'choice' && ['1','2','3','4','5','6'].includes(e.key)) {
             const idx = parseInt(e.key) - 1;
@@ -854,10 +726,16 @@ export default function App() {
         }
         else if (s.cardType === 'tf') { if (e.key === '1') s.handleInteractiveSubmit(true); if (e.key === '2') s.handleInteractiveSubmit(false); }
       }
+      
+      // Atalho para Desfazer (Ctrl + Z)
+      if (e.key === 'z' && e.ctrlKey) {
+          e.preventDefault();
+          if (s.handleUndo) s.handleUndo();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [eliminatedOptions]); // Re-bind event listener when eliminatedOptions change
+  }, [eliminatedOptions]);
   
   const getTodayStr = () => {
     const d = new Date();
@@ -1027,11 +905,22 @@ export default function App() {
 
     setReviewQueue([...dueCards].sort(() => Math.random() - 0.5));
     setCurrentCardIndex(0); setIsFlipped(false); setSessionStats({ reviewed: 0, correct: 0 });
+    setReviewHistory([]); // Reseta o histórico ao iniciar
     setCurrentView('review');
   };
 
   const handleAnswer = (quality) => {
     const currentCard = reviewQueue[currentCardIndex];
+    
+    // Regista o estado atual no histórico antes de o alterar
+    setReviewHistory(prev => [...prev, {
+       card: currentCard,
+       index: currentCardIndex,
+       queue: [...reviewQueue],
+       quality,
+       sessionStats: { ...sessionStats }
+    }]);
+
     const updatedCard = calculateNextReview(currentCard, quality);
     
     const targetDeckId = currentCard._deckId || activeDeckId;
@@ -1055,11 +944,35 @@ export default function App() {
 
     let newQueue = [...reviewQueue];
     if (updatedCard.interval === 0) {
-      // mantém tracking no mesmo baralho durante os fails
       newQueue.push({ ...updatedCard, _deckId: currentCard._deckId });
     }
     if (currentCardIndex + 1 < newQueue.length) { setReviewQueue(newQueue); setIsFlipped(false); setCurrentCardIndex(prev => prev + 1); } 
     else { setCurrentView('finished'); }
+  };
+
+  const handleUndo = () => {
+    if (reviewHistory.length === 0) return;
+    const lastState = reviewHistory[reviewHistory.length - 1];
+    const targetDeckId = lastState.card._deckId || activeDeckId;
+    const targetDeck = validDecks.find(d => d.id === targetDeckId);
+
+    // Restaura o cartão para a sua fase exata (Dificuldade, Estabilidade, etc) antes de ter clicado em FSRS
+    if (targetDeck) {
+      const cleanOldCard = { ...lastState.card };
+      delete cleanOldCard._deckId; 
+      
+      const restoredCards = targetDeck.cards.map(c => c.id === cleanOldCard.id ? cleanOldCard : c);
+      const updatedDeck = { ...targetDeck, cards: restoredCards };
+      setDecks(prev => prev.map(d => d.id === targetDeck.id ? updatedDeck : d)); 
+      updateDeckInCloud(updatedDeck);
+    }
+
+    // Restaura o layout para poder escolher FSRS outra vez
+    setSessionStats(lastState.sessionStats);
+    setReviewQueue(lastState.queue);
+    setCurrentCardIndex(lastState.index);
+    setIsFlipped(true); 
+    setReviewHistory(prev => prev.slice(0, -1));
   };
 
   const handleInteractiveSubmit = (val) => { setReviewInteraction(val); setIsFlipped(true); };
@@ -1355,8 +1268,6 @@ export default function App() {
 
     let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
     
-    // LINHA CRÍTICA PARA CORRIGIR O BUG DA CRIAÇÃO NO BARALHO ERRADO:
-    // Garante que só usa a reviewQueue se efetivamente estiver na view de Review.
     const targetDeckId = currentView === 'review' ? (reviewQueue[currentCardIndex]?._deckId || activeDeckId) : activeDeckId;
     const currentDeck = validDecks.find(d => d.id === targetDeckId);
 
@@ -1404,6 +1315,9 @@ export default function App() {
     }
   };
 
+  // Tornar a função disponível na referência de estado para o Atalho Ctrl+Z
+  stateRef.current = { ...stateRef.current, handleUndo };
+
   // --- RENDERERS UI ---
   if (isAuthLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-indigo-400 notranslate" translate="no"><Loader2 className="w-8 h-8 animate-spin" /></div>;
 
@@ -1429,7 +1343,7 @@ export default function App() {
   const renderStatBadges = (stats) => {
     if (calculateTotalDue(stats) === 0) return null;
     return (
-      <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <div className="flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
         {stats.new > 0 && <span className="bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold px-2 py-0.5 rounded shadow-[0_0_8px_rgba(59,130,246,0.15)]" title="Novos">{stats.new}</span>}
         {stats.learning > 0 && <span className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold px-2 py-0.5 rounded shadow-[0_0_8px_rgba(244,63,94,0.15)]" title="Aprender">{stats.learning}</span>}
         {stats.review > 0 && <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold px-2 py-0.5 rounded shadow-[0_0_8px_rgba(16,185,129,0.15)]" title="Revisar">{stats.review}</span>}
@@ -1941,28 +1855,28 @@ export default function App() {
                  {currentFolders.map((folder, index) => {
                    const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || FOLDER_THEMES[0].color;
                    return (
-                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-600 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
-                       <div className="flex items-center gap-4 flex-grow min-w-0 pr-3">
+                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
+                       <div className="flex items-start justify-between mb-3 w-full">
                          <div className={`relative p-3 rounded-xl shrink-0 ${colorClass}`}>
                            <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
                          </div>
-                         <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 break-words" title={folder.name}>{folder.name}</span>
+                         <div className="relative" onClick={e => e.stopPropagation()}>
+                           <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : folder.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
+                             <MoreVertical className="w-5 h-5" />
+                           </button>
+                           {isMenuOpen && (
+                             <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                               <button onClick={(e) => { openEditModal('folder', folder, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                               <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: folder.id, type: 'folder', name: folder.name, parentId: folder.parentId}); setMoveTargetFolderId(folder.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
+                               <div className="h-px bg-slate-700 w-full"></div>
+                               <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: folder.id, type: 'folder', name: folder.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                             </div>
+                           )}
+                         </div>
                        </div>
-                       <div className="flex items-center gap-3 shrink-0 ml-2">
-                        {renderStatBadges(getFolderStats(folder.id))}
-                        <div className="relative" onClick={e => e.stopPropagation()}>
-                          <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : folder.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
-                            <MoreVertical className="w-5 h-5" />
-                          </button>
-                          {isMenuOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                              <button onClick={(e) => { openEditModal('folder', folder, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                              <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: folder.id, type: 'folder', name: folder.name, parentId: folder.parentId}); setMoveTargetFolderId(folder.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
-                              <div className="h-px bg-slate-700 w-full"></div>
-                              <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: folder.id, type: 'folder', name: folder.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
-                            </div>
-                          )}
-                        </div>
+                       <h3 className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 mb-2 break-words w-full" title={folder.name}>{folder.name}</h3>
+                       <div className="mt-auto pt-3 border-t border-slate-800/50 flex flex-wrap gap-2 items-center w-full">
+                         {renderStatBadges(getFolderStats(folder.id))}
                        </div>
                      </div>
                    )
@@ -1985,28 +1899,28 @@ export default function App() {
 
                    return (
                      <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className="bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
-                       <div className="flex items-start justify-between mb-4">
+                       <div className="flex items-start justify-between mb-4 w-full">
                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
-                         <div className="flex items-center gap-3 shrink-0 ml-2">
-                           {renderStatBadges(stats)}
-                           <div className="relative" onClick={e => e.stopPropagation()}>
-                             <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : deck.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
-                               <MoreVertical className="w-5 h-5" />
-                             </button>
-                             {isMenuOpen && (
-                               <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                                 <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                                 <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
-                                 <div className="h-px bg-slate-700 w-full"></div>
-                                 <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
-                               </div>
-                             )}
-                           </div>
+                         <div className="relative" onClick={e => e.stopPropagation()}>
+                           <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : deck.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
+                             <MoreVertical className="w-5 h-5" />
+                           </button>
+                           {isMenuOpen && (
+                             <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                               <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                               <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
+                               <div className="h-px bg-slate-700 w-full"></div>
+                               <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                             </div>
+                           )}
                          </div>
                        </div>
-                       <h3 className="text-xl font-bold text-slate-200 mb-2 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words" title={deck.name}>{deck.name}</h3>
-                       <p className="text-slate-400 text-sm flex-grow line-clamp-2" title={deck.description}>{deck.description}</p>
-                       <div className="mt-6 pt-4 border-t border-slate-800/50 flex justify-between items-center text-sm text-slate-500">
+                       <h3 className="text-xl font-bold text-slate-200 mb-2 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words w-full" title={deck.name}>{deck.name}</h3>
+                       <div className="mb-3 w-full">
+                         {renderStatBadges(stats)}
+                       </div>
+                       <p className="text-slate-400 text-sm flex-grow line-clamp-2 w-full" title={deck.description}>{deck.description}</p>
+                       <div className="mt-4 pt-4 border-t border-slate-800/50 flex justify-between items-center text-sm text-slate-500 w-full">
                          <span>{deck.cards?.length || 0} cartões totais</span>
                          <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={due === 0} className={`p-2 rounded-full transition-all ${due > 0 ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:scale-110' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed'}`}>
                            <Play className="w-5 h-5" fill="currentColor" />
@@ -2240,7 +2154,12 @@ export default function App() {
     return (
       <div className="w-full px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col pb-24">
         <div className="flex items-center justify-between mb-8 pt-4 gap-4">
-          <button onClick={() => setCurrentView('dashboard')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
+          <div className="flex items-center gap-2">
+             <button onClick={() => setCurrentView('dashboard')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
+             <button onClick={handleUndo} disabled={reviewHistory.length === 0} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${reviewHistory.length > 0 ? 'text-indigo-400 hover:bg-indigo-900/30 cursor-pointer' : 'text-slate-700 cursor-not-allowed'}`} title="Desfazer último cartão">
+                <RotateCcw className="w-5 h-5" /> <span className="hidden sm:inline text-sm font-bold">Desfazer</span>
+             </button>
+          </div>
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
         </div>
 
@@ -2310,7 +2229,6 @@ export default function App() {
                         btnClass = "bg-slate-950 border-slate-800 text-slate-600 line-through opacity-40 grayscale";
                       }
 
-                      // Lógica de grid dinâmico: se houver número ímpar de opções e esta for a última, ela ocupa a largura toda.
                       const isOdd = currentCard.options.length % 2 !== 0;
                       const isLast = idx === currentCard.options.length - 1;
                       const spanClass = isOdd && isLast ? "md:col-span-2" : "";
