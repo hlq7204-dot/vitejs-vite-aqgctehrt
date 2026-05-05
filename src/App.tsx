@@ -1131,7 +1131,70 @@ export default function App() {
         if (!line.trim()) return;
         const separator = line.includes('\t') ? '\t' : ',';
         const parts = line.split(separator);
-        if (parts.length >= 2) importedCards.push({ id: `c-imp-${Date.now()}-${Math.random()}`, type: 'standard', front: parts[0].replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim(), back: parts[1].replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim(), repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 });
+        if (parts.length >= 2) {
+          let rawFront = parts[0];
+          let rawBack = parts[1];
+          
+          let cardType = 'standard';
+          let parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+          let parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+          let parsedOptions = ['', '', '', ''];
+          let parsedCorrectOption = 0;
+
+          // Detetar se é uma questão de múltipla escolha (Padrão Cesgranrio gerado pelo Prompt)
+          if (/(?:<br\s*\/?>\s*)*a\)/i.test(rawFront) && /Gabarito:/i.test(rawBack)) {
+             cardType = 'choice';
+             
+             // Extrair a pergunta (tudo antes da opção "a)")
+             const partsFront = rawFront.split(/(?:<br\s*\/?>\s*)*a\)/i);
+             parsedFront = partsFront[0].trim();
+
+             // Extrair as opções (a, b, c, d, e)
+             const optionsRegex = /[a-e]\)\s*([\s\S]*?)(?=(?:<br\s*\/?>\s*)*[a-e]\)|$)/gi;
+             let match;
+             let extractedOptions = [];
+             while ((match = optionsRegex.exec(rawFront)) !== null) {
+                 extractedOptions.push(match[1].replace(/<br\s*\/?>/gi, '').trim());
+             }
+             if (extractedOptions.length >= 2) {
+                 parsedOptions = extractedOptions;
+             }
+
+             // Extrair a opção correta identificada no Gabarito
+             const gabaritoMatch = rawBack.match(/Gabarito:\s*([a-e])\)/i);
+             if (gabaritoMatch) {
+                 const letter = gabaritoMatch[1].toLowerCase();
+                 parsedCorrectOption = letter.charCodeAt(0) - 97; // a=0, b=1, c=2, d=3, e=4
+             }
+
+             // Limpar o verso para mostrar a Justificativa com destaque
+             const justMatch = rawBack.match(/Justificativa:\s*([\s\S]*)/i);
+             if (justMatch) {
+                 parsedBack = `<strong>Justificativa:</strong><br>${justMatch[1].trim()}`;
+             } else {
+                 parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+             }
+          } else {
+             // Caso Padrão (sem ser múltipla escolha)
+             // Mantém o HTML (como as tags de quebra de linha) original
+             parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+             parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+          }
+
+          importedCards.push({ 
+            id: `c-imp-${Date.now()}-${Math.random()}`, 
+            type: cardType, 
+            front: parsedFront, 
+            back: parsedBack, 
+            options: parsedOptions,
+            correctOption: parsedCorrectOption,
+            repetition: 0, 
+            interval: 0, 
+            easeFactor: 2.5, 
+            dueDate: Date.now(), 
+            reviews: 0 
+          });
+        }
       });
       if (importedCards.length > 0) {
         const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: DECK_THEMES[0].color, cards: importedCards };
