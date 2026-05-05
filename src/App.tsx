@@ -1129,72 +1129,80 @@ export default function App() {
       const lines = text.split('\n'); const importedCards = [];
       lines.forEach((line) => {
         if (!line.trim()) return;
-        const separator = line.includes('\t') ? '\t' : ',';
-        const parts = line.split(separator);
-        if (parts.length >= 2) {
-          let rawFront = parts[0];
-          let rawBack = parts[1];
-          
-          let cardType = 'standard';
-          let parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-          let parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-          let parsedOptions = ['', '', '', ''];
-          let parsedCorrectOption = 0;
+        
+        let cardType = 'standard';
+        let parsedFront = '';
+        let parsedBack = '';
+        let parsedOptions = ['', '', '', ''];
+        let parsedCorrectOption = 0;
 
-          // Detetar se é uma questão de múltipla escolha (Padrão Cesgranrio gerado pelo Prompt)
-          if (/(?:<br\s*\/?>\s*)*a\)/i.test(rawFront) && /Gabarito:/i.test(rawBack)) {
-             cardType = 'choice';
-             
-             // Extrair a pergunta (tudo antes da opção "a)")
-             const partsFront = rawFront.split(/(?:<br\s*\/?>\s*)*a\)/i);
-             parsedFront = partsFront[0].trim();
+        // Procura a palavra "Gabarito:" para dividir a frente do verso de forma infalível
+        const gabaritoIndex = line.search(/Gabarito:/i);
 
-             // Extrair as opções (a, b, c, d, e)
-             const optionsRegex = /[a-e]\)\s*([\s\S]*?)(?=(?:<br\s*\/?>\s*)*[a-e]\)|$)/gi;
-             let match;
-             let extractedOptions = [];
-             while ((match = optionsRegex.exec(rawFront)) !== null) {
-                 extractedOptions.push(match[1].replace(/<br\s*\/?>/gi, '').trim());
-             }
-             if (extractedOptions.length >= 2) {
-                 parsedOptions = extractedOptions;
-             }
+        if (gabaritoIndex !== -1 && /[a-e]\)/i.test(line.substring(0, gabaritoIndex))) {
+           cardType = 'choice';
+           const rawFront = line.substring(0, gabaritoIndex).replace(/[\t\s]+$/, '');
+           const rawBack = line.substring(gabaritoIndex);
 
-             // Extrair a opção correta identificada no Gabarito
-             const gabaritoMatch = rawBack.match(/Gabarito:\s*([a-e])\)/i);
-             if (gabaritoMatch) {
-                 const letter = gabaritoMatch[1].toLowerCase();
-                 parsedCorrectOption = letter.charCodeAt(0) - 97; // a=0, b=1, c=2, d=3, e=4
-             }
+           // Extrair a pergunta (tudo antes da opção "a)")
+           const firstOptionMatch = rawFront.match(/(?:<br\s*\/?>\s*)*a\)/i);
+           if (firstOptionMatch) {
+               const questionEndIndex = firstOptionMatch.index;
+               parsedFront = rawFront.substring(0, questionEndIndex).replace(/<br\s*[\/]?>/gi, '<br>').trim();
 
-             // Limpar o verso para mostrar a Justificativa com destaque
-             const justMatch = rawBack.match(/Justificativa:\s*([\s\S]*)/i);
-             if (justMatch) {
-                 parsedBack = `<strong>Justificativa:</strong><br>${justMatch[1].trim()}`;
-             } else {
-                 parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-             }
-          } else {
-             // Caso Padrão (sem ser múltipla escolha)
-             // Mantém o HTML (como as tags de quebra de linha) original
-             parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-             parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-          }
+               const optionsPart = rawFront.substring(questionEndIndex);
+               // Regex robusta para capturar todas as alternativas
+               const optionsRegex = /[a-e]\)\s*([\s\S]*?)(?=(?:<br\s*\/?>\s*)*[a-e]\)|$)/gi;
+               let match;
+               let extractedOptions = [];
+               while ((match = optionsRegex.exec(optionsPart)) !== null) {
+                   extractedOptions.push(match[1].replace(/<br\s*\/?>/gi, '').trim());
+               }
+               if (extractedOptions.length >= 2) {
+                   parsedOptions = extractedOptions;
+               }
+           } else {
+               parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+           }
 
-          importedCards.push({ 
-            id: `c-imp-${Date.now()}-${Math.random()}`, 
-            type: cardType, 
-            front: parsedFront, 
-            back: parsedBack, 
-            options: parsedOptions,
-            correctOption: parsedCorrectOption,
-            repetition: 0, 
-            interval: 0, 
-            easeFactor: 2.5, 
-            dueDate: Date.now(), 
-            reviews: 0 
-          });
+           // Extrair a opção correta identificada no Gabarito
+           const gabaritoMatch = rawBack.match(/Gabarito:\s*([a-e])\)/i);
+           if (gabaritoMatch) {
+               const letter = gabaritoMatch[1].toLowerCase();
+               parsedCorrectOption = letter.charCodeAt(0) - 97; // a=0, b=1, c=2...
+           }
+
+           // Limpar o verso para mostrar a Justificativa com destaque
+           const justMatch = rawBack.match(/Justificativa:\s*([\s\S]*)/i);
+           if (justMatch) {
+               parsedBack = `<strong>Justificativa:</strong><br>${justMatch[1].replace(/<br\s*[\/]?>/gi, '<br>').trim()}`;
+           } else {
+               parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+           }
+        } else {
+           // Fallback para cartões Padrão (usa o \t ou vírgula)
+           const separator = line.includes('\t') ? '\t' : ',';
+           const parts = line.split(separator);
+           const rawFront = parts[0] || '';
+           const rawBack = parts.slice(1).join(separator) || '';
+           
+           parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+           parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
         }
+
+        importedCards.push({ 
+          id: `c-imp-${Date.now()}-${Math.random()}`, 
+          type: cardType, 
+          front: parsedFront, 
+          back: parsedBack, 
+          options: parsedOptions,
+          correctOption: parsedCorrectOption,
+          repetition: 0, 
+          interval: 0, 
+          easeFactor: 2.5, 
+          dueDate: Date.now(), 
+          reviews: 0 
+        });
       });
       if (importedCards.length > 0) {
         const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: DECK_THEMES[0].color, cards: importedCards };
