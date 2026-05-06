@@ -139,7 +139,7 @@ const globalStyles = `
 
   .chart-scroll-container {
     overflow-x: auto;
-    overflow-y: visible;
+    overflow-y: visible; /* Ajustado para permitir tooltips */
     scroll-behavior: smooth;
   }
   
@@ -165,7 +165,7 @@ const maximumInterval = 36500;
 const DECAY = -w[20];
 const FACTOR = Math.pow(0.9, 1 / DECAY) - 1;
 const enable_fuzz = true;
-const LEARNING_STEPS = [1, 10]; 
+const LEARNING_STEPS = [1, 10]; // Passos Nativos do Anki (em minutos)
 
 const ratings = { "again": 1, "hard": 2, "good": 3, "easy": 4 };
 
@@ -382,7 +382,6 @@ const loadScript = (src) => new Promise((resolve, reject) => {
   s.src = src; s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
 });
 
-// EDITOR RESTAURADO PARA O ORIGINAL (SEM PROCESSAMENTO EXTRA DE IMAGENS)
 const RichTextEditor = ({ value, onChange, placeholder, label }) => {
   const editorRef = useRef(null);
   
@@ -393,20 +392,148 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
   }, [value]);
   
   const handleInput = (e) => onChange(e.currentTarget.innerHTML);
+
+  const processImageFile = (file) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 1080;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
+        } else {
+          if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        try {
+            let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
+            if (!compressedBase64.startsWith('data:image/webp')) {
+               compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
+            }
+            
+            document.execCommand('insertImage', false, compressedBase64);
+            if (editorRef.current) {
+                const imgs = editorRef.current.querySelectorAll('img');
+                imgs.forEach(i => {
+                    if (i.src === compressedBase64) i.dataset.compressed = "true";
+                });
+            }
+            onChange(editorRef.current.innerHTML);
+        } catch(e) { console.error(e) }
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const compressEditorImages = () => {
+     if (!editorRef.current) return;
+     const imgs = editorRef.current.querySelectorAll('img:not([data-compressed="true"])');
+     if (imgs.length === 0) return;
+     
+     imgs.forEach(img => {
+        img.dataset.compressed = "true"; // Marca imediatamente para evitar loop duplo
+
+        if (img.src.includes('image/gif') || img.src.toLowerCase().endsWith('.gif')) return;
+        
+        const tempImg = new Image();
+        if (!img.src.startsWith('data:image')) {
+            tempImg.crossOrigin = "Anonymous";
+        }
+        tempImg.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_SIZE = 1080;
+            let width = tempImg.width;
+            let height = tempImg.height;
+
+            if (width > height) {
+              if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
+            } else {
+              if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(tempImg, 0, 0, width, height);
+            
+            try {
+                let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
+                if (!compressedBase64.startsWith('data:image/webp')) {
+                   compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
+                }
+                img.src = compressedBase64;
+                onChange(editorRef.current.innerHTML);
+            } catch(e) {
+                console.warn("CORS impediu a compressão. Mantendo original.");
+            }
+        };
+        tempImg.src = img.src;
+     });
+  };
   
   const handlePaste = (e) => {
     const items = (e.clipboardData || window.clipboardData).items;
+    let handled = false;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          document.execCommand('insertImage', false, event.target.result);
-          onChange(editorRef.current.innerHTML);
-        };
-        reader.readAsDataURL(items[i].getAsFile());
-        e.preventDefault(); 
+        const file = items[i].getAsFile();
+        if (file) {
+            processImageFile(file);
+            handled = true;
+            e.preventDefault(); 
+            return;
+        }
       }
     }
+    if (!handled) {
+        setTimeout(() => {
+            compressEditorImages();
+            if (editorRef.current) onChange(editorRef.current.innerHTML);
+        }, 100);
+    }
+  };
+
+  const handleDrop = (e) => {
+    const items = e.dataTransfer.items;
+    let handled = false;
+    if (items) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== -1) {
+            const file = items[i].getAsFile();
+            if (file) {
+                processImageFile(file);
+                handled = true;
+                e.preventDefault();
+                return;
+            }
+          }
+        }
+    }
+    if (!handled) {
+        setTimeout(() => {
+            compressEditorImages();
+            if (editorRef.current) onChange(editorRef.current.innerHTML);
+        }, 100);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
   };
   
   return (
@@ -417,6 +544,8 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
         contentEditable 
         onInput={handleInput} 
         onPaste={handlePaste} 
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
         className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 overflow-y-auto min-h-[5rem] max-h-[15rem] cursor-text relative empty:before:content-[attr(data-placeholder)] empty:before:text-slate-700 custom-scrollbar anki-content transition-colors" 
         data-placeholder={placeholder} 
       />
@@ -735,7 +864,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [eliminatedOptions]);
+  }, [eliminatedOptions]); 
   
   const getTodayStr = () => {
     const d = new Date();
@@ -905,7 +1034,7 @@ export default function App() {
 
     setReviewQueue([...dueCards].sort(() => Math.random() - 0.5));
     setCurrentCardIndex(0); setIsFlipped(false); setSessionStats({ reviewed: 0, correct: 0 });
-    setReviewHistory([]); // Reseta o histórico ao iniciar
+    setReviewHistory([]); 
     setCurrentView('review');
   };
 
@@ -956,7 +1085,6 @@ export default function App() {
     const targetDeckId = lastState.card._deckId || activeDeckId;
     const targetDeck = validDecks.find(d => d.id === targetDeckId);
 
-    // Restaura o cartão para a sua fase exata (Dificuldade, Estabilidade, etc) antes de ter clicado em FSRS
     if (targetDeck) {
       const cleanOldCard = { ...lastState.card };
       delete cleanOldCard._deckId; 
@@ -967,12 +1095,41 @@ export default function App() {
       updateDeckInCloud(updatedDeck);
     }
 
-    // Restaura o layout para poder escolher FSRS outra vez
     setSessionStats(lastState.sessionStats);
     setReviewQueue(lastState.queue);
     setCurrentCardIndex(lastState.index);
     setIsFlipped(true); 
     setReviewHistory(prev => prev.slice(0, -1));
+  };
+
+  const handleDeleteReviewCard = () => {
+    const currentCard = reviewQueue[currentCardIndex];
+    const targetDeckId = currentCard._deckId || activeDeckId;
+    const currentDeck = validDecks.find(d => d.id === targetDeckId);
+    
+    if (currentDeck) {
+       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== currentCard.id) };
+       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
+       updateDeckInCloud(updatedDeck);
+       removeDeletedCardsFromActivity(new Set([currentCard.id]));
+       
+       const newQueue = reviewQueue.filter(c => c.id !== currentCard.id);
+       
+       if (newQueue.length === 0) {
+           setCurrentView('finished');
+       } else {
+           setReviewQueue(newQueue);
+           if (currentCardIndex >= newQueue.length) {
+               setCurrentCardIndex(newQueue.length - 1);
+           }
+           setIsFlipped(false);
+           setReviewInteraction(null);
+           setTypedInput('');
+           setEliminatedOptions(new Set());
+       }
+       setReviewHistory([]);
+       showToast("Cartão excluído com sucesso!");
+    }
   };
 
   const handleInteractiveSubmit = (val) => { setReviewInteraction(val); setIsFlipped(true); };
@@ -1136,7 +1293,6 @@ export default function App() {
         let parsedOptions = ['', '', '', ''];
         let parsedCorrectOption = 0;
 
-        // Procura a palavra "Gabarito:" para dividir a frente do verso de forma infalível
         const gabaritoIndex = line.search(/Gabarito:/i);
 
         if (gabaritoIndex !== -1 && /[a-e]\)/i.test(line.substring(0, gabaritoIndex))) {
@@ -1144,14 +1300,12 @@ export default function App() {
            const rawFront = line.substring(0, gabaritoIndex).replace(/[\t\s]+$/, '');
            const rawBack = line.substring(gabaritoIndex);
 
-           // Extrair a pergunta (tudo antes da opção "a)")
            const firstOptionMatch = rawFront.match(/(?:<br\s*\/?>\s*)*a\)/i);
            if (firstOptionMatch) {
                const questionEndIndex = firstOptionMatch.index;
                parsedFront = rawFront.substring(0, questionEndIndex).replace(/<br\s*[\/]?>/gi, '<br>').trim();
 
                const optionsPart = rawFront.substring(questionEndIndex);
-               // Regex robusta para capturar todas as alternativas
                const optionsRegex = /[a-e]\)\s*([\s\S]*?)(?=(?:<br\s*\/?>\s*)*[a-e]\)|$)/gi;
                let match;
                let extractedOptions = [];
@@ -1165,14 +1319,12 @@ export default function App() {
                parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
            }
 
-           // Extrair a opção correta identificada no Gabarito
            const gabaritoMatch = rawBack.match(/Gabarito:\s*([a-e])\)/i);
            if (gabaritoMatch) {
                const letter = gabaritoMatch[1].toLowerCase();
-               parsedCorrectOption = letter.charCodeAt(0) - 97; // a=0, b=1, c=2...
+               parsedCorrectOption = letter.charCodeAt(0) - 97; 
            }
 
-           // Limpar o verso para mostrar a Justificativa com destaque
            const justMatch = rawBack.match(/Justificativa:\s*([\s\S]*)/i);
            if (justMatch) {
                parsedBack = `<strong>Justificativa:</strong><br>${justMatch[1].replace(/<br\s*[\/]?>/gi, '<br>').trim()}`;
@@ -1180,7 +1332,6 @@ export default function App() {
                parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
            }
         } else {
-           // Fallback para cartões Padrão (usa o \t ou vírgula)
            const separator = line.includes('\t') ? '\t' : ',';
            const parts = line.split(separator);
            const rawFront = parts[0] || '';
@@ -1926,28 +2077,28 @@ export default function App() {
                  {currentFolders.map((folder, index) => {
                    const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || FOLDER_THEMES[0].color;
                    return (
-                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
-                       <div className="flex items-start justify-between mb-3 w-full">
+                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-600 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
+                       <div className="flex items-center gap-4 flex-grow min-w-0 pr-3">
                          <div className={`relative p-3 rounded-xl shrink-0 ${colorClass}`}>
                            <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
                          </div>
-                         <div className="relative" onClick={e => e.stopPropagation()}>
-                           <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : folder.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
-                             <MoreVertical className="w-5 h-5" />
-                           </button>
-                           {isMenuOpen && (
-                             <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                               <button onClick={(e) => { openEditModal('folder', folder, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                               <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: folder.id, type: 'folder', name: folder.name, parentId: folder.parentId}); setMoveTargetFolderId(folder.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
-                               <div className="h-px bg-slate-700 w-full"></div>
-                               <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: folder.id, type: 'folder', name: folder.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
-                             </div>
-                           )}
-                         </div>
+                         <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 break-words" title={folder.name}>{folder.name}</span>
                        </div>
-                       <h3 className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 mb-2 break-words w-full" title={folder.name}>{folder.name}</h3>
-                       <div className="mt-auto pt-3 border-t border-slate-800/50 flex flex-wrap gap-2 items-center w-full">
-                         {renderStatBadges(getFolderStats(folder.id))}
+                       <div className="flex items-center gap-3 shrink-0 ml-2">
+                        {renderStatBadges(getFolderStats(folder.id))}
+                        <div className="relative" onClick={e => e.stopPropagation()}>
+                          <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : folder.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
+                            <MoreVertical className="w-5 h-5" />
+                          </button>
+                          {isMenuOpen && (
+                            <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                              <button onClick={(e) => { openEditModal('folder', folder, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                              <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: folder.id, type: 'folder', name: folder.name, parentId: folder.parentId}); setMoveTargetFolderId(folder.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
+                              <div className="h-px bg-slate-700 w-full"></div>
+                              <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: folder.id, type: 'folder', name: folder.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                            </div>
+                          )}
+                        </div>
                        </div>
                      </div>
                    )
@@ -2223,7 +2374,7 @@ export default function App() {
     const type = currentCard.type || 'standard';
 
     return (
-      <div className="w-full px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col pb-24">
+      <div className="w-full px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col pb-24" onClick={() => setActiveMenuId(null)}>
         <div className="flex items-center justify-between mb-8 pt-4 gap-4">
           <div className="flex items-center gap-2">
              <button onClick={() => setCurrentView('dashboard')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
@@ -2250,8 +2401,19 @@ export default function App() {
                   <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center group">
                     <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
                     <div className="flex items-center gap-2">
-                      <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-700 hover:text-indigo-300 rounded-lg transition-colors border border-slate-700/50" title="Editar Cartão"><Pencil className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Editar</span></button>
-                      <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique para virar</span>
+                      <div className="relative" onClick={e => e.stopPropagation()}>
+                         <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-700 hover:text-indigo-300 rounded-lg transition-colors border border-slate-700/50" title="Opções do Cartão">
+                           <MoreVertical className="w-3.5 h-3.5" />
+                         </button>
+                         {activeMenuId === 'review_menu' && (
+                            <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                              <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                              <div className="h-px bg-slate-700 w-full"></div>
+                              <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
+                            </div>
+                         )}
+                      </div>
+                      <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique (ou Espaço) para virar</span>
                     </div>
                   </div>
                   <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
@@ -2267,8 +2429,19 @@ export default function App() {
                   <div className="p-6 text-left border-b border-indigo-500/20 flex justify-between items-center group">
                     <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
                     <div className="flex items-center gap-2">
-                      <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-indigo-400/70 bg-indigo-900/40 hover:bg-indigo-800 hover:text-indigo-200 rounded-lg transition-colors border border-indigo-500/30" title="Editar Cartão"><Pencil className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Editar</span></button>
-                      <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors border border-indigo-500/30" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }}><RefreshCcw className="w-4 h-4" /></button>
+                      <div className="relative" onClick={e => e.stopPropagation()}>
+                         <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu_verso' ? null : 'review_menu_verso')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-indigo-400/70 bg-indigo-900/40 hover:bg-indigo-800 hover:text-indigo-200 rounded-lg transition-colors border border-indigo-500/30" title="Opções do Cartão">
+                           <MoreVertical className="w-3.5 h-3.5" />
+                         </button>
+                         {activeMenuId === 'review_menu_verso' && (
+                            <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                              <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                              <div className="h-px bg-slate-700 w-full"></div>
+                              <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
+                            </div>
+                         )}
+                      </div>
+                      <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors border border-indigo-500/30" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }} title="Virar Novamente"><RefreshCcw className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
@@ -2281,7 +2454,18 @@ export default function App() {
 
           {type !== 'standard' && (
             <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right relative group">
-              <button onClick={(e) => { e.stopPropagation(); editCard(currentCard); setIsCardEditModalOpen(true); }} className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 bg-slate-950 border border-slate-700 hover:bg-slate-800 hover:text-indigo-300 rounded-lg transition-colors z-20 shadow-md" title="Editar Cartão"><Pencil className="w-3.5 h-3.5" /> Editar</button>
+              <div className="absolute top-4 right-4 z-30" onClick={e => e.stopPropagation()}>
+                 <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition-colors shadow-md" title="Opções do Cartão">
+                    <MoreVertical className="w-4 h-4" />
+                 </button>
+                 {activeMenuId === 'review_menu' && (
+                    <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                       <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                       <div className="h-px bg-slate-700 w-full"></div>
+                       <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
+                    </div>
+                 )}
+              </div>
               <div className="p-8 border-b border-slate-800/50">
                 <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
               </div>
