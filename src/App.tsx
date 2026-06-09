@@ -162,7 +162,8 @@ const globalStyles = `
 const cleanupData = (map, recs) => {
   let mapChanged = false;
   const newMap = { ...map };
-  const newRecSet = new Set(recs || []);
+  const safeRecs = Array.isArray(recs) ? recs : [];
+  const newRecSet = new Set(safeRecs);
 
   for (const date in newMap) {
       if (Array.isArray(newMap[date])) {
@@ -198,7 +199,7 @@ const cleanupData = (map, recs) => {
   return {
       cleanMap: newMap,
       cleanRecoveries: Array.from(newRecSet),
-      hasChanges: mapChanged || newRecSet.size !== (recs || []).length
+      hasChanges: mapChanged || newRecSet.size !== safeRecs.length
   };
 };
 
@@ -579,21 +580,20 @@ export default function App() {
   const hasCleanedUpPhantoms = useRef(false);
 
   const [decks, setDecks] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_decks'); if (saved) return JSON.parse(saved); } catch (e) {}
+    try { const saved = localStorage.getItem('lumina_decks'); if (saved) { const p = JSON.parse(saved); return Array.isArray(p) ? p : initialDecks; } } catch (e) {}
     return initialDecks;
   });
   const [folders, setFolders] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_folders'); if (saved) return JSON.parse(saved); } catch (e) {}
+    try { const saved = localStorage.getItem('lumina_folders'); if (saved) { const p = JSON.parse(saved); return Array.isArray(p) ? p : initialFolders; } } catch (e) {}
     return initialFolders;
   });
   const [activityMap, setActivityMap] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_activity'); if (saved) return JSON.parse(saved); } catch (e) {}
+    try { const saved = localStorage.getItem('lumina_activity'); if (saved) { const p = JSON.parse(saved); return typeof p === 'object' && !Array.isArray(p) ? p : {}; } } catch (e) {}
     return {};
   });
   
-  // NOVO: Array oficial apenas com datas de recuperação da ofensiva
   const [streakRecoveries, setStreakRecoveries] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_streakRecoveries'); if (saved) return JSON.parse(saved); } catch (e) {}
+    try { const saved = localStorage.getItem('lumina_streakRecoveries'); if (saved) { const p = JSON.parse(saved); return Array.isArray(p) ? p : []; } } catch (e) {}
     return [];
   });
 
@@ -899,7 +899,6 @@ export default function App() {
     });
   };
 
-  // Alterado: Apenas a quantidade real, pois fantasmas já foram banidos
   const getDailyCount = (dateStr) => {
     const data = activityMap[dateStr];
     if (!data) return 0;
@@ -1618,7 +1617,7 @@ export default function App() {
       
       const count = getDailyCount(dateStr); 
       const isToday = dateStr === todayStr; 
-      monthTotalRevisions += count; // Apenas revisões reais são contadas agora!
+      monthTotalRevisions += count;
       
       const isPast = dateObj < new Date(new Date().setHours(0,0,0,0));
       const isRecovered = streakRecoveries.includes(dateStr);
@@ -1639,23 +1638,21 @@ export default function App() {
           if(canRecover) {
              setStreakRecoveryDate(dateStr);
           }
-        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all group ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-20' : 'cursor-default hover:scale-110 hover:z-20'} ${bg}`}>
+        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all group/cell ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-20' : 'cursor-default hover:scale-110 hover:z-20'} ${bg}`}>
           <span className="text-sm pointer-events-none">{d}</span>
           {isToday && <div className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-indigo-400 pointer-events-none"></div>}
           
-          {/* TOOLTIP CUSTOMIZADO */}
-          <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-2 group-hover:translate-y-0 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700 flex flex-col items-center origin-bottom">
-            <span className={count > 0 ? "text-emerald-400 text-sm" : "text-slate-400"}>{count} revisões</span>
-            {isRecovered && count === 0 && <span className="text-indigo-400 text-[10px] mt-0.5">Ofensiva Recuperada</span>}
-            {canRecover && <span className="text-indigo-400 text-[10px] mt-0.5">Clique p/ recuperar</span>}
-            {!isRecovered && !canRecover && count === 0 && <span className="text-slate-500 text-[10px] mt-0.5">Nenhuma revisão</span>}
-            <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-800"></div>
+          {/* TOOLTIP DISCRETO */}
+          <div className="absolute bottom-full mb-1.5 opacity-0 group-hover/cell:opacity-100 transition-all duration-200 translate-y-1 group-hover/cell:translate-y-0 bg-slate-800/95 text-slate-200 text-[10px] font-medium px-2 py-1.5 rounded-lg pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700/80 flex flex-col items-center backdrop-blur-md">
+            <span className={count > 0 ? "text-emerald-400 font-bold text-xs" : "text-slate-400"}>{count} revisões</span>
+            {isRecovered && count === 0 && <span className="text-indigo-300 text-[9px] mt-0.5 uppercase tracking-wider">Recuperada</span>}
+            {canRecover && <span className="text-indigo-300 text-[9px] mt-0.5 uppercase tracking-wider">Recuperar</span>}
           </div>
         </div>
       );
     }
     return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl overflow-hidden flex flex-col h-full relative group animate-pop delay-100">
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl overflow-hidden flex flex-col h-full relative animate-pop delay-100">
          <div className="absolute top-0 right-0 p-32 bg-emerald-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
          <div className="flex justify-between items-start mb-6 relative z-10">
             <div>
