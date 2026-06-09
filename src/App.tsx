@@ -1741,7 +1741,7 @@ export default function App() {
     const max = Math.max(...buckets.map(b => b.count), 10);
 
     return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-200">
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-400">
         <div className="absolute top-0 left-0 p-32 bg-indigo-500/5 rounded-full blur-3xl -ml-16 -mt-16 pointer-events-none"></div>
         
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 relative z-10">
@@ -1778,6 +1778,83 @@ export default function App() {
              })}
            </div>
         </div>
+      </div>
+    );
+  };
+
+  const renderDeckDistribution = () => {
+    let dist = validDecks.filter(d => !d.isIgnored).map(d => {
+       const effort = (d.cards || []).reduce((sum, c) => sum + (c.reviews || 0), 0);
+       return { name: d.name, effort };
+    }).filter(d => d.effort > 0).sort((a,b) => b.effort - a.effort);
+
+    const totalEffort = dist.reduce((sum, d) => sum + d.effort, 0);
+    
+    if (dist.length > 4) {
+       const top = dist.slice(0, 3);
+       const othersEffort = dist.slice(3).reduce((sum, d) => sum + d.effort, 0);
+       top.push({ name: 'Outros', effort: othersEffort });
+       dist = top;
+    }
+
+    const colors = ['#818cf8', '#34d399', '#fbbf24', '#f472b6', '#94a3b8'];
+    let cumulativePercent = 0;
+
+    return (
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-200">
+         <div className="absolute bottom-0 left-0 p-32 bg-amber-500/5 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
+         <div className="flex justify-between items-center mb-8 relative z-10">
+           <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Distribuição</h3>
+           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Por Esforço</span>
+         </div>
+         
+         {totalEffort === 0 ? (
+            <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10">Nenhum dado de estudo ainda.</div>
+         ) : (
+            <div className="flex flex-col sm:flex-row items-center gap-6 flex-grow relative z-10">
+               <div className="relative w-32 h-32 shrink-0 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] mx-auto sm:mx-0">
+                  <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
+                     <circle cx="50" cy="50" r="40" fill="transparent" stroke="#1e293b" strokeWidth="16" />
+                     {dist.map((item, i) => {
+                         const percent = (item.effort / totalEffort) * 100;
+                         const dashArray = (percent * 251.327) / 100;
+                         const dashOffset = (cumulativePercent * 251.327) / 100;
+                         cumulativePercent += percent;
+                         return (
+                             <circle
+                                key={i}
+                                cx="50" cy="50" r="40"
+                                fill="transparent"
+                                stroke={colors[i]}
+                                strokeWidth="16"
+                                strokeDasharray={`${dashArray} 251.327`}
+                                strokeDashoffset={-dashOffset}
+                                className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
+                             >
+                                <title>{item.name}: {item.effort} revisões totais</title>
+                             </circle>
+                         );
+                     })}
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                     <span className="text-2xl font-black text-slate-200 leading-none">{dist.length}</span>
+                     <span className="text-[10px] text-slate-500 uppercase font-bold mt-1">Baralhos</span>
+                  </div>
+               </div>
+               
+               <div className="flex flex-col gap-3 flex-grow w-full">
+                  {dist.map((item, i) => (
+                     <div key={i} className="flex items-center justify-between text-sm group">
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                           <div className="w-3 h-3 rounded-full shrink-0 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: colors[i], color: colors[i] }}></div>
+                           <span className="text-slate-300 font-medium truncate group-hover:text-slate-100 transition-colors" title={item.name}>{item.name}</span>
+                        </div>
+                        <span className="font-black text-slate-400 pl-2 shrink-0">{Math.round((item.effort / totalEffort) * 100)}%</span>
+                     </div>
+                  ))}
+               </div>
+            </div>
+         )}
       </div>
     );
   };
@@ -2025,7 +2102,15 @@ export default function App() {
                 <div className="absolute top-0 right-0 p-32 bg-indigo-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
                 <div className="relative z-10 w-full md:w-1/2">
                    <h2 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2">{getGreeting()}, pronto para focar?</h2>
-                   <p className="text-slate-400">Você tem <strong className="text-indigo-400 text-lg">{calculateTotalDue(globalStats)}</strong> cartões pendentes hoje.</p>
+                   <div className="flex flex-wrap items-center gap-3 mt-3">
+                     <p className="text-slate-400">Você tem <strong className="text-indigo-400 text-lg">{calculateTotalDue(globalStats)}</strong> cartões pendentes hoje.</p>
+                     {calculateTotalDue(globalStats) > 0 && (
+                       <span className="flex items-center gap-1.5 text-sm bg-slate-900/80 text-amber-400 px-3 py-1.5 rounded-xl border border-amber-500/20 shadow-lg shadow-amber-500/5 animate-pop delay-100">
+                          <Timer className="w-4 h-4" />
+                          <strong>~{Math.max(1, Math.ceil(calculateTotalDue(globalStats) * 0.33))} min</strong> de foco
+                       </span>
+                     )}
+                   </div>
                 </div>
                 <div className="relative z-10 w-full md:w-1/2 bg-slate-950/60 p-5 rounded-2xl border border-slate-800/80 backdrop-blur-sm">
                    <div className="flex justify-between text-sm font-medium mb-3">
@@ -2181,7 +2266,8 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 mb-8 pb-10">
             <div className="lg:col-span-2 xl:col-span-2">{renderCalendar()}</div>
             <div className="lg:col-span-1 xl:col-span-1">{renderMastery()}</div>
-            <div className="lg:col-span-2 xl:col-span-3">{renderForecast()}</div>
+            <div className="lg:col-span-1 xl:col-span-1">{renderDeckDistribution()}</div>
+            <div className="lg:col-span-2 xl:col-span-2">{renderForecast()}</div>
           </div>
         )}
         
