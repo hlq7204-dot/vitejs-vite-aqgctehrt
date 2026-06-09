@@ -530,6 +530,7 @@ export default function App() {
   const firstLoadRefFolders = useRef(true);
   const firstLoadRefDecks = useRef(true);
   const isProcessingRef = useRef(false);
+  const hasCleanedUpPhantoms = useRef(false);
 
   const [decks, setDecks] = useState(() => {
     try { const saved = localStorage.getItem('lumina_decks'); if (saved) return JSON.parse(saved); } catch (e) {}
@@ -631,6 +632,29 @@ export default function App() {
   useEffect(() => { localStorage.setItem('lumina_folders', JSON.stringify(folders)); }, [folders]);
   useEffect(() => { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); }, [activityMap]);
   useEffect(() => { localStorage.setItem('lumina_dailyGoal', dailyGoal); }, [dailyGoal]);
+
+  useEffect(() => {
+    if (!hasCleanedUpPhantoms.current && Object.keys(activityMap).length > 0) {
+        let hasChanges = false;
+        const newMap = { ...activityMap };
+        for (const date in newMap) {
+            const ids = newMap[date];
+            if (Array.isArray(ids)) {
+                const realIds = ids.filter(id => !id.startsWith('recovered-'));
+                const phantomIds = ids.filter(id => id.startsWith('recovered-'));
+                if (phantomIds.length > 1) {
+                    newMap[date] = [...realIds, phantomIds[0]];
+                    hasChanges = true;
+                }
+            }
+        }
+        if (hasChanges) {
+            setActivityMap(newMap);
+            syncActivityToCloud(newMap);
+        }
+        hasCleanedUpPhantoms.current = true;
+    }
+  }, [activityMap]);
 
   useEffect(() => {
     if (!auth) {
@@ -839,14 +863,26 @@ export default function App() {
     return streak;
   };
 
+  const getRecoveriesCountForMonth = (yearMonthStr) => {
+     let count = 0;
+     for (const dateStr in activityMap) {
+        if (dateStr.startsWith(yearMonthStr)) {
+           const ids = activityMap[dateStr];
+           if (Array.isArray(ids) && ids.some(id => id.startsWith('recovered-'))) {
+              count++;
+           }
+        }
+     }
+     return count;
+  };
+
   const confirmRecoverStreak = () => {
     if(!streakRecoveryDate) return;
     const currentCount = getDailyCount(streakRecoveryDate);
-    const missing = dailyGoal - currentCount;
-    if (missing > 0) {
-        const dummies = Array.from({length: missing}).map((_, i) => `recovered-${Date.now()}-${i}`);
+    if (currentCount === 0) {
+        const dummy = `recovered-${Date.now()}`;
         const currentDayData = Array.isArray(activityMap[streakRecoveryDate]) ? activityMap[streakRecoveryDate] : [];
-        const newActivityMap = { ...activityMap, [streakRecoveryDate]: [...currentDayData, ...dummies] };
+        const newActivityMap = { ...activityMap, [streakRecoveryDate]: [...currentDayData, dummy] };
         setActivityMap(newActivityMap);
         syncActivityToCloud(newActivityMap);
         showToast("Ofensiva recuperada com sucesso!");
@@ -1518,7 +1554,7 @@ export default function App() {
       const count = getDailyCount(dateStr); const isToday = dateStr === todayStr; monthTotalRevisions += count;
       
       const isPast = dateObj < new Date(new Date().setHours(0,0,0,0));
-      const canRecover = isPast && count < dailyGoal;
+      const canRecover = isPast && count === 0;
 
       let bg = 'bg-slate-900/50 border-slate-800 text-slate-400';
       if (count > 0 && count < 5) bg = 'bg-emerald-900/60 border-emerald-900 text-emerald-200';
@@ -1527,7 +1563,16 @@ export default function App() {
       if (count >= 30) bg = 'bg-emerald-400 border-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.4)] text-slate-900 font-bold';
 
       cells.push(
-        <div key={d} onClick={() => { if(canRecover) setStreakRecoveryDate(dateStr); }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-10' : 'cursor-default'} ${bg}`} title={`${d} de ${monthNames[month]}: ${count} revisões${canRecover ? ' (Clique para recuperar ofensiva)' : ''}`}>
+        <div key={d} onClick={() => { 
+          if(canRecover) {
+             const yearMonthStr = dateStr.substring(0, 7);
+             if (getRecoveriesCountForMonth(yearMonthStr) >= 2) {
+                 showToast("Limite de 2 recuperações por mês atingido.", "error");
+             } else {
+                 setStreakRecoveryDate(dateStr);
+             }
+          }
+        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-10' : 'cursor-default'} ${bg}`} title={`${d} de ${monthNames[month]}: ${count} revisões${canRecover ? ' (Clique para recuperar ofensiva)' : ''}`}>
           <span className="text-sm">{d}</span>
           {isToday && <div className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-indigo-400"></div>}
         </div>
@@ -2592,7 +2637,7 @@ export default function App() {
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-indigo-500/20"><History className="w-8 h-8" /></div>
             <h3 className="text-xl font-bold text-slate-100 mb-2">Recuperar Ofensiva?</h3>
-            <p className="text-slate-400 mb-6 text-sm">Preencher o dia {streakRecoveryDate.split('-').reverse().join('/')} com revisões fantasmas para restaurar sua ofensiva.</p>
+            <p className="text-slate-400 mb-6 text-sm">Adicionar uma revisão fantasma no dia {streakRecoveryDate.split('-').reverse().join('/')} para restaurar sua ofensiva.</p>
             <div className="flex gap-3">
               <button onClick={() => setStreakRecoveryDate(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
               <button onClick={confirmRecoverStreak} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Recuperar</button>
