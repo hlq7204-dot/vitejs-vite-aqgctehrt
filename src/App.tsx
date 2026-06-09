@@ -32,7 +32,8 @@ import {
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
   PieChart, RotateCcw, Settings, Home, Flame, BarChart2, LogOut,
-  Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight, X
+  Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight, X,
+  Eye, EyeOff, History
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -413,7 +414,7 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
      if (imgs.length === 0) return;
      
      imgs.forEach(img => {
-        img.dataset.compressed = "true"; // Marca imediatamente para evitar loop duplo
+        img.dataset.compressed = "true"; 
 
         if (img.src.includes('image/gif') || img.src.toLowerCase().endsWith('.gif')) return;
         
@@ -581,9 +582,10 @@ export default function App() {
   const [eliminatedOptions, setEliminatedOptions] = useState(new Set()); 
   const [sessionStats, setSessionStats] = useState({ reviewed: 0, correct: 0 });
   
-  const [reviewHistory, setReviewHistory] = useState([]); // Histórico para o botão "Desfazer"
+  const [reviewHistory, setReviewHistory] = useState([]);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [streakRecoveryDate, setStreakRecoveryDate] = useState(null); // Estado para o dia escolhido para recuperar
 
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -765,7 +767,6 @@ export default function App() {
         else if (s.cardType === 'tf') { if (e.key === '1') s.handleInteractiveSubmit(true); if (e.key === '2') s.handleInteractiveSubmit(false); }
       }
       
-      // Atalho para Desfazer (Ctrl + Z)
       if (e.key === 'z' && e.ctrlKey) {
           e.preventDefault();
           if (s.handleUndo) s.handleUndo();
@@ -810,14 +811,14 @@ export default function App() {
   const getDailyCount = (dateStr) => {
     const data = activityMap[dateStr];
     if (!data) return 0;
-    if (Array.isArray(data)) return data.filter(id => validCardIds.has(id)).length;
+    if (Array.isArray(data)) return data.filter(id => validCardIds.has(id) || id.startsWith('recovered-')).length;
     return 0; 
   };
 
   const getDailyCountFiltered = (dateStr, deckId) => {
     const data = activityMap[dateStr];
     if (!data || !Array.isArray(data)) return 0;
-    if (deckId === 'all') return data.filter(id => validCardIds.has(id)).length;
+    if (deckId === 'all') return data.filter(id => validCardIds.has(id) || id.startsWith('recovered-')).length;
     const targetDeck = validDecks.find(d => d.id === deckId);
     if (!targetDeck) return 0;
     const deckCardIds = new Set((targetDeck.cards || []).map(c => c.id));
@@ -836,6 +837,21 @@ export default function App() {
       else { break; }
     }
     return streak;
+  };
+
+  const confirmRecoverStreak = () => {
+    if(!streakRecoveryDate) return;
+    const currentCount = getDailyCount(streakRecoveryDate);
+    const missing = dailyGoal - currentCount;
+    if (missing > 0) {
+        const dummies = Array.from({length: missing}).map((_, i) => `recovered-${Date.now()}-${i}`);
+        const currentDayData = Array.isArray(activityMap[streakRecoveryDate]) ? activityMap[streakRecoveryDate] : [];
+        const newActivityMap = { ...activityMap, [streakRecoveryDate]: [...currentDayData, ...dummies] };
+        setActivityMap(newActivityMap);
+        syncActivityToCloud(newActivityMap);
+        showToast("Ofensiva recuperada com sucesso!");
+    }
+    setStreakRecoveryDate(null);
   };
 
   const getCardStats = (cards) => {
@@ -862,8 +878,8 @@ export default function App() {
     return result;
   };
 
-  const getFolderStats = (folderId) => getCardStats(getDecksInFolder(folderId).flatMap(d => d.cards || []));
-  const globalStats = getCardStats(validDecks.flatMap(d => d.cards || []));
+  const getFolderStats = (folderId) => getCardStats(getDecksInFolder(folderId).filter(d => !d.isIgnored).flatMap(d => d.cards || []));
+  const globalStats = getCardStats(validDecks.filter(d => !d.isIgnored).flatMap(d => d.cards || []));
 
   const getFolderPaths = (excludeFolderId = null) => {
     const paths = [];
@@ -897,7 +913,7 @@ export default function App() {
     .catch(e => {
         console.error("Firebase sync error", e);
         if (e.message && e.message.toLowerCase().includes('exceeds the limit')) {
-            showToast("Falha ao sincronizar: O baralho excedeu o limite de tamanho (1MB). Reduza a quantidade de imagens neste baralho.", "error");
+            showToast("Falha ao sincronizar: O baralho excedeu o limite de tamanho (1MB). Reduza a quantidade de imagens.", "error");
         } else {
             showToast("Erro ao sincronizar na nuvem.", "error");
         }
@@ -915,10 +931,18 @@ export default function App() {
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true }).catch(console.error);
   };
 
+  const toggleIgnoreDeck = (deck, e) => {
+      e.stopPropagation();
+      const updatedDeck = { ...deck, isIgnored: !deck.isIgnored };
+      setDecks(prev => prev.map(d => d.id === deck.id ? updatedDeck : d));
+      updateDeckInCloud(updatedDeck);
+      showToast(updatedDeck.isIgnored ? "Baralho ignorado das estatísticas." : "Baralho reativado.");
+  };
+
   const startReview = (deckId, forceAll = false, folderId = null) => {
     let dueCards = [];
     if (folderId) {
-      const decksToStudy = getDecksInFolder(folderId);
+      const decksToStudy = getDecksInFolder(folderId).filter(d => !d.isIgnored);
       decksToStudy.forEach(deck => {
         let cards = (deck.cards || []).filter(c => c.dueDate <= Date.now() || !c.dueDate);
         if (forceAll) cards = deck.cards || [];
@@ -928,7 +952,10 @@ export default function App() {
       setActiveDeckId(null);
     } else {
       const deck = validDecks.find(d => d.id === deckId);
-      if (!deck) return;
+      if (!deck || deck.isIgnored) {
+          if(deck?.isIgnored) showToast("Este baralho está ignorado.", "info");
+          return;
+      }
       let cards = (deck.cards || []).filter(c => c.dueDate <= Date.now() || !c.dueDate);
       if (forceAll) cards = deck.cards || [];
       cards = cards.map(c => ({ ...c, _deckId: deck.id }));
@@ -949,18 +976,9 @@ export default function App() {
 
   const handleAnswer = (quality) => {
     const currentCard = reviewQueue[currentCardIndex];
-    
-    // Regista o estado atual no histórico antes de o alterar
-    setReviewHistory(prev => [...prev, {
-       card: currentCard,
-       index: currentCardIndex,
-       queue: [...reviewQueue],
-       quality,
-       sessionStats: { ...sessionStats }
-    }]);
+    setReviewHistory(prev => [...prev, { card: currentCard, index: currentCardIndex, queue: [...reviewQueue], quality, sessionStats: { ...sessionStats } }]);
 
     const updatedCard = calculateNextReview(currentCard, quality);
-    
     const targetDeckId = currentCard._deckId || activeDeckId;
     const targetDeck = validDecks.find(d => d.id === targetDeckId);
 
@@ -981,11 +999,9 @@ export default function App() {
     setActivityMap(newActivityMap); syncActivityToCloud(newActivityMap);
 
     let newQueue = [...reviewQueue];
-    if (updatedCard.interval === 0) {
-      newQueue.push({ ...updatedCard, _deckId: currentCard._deckId });
-    }
+    if (updatedCard.interval === 0) newQueue.push({ ...updatedCard, _deckId: currentCard._deckId });
     if (currentCardIndex + 1 < newQueue.length) { setReviewQueue(newQueue); setIsFlipped(false); setCurrentCardIndex(prev => prev + 1); } 
-    else { setCurrentView('finished'); }
+    else setCurrentView('finished');
   };
 
   const handleUndo = () => {
@@ -1004,11 +1020,8 @@ export default function App() {
       updateDeckInCloud(updatedDeck);
     }
 
-    setSessionStats(lastState.sessionStats);
-    setReviewQueue(lastState.queue);
-    setCurrentCardIndex(lastState.index);
-    setIsFlipped(true); 
-    setReviewHistory(prev => prev.slice(0, -1));
+    setSessionStats(lastState.sessionStats); setReviewQueue(lastState.queue); setCurrentCardIndex(lastState.index);
+    setIsFlipped(true); setReviewHistory(prev => prev.slice(0, -1));
   };
 
   const handleDeleteReviewCard = () => {
@@ -1024,17 +1037,11 @@ export default function App() {
        
        const newQueue = reviewQueue.filter(c => c.id !== currentCard.id);
        
-       if (newQueue.length === 0) {
-           setCurrentView('finished');
-       } else {
+       if (newQueue.length === 0) setCurrentView('finished');
+       else {
            setReviewQueue(newQueue);
-           if (currentCardIndex >= newQueue.length) {
-               setCurrentCardIndex(newQueue.length - 1);
-           }
-           setIsFlipped(false);
-           setReviewInteraction(null);
-           setTypedInput('');
-           setEliminatedOptions(new Set());
+           if (currentCardIndex >= newQueue.length) setCurrentCardIndex(newQueue.length - 1);
+           setIsFlipped(false); setReviewInteraction(null); setTypedInput(''); setEliminatedOptions(new Set());
        }
        setReviewHistory([]);
        showToast("Cartão excluído com sucesso!");
@@ -1063,9 +1070,7 @@ export default function App() {
 
   const updateChoiceOption = (idx, value) => { const newOpts = [...choiceOptions]; newOpts[idx] = value; setChoiceOptions(newOpts); };
 
-  const addChoiceOption = () => {
-    if (choiceOptions.length < 6) setChoiceOptions([...choiceOptions, '']);
-  };
+  const addChoiceOption = () => { if (choiceOptions.length < 6) setChoiceOptions([...choiceOptions, '']); };
 
   const removeChoiceOption = (idx) => {
     if (choiceOptions.length > 2) {
@@ -1249,19 +1254,7 @@ export default function App() {
            parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
         }
 
-        importedCards.push({ 
-          id: `c-imp-${Date.now()}-${Math.random()}`, 
-          type: cardType, 
-          front: parsedFront, 
-          back: parsedBack, 
-          options: parsedOptions,
-          correctOption: parsedCorrectOption,
-          repetition: 0, 
-          interval: 0, 
-          easeFactor: 2.5, 
-          dueDate: Date.now(), 
-          reviews: 0 
-        });
+        importedCards.push({ id: `c-imp-${Date.now()}-${Math.random()}`, type: cardType, front: parsedFront, back: parsedBack, options: parsedOptions, correctOption: parsedCorrectOption, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 });
       });
       if (importedCards.length > 0) {
         const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: DECK_THEMES[0].color, cards: importedCards };
@@ -1445,10 +1438,8 @@ export default function App() {
     }
   };
 
-  // Tornar a função disponível na referência de estado para o Atalho Ctrl+Z
   stateRef.current = { ...stateRef.current, handleUndo };
 
-  // --- RENDERERS UI ---
   if (isAuthLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-indigo-400 notranslate" translate="no"><Loader2 className="w-8 h-8 animate-spin" /></div>;
 
   if (!user) {
@@ -1482,7 +1473,7 @@ export default function App() {
   };
 
   const renderMastery = () => {
-    const gCards = validDecks.flatMap(d => d.cards || []);
+    const gCards = validDecks.filter(d => !d.isIgnored).flatMap(d => d.cards || []);
     const gStats = getCardStats(gCards); const totalC = gCards.length || 1;
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between animate-pop delay-300">
@@ -1526,6 +1517,9 @@ export default function App() {
       const dateStr = `${y}-${m}-${dy}`;
       const count = getDailyCount(dateStr); const isToday = dateStr === todayStr; monthTotalRevisions += count;
       
+      const isPast = dateObj < new Date(new Date().setHours(0,0,0,0));
+      const canRecover = isPast && count < dailyGoal;
+
       let bg = 'bg-slate-900/50 border-slate-800 text-slate-400';
       if (count > 0 && count < 5) bg = 'bg-emerald-900/60 border-emerald-900 text-emerald-200';
       if (count >= 5 && count < 15) bg = 'bg-emerald-700/80 border-emerald-700 text-emerald-100';
@@ -1533,7 +1527,7 @@ export default function App() {
       if (count >= 30) bg = 'bg-emerald-400 border-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.4)] text-slate-900 font-bold';
 
       cells.push(
-        <div key={d} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all hover:scale-110 hover:z-10 cursor-default ${bg}`} title={`${d} de ${monthNames[month]}: ${count} revisões`}>
+        <div key={d} onClick={() => { if(canRecover) setStreakRecoveryDate(dateStr); }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-10' : 'cursor-default'} ${bg}`} title={`${d} de ${monthNames[month]}: ${count} revisões${canRecover ? ' (Clique para recuperar ofensiva)' : ''}`}>
           <span className="text-sm">{d}</span>
           {isToday && <div className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-indigo-400"></div>}
         </div>
@@ -1565,7 +1559,7 @@ export default function App() {
   };
 
   const renderForecast = () => {
-    const allCards = validDecks.flatMap(d => d.cards || []); 
+    const allCards = validDecks.filter(d => !d.isIgnored).flatMap(d => d.cards || []); 
     const today = new Date(); today.setHours(0,0,0,0);
     
     let bucketCount = 7;
@@ -1690,8 +1684,8 @@ export default function App() {
     });
     
     let targetCards = [];
-    if (reportDeckId === 'all') { targetCards = validDecks.flatMap(d => d.cards || []); } 
-    else { const deck = validDecks.find(d => d.id === reportDeckId); if (deck) targetCards = deck.cards || []; }
+    if (reportDeckId === 'all') { targetCards = validDecks.filter(d => !d.isIgnored).flatMap(d => d.cards || []); } 
+    else { const deck = validDecks.find(d => d.id === reportDeckId); if (deck && !deck.isIgnored) targetCards = deck.cards || []; }
 
     let totalR = 0; let revCardsCount = 0; const retentionBuckets = { exc: 0, good: 0, fair: 0, poor: 0 };
     let matureCount = 0; let youngCount = 0; const now = Date.now();
@@ -1714,11 +1708,10 @@ export default function App() {
     const points = activityData.map((data, i) => {
       const showLabel = reportPeriod === 'week' || (reportPeriod === 'month' && i % 3 === 0) || (reportPeriod === 'all' && i % Math.max(1, Math.floor(daysCount / 10)) === 0);
       const x = n <= 1 ? 50 : (i / (n - 1)) * 100;
-      const y = maxActivity === 0 ? 0 : (data.count / maxActivity) * 75; // O topo será de no máx 75% para não cortar o ponto
+      const y = maxActivity === 0 ? 0 : (data.count / maxActivity) * 75; // Topo limitado para evitar cortes
       return { ...data, x, y, showLabel };
     });
 
-    // Gera o caminho de curva Bezier (C) para ligar os pontos suavemente
     const smoothLinePath = points.length > 1 
       ? `M ${points[0].x} ${100 - points[0].y}` + points.slice(1).map((p, i) => {
           const p0 = points[i];
@@ -1734,8 +1727,8 @@ export default function App() {
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
             <div className="relative flex-grow sm:flex-grow-0">
               <select value={reportDeckId} onChange={e => setReportDeckId(e.target.value)} className="w-full appearance-none bg-slate-950 border border-slate-700 text-slate-300 py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:border-indigo-500 text-sm font-medium transition-colors">
-                <option value="all">Todos os Baralhos</option>
-                {validDecks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                <option value="all">Todos os Baralhos Ativos</option>
+                {validDecks.filter(d => !d.isIgnored).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
               <Filter className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
@@ -1776,7 +1769,6 @@ export default function App() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* GRÁFICO DE LINHA DO HISTÓRICO DE VOLUME */}
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
             <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
             <p className="text-sm text-slate-500 mb-6">Cartões revistos ao longo do tempo</p>
@@ -1796,25 +1788,14 @@ export default function App() {
                     </defs>
                     {points.length > 1 ? (
                       <>
-                        <path
-                          d={`${smoothLinePath} L 100 100 L 0 100 Z`}
-                          fill="url(#line-gradient)"
-                        />
-                        <path
-                          d={smoothLinePath}
-                          fill="none"
-                          stroke="#818cf8"
-                          strokeWidth="3"
-                          vectorEffect="non-scaling-stroke"
-                          strokeLinecap="round"
-                        />
+                        <path d={`${smoothLinePath} L 100 100 L 0 100 Z`} fill="url(#line-gradient)" />
+                        <path d={smoothLinePath} fill="none" stroke="#818cf8" strokeWidth="3" vectorEffect="non-scaling-stroke" strokeLinecap="round" />
                       </>
                     ) : points.length === 1 ? (
                        <circle cx={points[0].x} cy={100 - points[0].y} r="3" fill="#818cf8" />
                     ) : null}
                   </svg>
 
-                  {/* Interactive Points */}
                   {points.map((p, i) => (
                     <div
                       key={i}
@@ -1826,16 +1807,12 @@ export default function App() {
                         <span className="text-[9px] text-slate-400 font-medium uppercase tracking-wider">{p.label}</span>
                         <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-800"></div>
                       </div>
-                      
                       <div className="w-3 h-3 bg-slate-900 border-2 border-indigo-400 rounded-full transition-all duration-300 group-hover:scale-150 group-hover:bg-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>
-                      
-                      {/* Área extra grande invisível para facilitar o hover com o rato */}
                       <div className="absolute -inset-4 z-0"></div>
                     </div>
                   ))}
                 </div>
                 
-                {/* Labels Bottom */}
                 <div className="absolute bottom-0 left-0 w-full h-[24px]">
                   {points.map((p, i) => (
                     p.showLabel && (
@@ -2026,9 +2003,10 @@ export default function App() {
                  {currentDecks.map((deck, index) => {
                    const stats = getCardStats(deck.cards); const due = calculateTotalDue(stats);
                    const isMenuOpen = activeMenuId === deck.id; const colorClass = deck.color || DECK_THEMES[0].color;
+                   const playDisabled = due === 0 || deck.isIgnored;
 
                    return (
-                     <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className="bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
+                     <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className={`bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 50}ms`}}>
                        <div className="flex items-start justify-between mb-4 w-full">
                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
                          <div className="relative" onClick={e => e.stopPropagation()}>
@@ -2037,6 +2015,11 @@ export default function App() {
                            </button>
                            {isMenuOpen && (
                              <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                               <button onClick={(e) => { toggleIgnoreDeck(deck, e); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2">
+                                  {deck.isIgnored ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                  {deck.isIgnored ? 'Ativar Baralho' : 'Ignorar Baralho'}
+                               </button>
+                               <div className="h-px bg-slate-700 w-full"></div>
                                <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
                                <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
                                <div className="h-px bg-slate-700 w-full"></div>
@@ -2046,13 +2029,17 @@ export default function App() {
                          </div>
                        </div>
                        <h3 className="text-xl font-bold text-slate-200 mb-2 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words w-full" title={deck.name}>{deck.name}</h3>
-                       <div className="mb-3 w-full">
-                         {renderStatBadges(stats)}
+                       <div className="mb-3 w-full flex flex-wrap gap-1.5 items-center">
+                         {deck.isIgnored ? (
+                            <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-0.5 rounded border border-slate-700 flex items-center gap-1"><EyeOff className="w-3 h-3"/> Ignorado</span>
+                         ) : (
+                            renderStatBadges(stats)
+                         )}
                        </div>
                        <p className="text-slate-400 text-sm flex-grow line-clamp-2 w-full" title={deck.description}>{deck.description}</p>
                        <div className="mt-4 pt-4 border-t border-slate-800/50 flex justify-between items-center text-sm text-slate-500 w-full">
                          <span>{deck.cards?.length || 0} cartões totais</span>
-                         <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={due === 0} className={`p-2 rounded-full transition-all ${due > 0 ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:scale-110' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed'}`}>
+                         <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={playDisabled} className={`p-2 rounded-full transition-all ${!playDisabled ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:scale-110' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed'}`}>
                            <Play className="w-5 h-5" fill="currentColor" />
                          </button>
                        </div>
@@ -2100,11 +2087,17 @@ export default function App() {
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex items-center gap-6">
               <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center shrink-0 ${activeDeck.color || DECK_THEMES[0].color}`}><BookOpen className="w-8 h-8 sm:w-10 sm:h-10" /></div>
-              <div><h1 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2">{activeDeck.name}</h1><p className="text-slate-400">Gerir e adicionar cartões de estudo</p></div>
+              <div>
+                 <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2 flex items-center gap-3">
+                    {activeDeck.name}
+                    {activeDeck.isIgnored && <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-1 rounded border border-slate-700 flex items-center gap-1 uppercase tracking-wider"><EyeOff className="w-3 h-3"/> Ignorado</span>}
+                 </h1>
+                 <p className="text-slate-400">Gerir e adicionar cartões de estudo</p>
+              </div>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-              <button onClick={() => startReview(activeDeck.id)} disabled={due === 0} className={`px-6 sm:px-8 py-3 sm:py-4 rounded-2xl font-bold text-base sm:text-lg flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 ${due > 0 ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 border border-indigo-400/20' : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}`}>
-                <Play className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> Revisar <span className="bg-indigo-500/30 text-indigo-100 px-2 py-0.5 rounded-full text-sm ml-1">{due}</span>
+              <button onClick={() => startReview(activeDeck.id)} disabled={due === 0 || activeDeck.isIgnored} className={`px-6 sm:px-8 py-3 sm:py-4 rounded-2xl font-bold text-base sm:text-lg flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 ${due > 0 && !activeDeck.isIgnored ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 border border-indigo-400/20' : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}`}>
+                <Play className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> Revisar <span className="bg-indigo-500/30 text-indigo-100 px-2 py-0.5 rounded-full text-sm ml-1">{activeDeck.isIgnored ? '0' : due}</span>
               </button>
               <button onClick={() => startReview(activeDeck.id, true)} disabled={!activeDeck.cards || activeDeck.cards.length === 0} className={`px-4 sm:px-6 py-3 sm:py-4 rounded-2xl font-bold text-base sm:text-lg flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 ${activeDeck.cards?.length > 0 ? 'bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 shadow-lg' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-800'}`} title="Adiantar">
                 <FastForward className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> Estudo Livre
@@ -2232,20 +2225,20 @@ export default function App() {
                      </div>
                   )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow pr-2 sm:pr-4">
-                    <div>
+                    <div className="max-h-64 overflow-y-auto custom-scrollbar">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">
                            <TypeIconComp className="w-3 h-3" /> {typeObj.label}
                         </span>
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${statusColor}`}>{statusLabel}</span>
                       </div>
-                      <div className="text-slate-200 font-medium line-clamp-4 text-sm sm:text-base overflow-hidden break-words" dangerouslySetInnerHTML={{ __html: card.front }} />
+                      <div className="text-slate-200 font-medium text-sm sm:text-base break-words" dangerouslySetInnerHTML={{ __html: card.front }} />
                     </div>
-                    <div className="pt-4 md:pt-8 border-t border-slate-800 md:border-0">
+                    <div className="pt-4 md:pt-8 border-t border-slate-800 md:border-0 max-h-64 overflow-y-auto custom-scrollbar">
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">
                         {card.type === 'standard' ? 'Verso' : card.type === 'typing' ? `Gabarito: ${card.typeAnswer}` : card.type === 'tf' ? `Gabarito: ${card.isTrue ? 'V' : 'F'}` : 'Detalhes'}
                       </span>
-                      <div className="text-slate-400 line-clamp-4 text-sm sm:text-base overflow-hidden break-words" dangerouslySetInnerHTML={{ __html: card.back }} />
+                      <div className="text-slate-400 text-sm sm:text-base break-words" dangerouslySetInnerHTML={{ __html: card.back }} />
                     </div>
                   </div>
                   {!isSelectMode && (
@@ -2532,7 +2525,7 @@ export default function App() {
               {(() => {
                 const streakCount = calculateStreak();
                 const hasDoneToday = getDailyCount(getTodayStr()) > 0;
-                const displayStreak = Math.max(streakCount, 0); // Mostrar 0 se não tiver ofensiva
+                const displayStreak = Math.max(streakCount, 0); 
                 return (
                   <div className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-medium items-center gap-1.5 border transition-all ${hasDoneToday ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700/50 opacity-60'}`} title={hasDoneToday ? "Ofensiva (Dias Seguidos)" : "Faça um flashcard hoje para manter a ofensiva!"}>
                     <Flame className={`w-4 h-4 ${hasDoneToday ? 'fill-current text-orange-400' : 'opacity-50'}`} /> {displayStreak}
@@ -2589,6 +2582,21 @@ export default function App() {
                 <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL RECUPERAR OFENSIVA (Calendário) */}
+      {streakRecoveryDate && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setStreakRecoveryDate(null)}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-indigo-500/20"><History className="w-8 h-8" /></div>
+            <h3 className="text-xl font-bold text-slate-100 mb-2">Recuperar Ofensiva?</h3>
+            <p className="text-slate-400 mb-6 text-sm">Preencher o dia {streakRecoveryDate.split('-').reverse().join('/')} com revisões fantasmas para restaurar sua ofensiva.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setStreakRecoveryDate(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+              <button onClick={confirmRecoverStreak} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Recuperar</button>
+            </div>
           </div>
         </div>
       )}
