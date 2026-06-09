@@ -608,6 +608,9 @@ export default function App() {
   const [forecastPeriod, setForecastPeriod] = useState('week');
   const [reportDeckId, setReportDeckId] = useState('all'); 
   
+  const [distPeriod, setDistPeriod] = useState('all'); 
+  const [distFolderId, setDistFolderId] = useState('all'); 
+  
   const [activeDeckId, setActiveDeckId] = useState(null);
 
   const reachableFolders = new Set([null]);
@@ -1780,9 +1783,53 @@ export default function App() {
   };
 
   const renderDeckDistribution = () => {
-    let dist = validDecks.filter(d => !d.isIgnored).map(d => {
-       const effort = (d.cards || []).reduce((sum, c) => sum + (c.reviews || 0), 0);
-       return { name: d.name, effort };
+    let allowedDecks = validDecks.filter(d => !d.isIgnored);
+    
+    if (distFolderId !== 'all') {
+       const folderDecks = getDecksInFolder(distFolderId);
+       const folderDeckIds = new Set(folderDecks.map(d => d.id));
+       allowedDecks = allowedDecks.filter(d => folderDeckIds.has(d.id));
+    }
+
+    const cardDeckMap = {};
+    allowedDecks.forEach(deck => {
+       (deck.cards || []).forEach(card => {
+           cardDeckMap[card.id] = deck;
+       });
+    });
+
+    let deckEffort = {};
+    allowedDecks.forEach(d => deckEffort[d.id] = 0);
+
+    if (distPeriod === 'all') {
+       allowedDecks.forEach(deck => {
+          const effort = (deck.cards || []).reduce((sum, c) => sum + (c.reviews || 0), 0);
+          deckEffort[deck.id] = effort;
+       });
+    } else {
+       const today = new Date();
+       const daysCount = distPeriod === 'week' ? 7 : 30;
+       for(let i = 0; i < daysCount; i++) {
+           const d = new Date(today);
+           d.setDate(d.getDate() - i);
+           const y = d.getFullYear(); 
+           const m = String(d.getMonth() + 1).padStart(2, '0'); 
+           const dy = String(d.getDate()).padStart(2, '0');
+           const dateStr = `${y}-${m}-${dy}`;
+           
+           const dayActivity = activityMap[dateStr] || [];
+           dayActivity.forEach(cardId => {
+               const deck = cardDeckMap[cardId];
+               if (deck) {
+                   deckEffort[deck.id] = (deckEffort[deck.id] || 0) + 1;
+               }
+           });
+       }
+    }
+
+    let dist = Object.keys(deckEffort).map(deckId => {
+        const deck = allowedDecks.find(d => d.id === deckId);
+        return { name: deck.name, effort: deckEffort[deckId] };
     }).filter(d => d.effort > 0).sort((a,b) => b.effort - a.effort);
 
     const totalEffort = dist.reduce((sum, d) => sum + d.effort, 0);
@@ -1800,13 +1847,24 @@ export default function App() {
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-200">
          <div className="absolute bottom-0 left-0 p-32 bg-amber-500/5 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
-         <div className="flex justify-between items-center mb-8 relative z-10">
+         
+         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 relative z-10 gap-3">
            <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Distribuição</h3>
-           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Por Esforço</span>
+           <div className="flex gap-2 w-full sm:w-auto">
+              <select value={distFolderId} onChange={e => setDistFolderId(e.target.value)} className="flex-1 sm:w-32 bg-slate-950 border border-slate-700 text-slate-300 py-1.5 px-2.5 rounded-lg text-xs font-medium focus:outline-none focus:border-amber-500/50 transition-colors cursor-pointer">
+                  <option value="all">Todas Coleções</option>
+                  {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              <select value={distPeriod} onChange={e => setDistPeriod(e.target.value)} className="flex-1 sm:w-24 bg-slate-950 border border-slate-700 text-slate-300 py-1.5 px-2.5 rounded-lg text-xs font-medium focus:outline-none focus:border-amber-500/50 transition-colors cursor-pointer">
+                  <option value="week">7 Dias</option>
+                  <option value="month">30 Dias</option>
+                  <option value="all">Sempre</option>
+              </select>
+           </div>
          </div>
          
          {totalEffort === 0 ? (
-            <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10">Nenhum dado de estudo ainda.</div>
+            <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10">Nenhum dado no período.</div>
          ) : (
             <div className="flex flex-col sm:flex-row items-center gap-6 flex-grow relative z-10 w-full min-w-0">
                <div className="relative w-32 h-32 shrink-0 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] mx-auto sm:mx-0">
@@ -1828,7 +1886,7 @@ export default function App() {
                                 strokeDashoffset={-dashOffset}
                                 className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
                              >
-                                <title>{item.name}: {item.effort} revisões totais</title>
+                                <title>{item.name}: {item.effort} revisões</title>
                              </circle>
                          );
                      })}
