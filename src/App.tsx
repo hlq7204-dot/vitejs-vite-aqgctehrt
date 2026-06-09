@@ -640,10 +640,18 @@ export default function App() {
         for (const date in newMap) {
             const ids = newMap[date];
             if (Array.isArray(ids)) {
-                const realIds = ids.filter(id => !id.startsWith('recovered-'));
-                const phantomIds = ids.filter(id => id.startsWith('recovered-'));
-                if (phantomIds.length > 1) {
-                    newMap[date] = [...realIds, phantomIds[0]];
+                const realIds = [];
+                let ghostCount = 0;
+                for (const id of ids) {
+                    const strId = String(id);
+                    if (strId.startsWith('recovered-') || strId === 'dummy' || strId === 'phantom' || strId === 'ghost') {
+                        ghostCount++;
+                    } else {
+                        realIds.push(id);
+                    }
+                }
+                if (ghostCount > 1 || (ghostCount === 1 && ids.some(id => String(id) === 'dummy' || String(id) === 'phantom' || String(id) === 'ghost'))) {
+                    newMap[date] = [...realIds, 'recovered-auto-fix'];
                     hasChanges = true;
                 }
             }
@@ -655,6 +663,46 @@ export default function App() {
         hasCleanedUpPhantoms.current = true;
     }
   }, [activityMap]);
+
+  const fixGhostReviews = () => {
+      let hasChanges = false;
+      const newMap = { ...activityMap };
+      for (const date in newMap) {
+          if (Array.isArray(newMap[date])) {
+              const ids = newMap[date];
+              const realIds = [];
+              let ghostCount = 0;
+              
+              // Conta repetições extremas (bug dos 50 cliques)
+              const counts = {};
+              ids.forEach(id => { counts[id] = (counts[id] || 0) + 1; });
+
+              for (const id of ids) {
+                  const strId = String(id);
+                  if (strId.startsWith('recovered-') || strId === 'dummy' || strId === 'phantom' || strId === 'ghost') {
+                      ghostCount++;
+                  } else if (counts[id] >= 30) {
+                      ghostCount++;
+                      counts[id] = 0; // Para não contar a mesma repetição novamente
+                  } else {
+                      realIds.push(id);
+                  }
+              }
+              
+              if (ghostCount > 1 || (ghostCount === 1 && ids.some(id => String(id) === 'dummy' || String(id) === 'phantom' || String(id) === 'ghost'))) {
+                  newMap[date] = [...realIds, 'recovered-manual-fix'];
+                  hasChanges = true;
+              }
+          }
+      }
+      if (hasChanges) {
+          setActivityMap(newMap);
+          syncActivityToCloud(newMap);
+          showToast("Fantasmas limpos e gráfico corrigido!");
+      } else {
+          showToast("Nenhum fantasma antigo encontrado.", "info");
+      }
+  };
 
   useEffect(() => {
     if (!auth) {
@@ -835,18 +883,19 @@ export default function App() {
   const getDailyCount = (dateStr) => {
     const data = activityMap[dateStr];
     if (!data) return 0;
-    if (Array.isArray(data)) return data.filter(id => validCardIds.has(id) || id.startsWith('recovered-')).length;
+    if (Array.isArray(data)) return data.length;
     return 0; 
   };
 
   const getDailyCountFiltered = (dateStr, deckId) => {
     const data = activityMap[dateStr];
     if (!data || !Array.isArray(data)) return 0;
-    if (deckId === 'all') return data.filter(id => validCardIds.has(id) || id.startsWith('recovered-')).length;
+    if (deckId === 'all') return data.length;
+    
     const targetDeck = validDecks.find(d => d.id === deckId);
     if (!targetDeck) return 0;
     const deckCardIds = new Set((targetDeck.cards || []).map(c => c.id));
-    return data.filter(id => deckCardIds.has(id)).length;
+    return data.filter(id => deckCardIds.has(id) || String(id).startsWith('recovered-')).length;
   };
 
   const calculateStreak = () => {
@@ -2622,7 +2671,14 @@ export default function App() {
                 <label className="block text-sm font-medium text-slate-400 mb-1">Meta Diária (cartões)</label>
                 <input type="number" min="1" max="1000" required value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
               </div>
-              <div className="flex gap-3 mt-8 pt-2">
+              <div className="pt-4 border-t border-slate-800">
+                <label className="block text-sm font-medium text-slate-400 mb-2">Manutenção</label>
+                <button type="button" onClick={fixGhostReviews} className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2">
+                  <Sparkles className="w-4 h-4" /> Limpar Revisões Fantasmas
+                </button>
+                <p className="text-[10px] text-slate-500 mt-1.5 text-center leading-relaxed">Isto remove registros duplicados antigos que estejam a poluir o seu gráfico de histórico.</p>
+              </div>
+              <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800">
                 <button type="button" onClick={() => setIsSettingsOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
                 <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar</button>
               </div>
