@@ -64,7 +64,7 @@ const appId = appIdRaw.replace(/\//g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
 const initialFolders = [];
 const initialDecks = [];
 
-// TEMAS REFORMULADOS COM MAIS DESTAQUE VISUAL
+// TEMAS REFORMULADOS
 const FOLDER_THEMES = [
   { id: 'indigo', label: 'Índigo', color: 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' },
   { id: 'blue', label: 'Azul', color: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' },
@@ -155,6 +155,52 @@ const globalStyles = `
     border-radius: 4px;
   }
 `;
+
+// ============================================================================
+// LÓGICA DE LIMPEZA INTELIGENTE DE FANTASMAS E DUPLICATAS
+// ============================================================================
+const cleanupData = (map, recs) => {
+  let mapChanged = false;
+  const newMap = { ...map };
+  const newRecSet = new Set(recs || []);
+
+  for (const date in newMap) {
+      if (Array.isArray(newMap[date])) {
+          const ids = newMap[date];
+          const realIds = [];
+          const idCounts = {};
+          let hadFakeOrBug = false;
+
+          for (const id of ids) {
+              const strId = String(id);
+              // Migrar os fantasmas antigos para o array oficial de recuperação
+              if (strId.startsWith('recovered-') || strId === 'dummy' || strId === 'phantom' || strId === 'ghost') {
+                  hadFakeOrBug = true;
+                  newRecSet.add(date);
+              } else {
+                  idCounts[strId] = (idCounts[strId] || 0) + 1;
+                  // Bloqueia as 50 duplicatas bugadas (max 10 da mesma revisão por segurança)
+                  if (idCounts[strId] <= 10) {
+                      realIds.push(id);
+                  } else {
+                      hadFakeOrBug = true;
+                  }
+              }
+          }
+
+          if (hadFakeOrBug || realIds.length !== ids.length) {
+              newMap[date] = realIds;
+              mapChanged = true;
+          }
+      }
+  }
+
+  return {
+      cleanMap: newMap,
+      cleanRecoveries: Array.from(newRecSet),
+      hasChanges: mapChanged || newRecSet.size !== (recs || []).length
+  };
+};
 
 // ============================================================================
 // ALGORITMO FSRS v6.1.1 (Free Spaced Repetition Scheduler) + Anki Native Steps
@@ -544,6 +590,12 @@ export default function App() {
     try { const saved = localStorage.getItem('lumina_activity'); if (saved) return JSON.parse(saved); } catch (e) {}
     return {};
   });
+  
+  // NOVO: Array oficial apenas com datas de recuperação da ofensiva
+  const [streakRecoveries, setStreakRecoveries] = useState(() => {
+    try { const saved = localStorage.getItem('lumina_streakRecoveries'); if (saved) return JSON.parse(saved); } catch (e) {}
+    return [];
+  });
 
   const [dailyGoal, setDailyGoal] = useState(() => {
     try { const saved = localStorage.getItem('lumina_dailyGoal'); if (saved) return parseInt(saved); } catch(e){} return 50;
@@ -568,7 +620,6 @@ export default function App() {
     }
   }
   const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
-  const validCardIds = new Set(validDecks.flatMap(d => (d.cards || []).map(c => c.id)));
   const activeDeck = validDecks.find(d => d.id === activeDeckId) || decks.find(d => d.id === activeDeckId);
   
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -586,7 +637,7 @@ export default function App() {
   const [reviewHistory, setReviewHistory] = useState([]);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [streakRecoveryDate, setStreakRecoveryDate] = useState(null); // Estado para o dia escolhido para recuperar
+  const [streakRecoveryDate, setStreakRecoveryDate] = useState(null);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -628,81 +679,34 @@ export default function App() {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
 
+  const syncDataToCloud = (newMap, newRecs) => {
+    if (!user || !db) return;
+    const payload = {};
+    if (newMap) payload.activityMap = newMap;
+    if (newRecs) payload.streakRecoveries = newRecs;
+    if (Object.keys(payload).length > 0) {
+        setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), payload, { merge: true }).catch(console.error);
+    }
+  };
+
   useEffect(() => { localStorage.setItem('lumina_decks', JSON.stringify(decks)); }, [decks]);
   useEffect(() => { localStorage.setItem('lumina_folders', JSON.stringify(folders)); }, [folders]);
   useEffect(() => { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); }, [activityMap]);
+  useEffect(() => { localStorage.setItem('lumina_streakRecoveries', JSON.stringify(streakRecoveries)); }, [streakRecoveries]);
   useEffect(() => { localStorage.setItem('lumina_dailyGoal', dailyGoal); }, [dailyGoal]);
 
+  // ROTINA DE LIMPEZA INTELIGENTE
   useEffect(() => {
     if (!hasCleanedUpPhantoms.current && Object.keys(activityMap).length > 0) {
-        let hasChanges = false;
-        const newMap = { ...activityMap };
-        for (const date in newMap) {
-            const ids = newMap[date];
-            if (Array.isArray(ids)) {
-                const realIds = [];
-                let ghostCount = 0;
-                for (const id of ids) {
-                    const strId = String(id);
-                    if (strId.startsWith('recovered-') || strId === 'dummy' || strId === 'phantom' || strId === 'ghost') {
-                        ghostCount++;
-                    } else {
-                        realIds.push(id);
-                    }
-                }
-                if (ghostCount > 1 || (ghostCount === 1 && ids.some(id => String(id) === 'dummy' || String(id) === 'phantom' || String(id) === 'ghost'))) {
-                    newMap[date] = [...realIds, 'recovered-auto-fix'];
-                    hasChanges = true;
-                }
-            }
-        }
+        const { cleanMap, cleanRecoveries, hasChanges } = cleanupData(activityMap, streakRecoveries);
         if (hasChanges) {
-            setActivityMap(newMap);
-            syncActivityToCloud(newMap);
+            setActivityMap(cleanMap);
+            setStreakRecoveries(cleanRecoveries);
+            syncDataToCloud(cleanMap, cleanRecoveries);
         }
         hasCleanedUpPhantoms.current = true;
     }
-  }, [activityMap]);
-
-  const fixGhostReviews = () => {
-      let hasChanges = false;
-      const newMap = { ...activityMap };
-      for (const date in newMap) {
-          if (Array.isArray(newMap[date])) {
-              const ids = newMap[date];
-              const realIds = [];
-              let ghostCount = 0;
-              
-              // Conta repetições extremas (bug dos 50 cliques)
-              const counts = {};
-              ids.forEach(id => { counts[id] = (counts[id] || 0) + 1; });
-
-              for (const id of ids) {
-                  const strId = String(id);
-                  if (strId.startsWith('recovered-') || strId === 'dummy' || strId === 'phantom' || strId === 'ghost') {
-                      ghostCount++;
-                  } else if (counts[id] >= 30) {
-                      ghostCount++;
-                      counts[id] = 0; // Para não contar a mesma repetição novamente
-                  } else {
-                      realIds.push(id);
-                  }
-              }
-              
-              if (ghostCount > 1 || (ghostCount === 1 && ids.some(id => String(id) === 'dummy' || String(id) === 'phantom' || String(id) === 'ghost'))) {
-                  newMap[date] = [...realIds, 'recovered-manual-fix'];
-                  hasChanges = true;
-              }
-          }
-      }
-      if (hasChanges) {
-          setActivityMap(newMap);
-          syncActivityToCloud(newMap);
-          showToast("Fantasmas limpos e gráfico corrigido!");
-      } else {
-          showToast("Nenhum fantasma antigo encontrado.", "info");
-      }
-  };
+  }, [activityMap, streakRecoveries]);
 
   useEffect(() => {
     if (!auth) {
@@ -756,7 +760,7 @@ export default function App() {
   const handleLogout = async () => {
     try {
       if (auth) await signOut(auth);
-      setDecks([]); setFolders([]); setActivityMap({});
+      setDecks([]); setFolders([]); setActivityMap({}); setStreakRecoveries([]);
       setCurrentView('dashboard'); setMainTab('home');
     } catch (error) {
       console.error("Erro ao sair:", error);
@@ -769,12 +773,27 @@ export default function App() {
     const unsubProfile = onSnapshot(profileRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        if (data.activityMap) setActivityMap(data.activityMap);
+        
+        // Verifica e limpa os dados antes de jogar no estado da UI
+        const currentDataMap = data.activityMap || {};
+        const currentDataRecs = data.streakRecoveries || [];
+        const { cleanMap, cleanRecoveries, hasChanges } = cleanupData(currentDataMap, currentDataRecs);
+
+        setActivityMap(cleanMap);
+        setStreakRecoveries(cleanRecoveries);
+
+        // Se encontrou fantasmas vindos do Firebase, corrige a nuvem
+        if (hasChanges) {
+           setDoc(profileRef, { activityMap: cleanMap, streakRecoveries: cleanRecoveries }, { merge: true }).catch(console.error);
+        }
+
         if (data.dailyGoal) setDailyGoal(data.dailyGoal);
       } else {
         const localActivity = localStorage.getItem('lumina_activity');
         const activityToSync = localActivity ? JSON.parse(localActivity) : {};
-        setDoc(profileRef, { activityMap: activityToSync, dailyGoal: 50 }).catch(console.error);
+        const localRecs = localStorage.getItem('lumina_streakRecoveries');
+        const recsToSync = localRecs ? JSON.parse(localRecs) : [];
+        setDoc(profileRef, { activityMap: activityToSync, streakRecoveries: recsToSync, dailyGoal: 50 }).catch(console.error);
       }
     }, console.error);
 
@@ -875,11 +894,12 @@ export default function App() {
           if (filtered.length !== data.length) { newMap[dateStr] = filtered; hasChanges = true; }
         }
       }
-      if (hasChanges) syncActivityToCloud(newMap);
+      if (hasChanges) syncDataToCloud(newMap, null);
       return hasChanges ? newMap : prev;
     });
   };
 
+  // Alterado: Apenas a quantidade real, pois fantasmas já foram banidos
   const getDailyCount = (dateStr) => {
     const data = activityMap[dateStr];
     if (!data) return 0;
@@ -895,7 +915,7 @@ export default function App() {
     const targetDeck = validDecks.find(d => d.id === deckId);
     if (!targetDeck) return 0;
     const deckCardIds = new Set((targetDeck.cards || []).map(c => c.id));
-    return data.filter(id => deckCardIds.has(id) || String(id).startsWith('recovered-')).length;
+    return data.filter(id => deckCardIds.has(id)).length;
   };
 
   const calculateStreak = () => {
@@ -905,35 +925,35 @@ export default function App() {
       loopSafeguard++;
       const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const dy = String(d.getDate()).padStart(2, '0');
       const str = `${y}-${m}-${dy}`;
-      if (getDailyCount(str) > 0) { streak++; d.setDate(d.getDate() - 1); } 
-      else if (streak === 0 && str === getTodayStr()) { d.setDate(d.getDate() - 1); } 
-      else { break; }
+      
+      const isCompleted = getDailyCount(str) > 0 || streakRecoveries.includes(str);
+
+      if (isCompleted) { 
+          streak++; 
+          d.setDate(d.getDate() - 1); 
+      } else if (streak === 0 && str === getTodayStr()) { 
+          d.setDate(d.getDate() - 1); 
+      } else { 
+          break; 
+      }
     }
     return streak;
   };
 
   const getRecoveriesCountForMonth = (yearMonthStr) => {
-     let count = 0;
-     for (const dateStr in activityMap) {
-        if (dateStr.startsWith(yearMonthStr)) {
-           const ids = activityMap[dateStr];
-           if (Array.isArray(ids) && ids.some(id => id.startsWith('recovered-'))) {
-              count++;
-           }
-        }
-     }
-     return count;
+     return streakRecoveries.filter(d => d.startsWith(yearMonthStr)).length;
   };
 
   const confirmRecoverStreak = () => {
     if(!streakRecoveryDate) return;
-    const currentCount = getDailyCount(streakRecoveryDate);
-    if (currentCount === 0) {
-        const dummy = `recovered-${Date.now()}`;
-        const currentDayData = Array.isArray(activityMap[streakRecoveryDate]) ? activityMap[streakRecoveryDate] : [];
-        const newActivityMap = { ...activityMap, [streakRecoveryDate]: [...currentDayData, dummy] };
-        setActivityMap(newActivityMap);
-        syncActivityToCloud(newActivityMap);
+    const yearMonthStr = streakRecoveryDate.substring(0, 7);
+    
+    if (getRecoveriesCountForMonth(yearMonthStr) >= 2) {
+        showToast("Limite de 2 recuperações por mês atingido.", "error");
+    } else {
+        const newRecs = [...streakRecoveries, streakRecoveryDate];
+        setStreakRecoveries(newRecs);
+        syncDataToCloud(null, newRecs);
         showToast("Ofensiva recuperada com sucesso!");
     }
     setStreakRecoveryDate(null);
@@ -1011,11 +1031,6 @@ export default function App() {
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'folders', folderData.id), cleanData).catch(e => console.error("Firebase sync error", e));
   };
 
-  const syncActivityToCloud = (newMap) => {
-    if (!user || !db) return;
-    setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { activityMap: newMap }, { merge: true }).catch(console.error);
-  };
-
   const toggleIgnoreDeck = (deck, e) => {
       e.stopPropagation();
       const updatedDeck = { ...deck, isIgnored: !deck.isIgnored };
@@ -1081,7 +1096,7 @@ export default function App() {
     const currentDayData = Array.isArray(activityMap[todayStr]) ? activityMap[todayStr] : [];
     const newActivityMap = { ...activityMap, [todayStr]: [...currentDayData, updatedCard.id] };
     
-    setActivityMap(newActivityMap); syncActivityToCloud(newActivityMap);
+    setActivityMap(newActivityMap); syncDataToCloud(newActivityMap, null);
 
     let newQueue = [...reviewQueue];
     if (updatedCard.interval === 0) newQueue.push({ ...updatedCard, _deckId: currentCard._deckId });
@@ -1600,28 +1615,31 @@ export default function App() {
     for (let d = 1; d <= daysInMonth; d++) {
       const dateObj = new Date(year, month, d, 12, 0, 0); const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const dy = String(dateObj.getDate()).padStart(2, '0');
       const dateStr = `${y}-${m}-${dy}`;
-      const count = getDailyCount(dateStr); const isToday = dateStr === todayStr; monthTotalRevisions += count;
+      
+      const count = getDailyCount(dateStr); 
+      const isToday = dateStr === todayStr; 
+      monthTotalRevisions += count; // Apenas revisões reais são contadas agora!
       
       const isPast = dateObj < new Date(new Date().setHours(0,0,0,0));
-      const canRecover = isPast && count === 0;
+      const isRecovered = streakRecoveries.includes(dateStr);
+      const isCompleted = count > 0 || isRecovered;
+      const canRecover = isPast && !isCompleted;
 
       let bg = 'bg-slate-900/50 border-slate-800 text-slate-400';
-      if (count > 0 && count < 5) bg = 'bg-emerald-900/60 border-emerald-900 text-emerald-200';
-      if (count >= 5 && count < 15) bg = 'bg-emerald-700/80 border-emerald-700 text-emerald-100';
-      if (count >= 15 && count < 30) bg = 'bg-emerald-500 border-emerald-400 text-white';
-      if (count >= 30) bg = 'bg-emerald-400 border-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.4)] text-slate-900 font-bold';
+      if (isCompleted) {
+          if (count === 0 && isRecovered) bg = 'bg-indigo-900/60 border-indigo-500/40 text-indigo-200'; // Dia Recuperado
+          else if (count > 0 && count < 5) bg = 'bg-emerald-900/60 border-emerald-900 text-emerald-200';
+          else if (count >= 5 && count < 15) bg = 'bg-emerald-700/80 border-emerald-700 text-emerald-100';
+          else if (count >= 15 && count < 30) bg = 'bg-emerald-500 border-emerald-400 text-white';
+          else if (count >= 30) bg = 'bg-emerald-400 border-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.4)] text-slate-900 font-bold';
+      }
 
       cells.push(
         <div key={d} onClick={() => { 
           if(canRecover) {
-             const yearMonthStr = dateStr.substring(0, 7);
-             if (getRecoveriesCountForMonth(yearMonthStr) >= 2) {
-                 showToast("Limite de 2 recuperações por mês atingido.", "error");
-             } else {
-                 setStreakRecoveryDate(dateStr);
-             }
+             setStreakRecoveryDate(dateStr);
           }
-        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-10' : 'cursor-default'} ${bg}`} title={`${d} de ${monthNames[month]}: ${count} revisões${canRecover ? ' (Clique para recuperar ofensiva)' : ''}`}>
+        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-10' : 'cursor-default'} ${bg}`} title={`${d} de ${monthNames[month]}: ${count} revisões${canRecover ? ' (Clique para recuperar ofensiva)' : (isRecovered ? ' (Ofensiva Recuperada)' : '')}`}>
           <span className="text-sm">{d}</span>
           {isToday && <div className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-indigo-400"></div>}
         </div>
@@ -1802,7 +1820,7 @@ export default function App() {
     const points = activityData.map((data, i) => {
       const showLabel = reportPeriod === 'week' || (reportPeriod === 'month' && i % 3 === 0) || (reportPeriod === 'all' && i % Math.max(1, Math.floor(daysCount / 10)) === 0);
       const x = n <= 1 ? 50 : (i / (n - 1)) * 100;
-      const y = maxActivity === 0 ? 0 : (data.count / maxActivity) * 75; // Topo limitado para evitar cortes
+      const y = maxActivity === 0 ? 0 : (data.count / maxActivity) * 75; // Topo limitado a 75%
       return { ...data, x, y, showLabel };
     });
 
@@ -2618,10 +2636,10 @@ export default function App() {
               
               {(() => {
                 const streakCount = calculateStreak();
-                const hasDoneToday = getDailyCount(getTodayStr()) > 0;
+                const hasDoneToday = getDailyCount(getTodayStr()) > 0 || streakRecoveries.includes(getTodayStr());
                 const displayStreak = Math.max(streakCount, 0); 
                 return (
-                  <div className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-medium items-center gap-1.5 border transition-all ${hasDoneToday ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700/50 opacity-60'}`} title={hasDoneToday ? "Ofensiva (Dias Seguidos)" : "Faça um flashcard hoje para manter a ofensiva!"}>
+                  <div className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-medium items-center gap-1.5 border transition-all ${hasDoneToday ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700/50 opacity-60'}`} title={hasDoneToday ? "Ofensiva Ativa!" : "Faça revisões hoje para manter a ofensiva!"}>
                     <Flame className={`w-4 h-4 ${hasDoneToday ? 'fill-current text-orange-400' : 'opacity-50'}`} /> {displayStreak}
                   </div>
                 );
@@ -2657,7 +2675,6 @@ export default function App() {
             {currentView === 'review' && renderReview()}
             {currentView === 'finished' && renderFinished()}
           </main>
-
         </>
       )}
 
@@ -2670,13 +2687,6 @@ export default function App() {
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-1">Meta Diária (cartões)</label>
                 <input type="number" min="1" max="1000" required value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
-              </div>
-              <div className="pt-4 border-t border-slate-800">
-                <label className="block text-sm font-medium text-slate-400 mb-2">Manutenção</label>
-                <button type="button" onClick={fixGhostReviews} className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2">
-                  <Sparkles className="w-4 h-4" /> Limpar Revisões Fantasmas
-                </button>
-                <p className="text-[10px] text-slate-500 mt-1.5 text-center leading-relaxed">Isto remove registros duplicados antigos que estejam a poluir o seu gráfico de histórico.</p>
               </div>
               <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800">
                 <button type="button" onClick={() => setIsSettingsOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
@@ -2693,7 +2703,7 @@ export default function App() {
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-indigo-500/20"><History className="w-8 h-8" /></div>
             <h3 className="text-xl font-bold text-slate-100 mb-2">Recuperar Ofensiva?</h3>
-            <p className="text-slate-400 mb-6 text-sm">Adicionar uma revisão fantasma no dia {streakRecoveryDate.split('-').reverse().join('/')} para restaurar sua ofensiva.</p>
+            <p className="text-slate-400 mb-6 text-sm">Usar recuperação para o dia {streakRecoveryDate.split('-').reverse().join('/')}. Isso manterá sua ofensiva viva.</p>
             <div className="flex gap-3">
               <button onClick={() => setStreakRecoveryDate(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
               <button onClick={confirmRecoverStreak} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Recuperar</button>
