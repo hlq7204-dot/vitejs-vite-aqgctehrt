@@ -31,7 +31,7 @@ import {
   Sparkles, Folder, ChevronRight, ChevronLeft, FolderPlus, Upload, 
   Loader2, Info, RefreshCcw, Pencil, MoreVertical, Palette, Layers, List, 
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
-  PieChart, Timer, Pause, RotateCcw, Settings, Home, Library, Flame, BarChart2, LogOut,
+  PieChart, RotateCcw, Settings, Home, Flame, BarChart2, LogOut,
   Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight, X
 } from 'lucide-react';
 
@@ -107,7 +107,7 @@ const globalStyles = `
   :fullscreen { width: 100vw; height: 100vh; background-color: #020617; }
   ::backdrop { background-color: #020617; }
 
-  .anki-content img { max-width: 100%; max-height: 250px; border-radius: 0.5rem; margin: 0.5rem auto; display: block; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
+  .anki-content img { max-width: 100%; max-height: 50vh; object-fit: contain; border-radius: 0.5rem; margin: 0.5rem auto; display: block; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
   .custom-scrollbar { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
   .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -345,37 +345,6 @@ const formatInterval = (days) => {
   return `${Math.round(d / 365)}a`; 
 };
 
-// SINTETIZADOR DE ÁUDIO PARA O ALARME DO POMODORO
-const playAlarmSound = () => {
-  try {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
-    const ctx = new AudioContext();
-    
-    const playTone = (freq, startTime, duration) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      
-      gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(0.5, startTime + 0.05);
-      gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-      
-      osc.start(startTime);
-      osc.stop(startTime + duration);
-    };
-
-    const now = ctx.currentTime;
-    playTone(523.25, now, 0.4); // C5
-    playTone(659.25, now + 0.15, 0.6); // E5
-  } catch (e) {
-    console.warn("Erro ao tocar alarme:", e);
-  }
-};
-
 const loadScript = (src) => new Promise((resolve, reject) => {
   if (document.querySelector(`script[src="${src}"]`)) return resolve();
   const s = document.createElement('script');
@@ -574,15 +543,6 @@ export default function App() {
     return {};
   });
 
-  const [pomoWorkDuration, setPomoWorkDuration] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_pomoWork'); if (saved) return parseInt(saved); } catch(e){} return 25;
-  });
-  const [pomoBreakDuration, setPomoBreakDuration] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_pomoBreak'); if (saved) return parseInt(saved); } catch(e){} return 5;
-  });
-  const [pomoTotalBlocks, setPomoTotalBlocks] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_pomoBlocks'); if (saved) return parseInt(saved); } catch(e){} return 4;
-  });
   const [dailyGoal, setDailyGoal] = useState(() => {
     try { const saved = localStorage.getItem('lumina_dailyGoal'); if (saved) return parseInt(saved); } catch(e){} return 50;
   });
@@ -623,12 +583,7 @@ export default function App() {
   
   const [reviewHistory, setReviewHistory] = useState([]); // Histórico para o botão "Desfazer"
 
-  const [pomoActive, setPomoActive] = useState(false);
-  const [pomoTime, setPomoTime] = useState(pomoWorkDuration * 60);
-  const [pomoMode, setPomoMode] = useState('work'); 
-  const [currentPomoBlock, setCurrentPomoBlock] = useState(1);
-  const [isPomoSettingsOpen, setIsPomoSettingsOpen] = useState(false);
-  const [isPomoExpanded, setIsPomoExpanded] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -670,18 +625,9 @@ export default function App() {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
 
-  const formatPomoTime = (secs) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, '0');
-    const s = (secs % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
   useEffect(() => { localStorage.setItem('lumina_decks', JSON.stringify(decks)); }, [decks]);
   useEffect(() => { localStorage.setItem('lumina_folders', JSON.stringify(folders)); }, [folders]);
   useEffect(() => { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); }, [activityMap]);
-  useEffect(() => { localStorage.setItem('lumina_pomoWork', pomoWorkDuration); }, [pomoWorkDuration]);
-  useEffect(() => { localStorage.setItem('lumina_pomoBreak', pomoBreakDuration); }, [pomoBreakDuration]);
-  useEffect(() => { localStorage.setItem('lumina_pomoBlocks', pomoTotalBlocks); }, [pomoTotalBlocks]);
   useEffect(() => { localStorage.setItem('lumina_dailyGoal', dailyGoal); }, [dailyGoal]);
 
   useEffect(() => {
@@ -750,14 +696,11 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.activityMap) setActivityMap(data.activityMap);
-        if (data.pomoWorkDuration) setPomoWorkDuration(data.pomoWorkDuration);
-        if (data.pomoBreakDuration) setPomoBreakDuration(data.pomoBreakDuration);
-        if (data.pomoTotalBlocks) setPomoTotalBlocks(data.pomoTotalBlocks);
         if (data.dailyGoal) setDailyGoal(data.dailyGoal);
       } else {
         const localActivity = localStorage.getItem('lumina_activity');
         const activityToSync = localActivity ? JSON.parse(localActivity) : {};
-        setDoc(profileRef, { activityMap: activityToSync, pomoWorkDuration: 25, pomoBreakDuration: 5, dailyGoal: 50 }).catch(console.error);
+        setDoc(profileRef, { activityMap: activityToSync, dailyGoal: 50 }).catch(console.error);
       }
     }, console.error);
 
@@ -799,40 +742,6 @@ export default function App() {
     setTypedInput(''); 
     setEliminatedOptions(new Set()); 
   }, [currentCardIndex]);
-
-  useEffect(() => {
-    let interval;
-    if (pomoActive) {
-      interval = setInterval(() => {
-        setPomoTime(prev => {
-          if (prev <= 1) {
-            playAlarmSound(); 
-            if (pomoMode === 'work') {
-              if (currentPomoBlock < pomoTotalBlocks) {
-                showToast(`Foco concluído! Pausa.`, 'info');
-                setPomoMode('break');
-                return pomoBreakDuration * 60;
-              } else {
-                showToast(`Sessão Pomodoro completa! Excelente!`, 'success');
-                setPomoMode('work');
-                setPomoActive(false);
-                setCurrentPomoBlock(1);
-                return pomoWorkDuration * 60;
-              }
-            } else {
-              showToast('Pausa terminada! De volta ao foco.', 'info');
-              setPomoMode('work'); 
-              setCurrentPomoBlock(b => b + 1);
-              setPomoActive(false); 
-              return pomoWorkDuration * 60;
-            }
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [pomoActive, pomoMode, pomoBreakDuration, pomoWorkDuration, currentPomoBlock, pomoTotalBlocks]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1169,10 +1078,9 @@ export default function App() {
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
-    const finalWork = pomoWorkDuration || 25; const finalBreak = pomoBreakDuration || 5; const finalBlocks = pomoTotalBlocks || 4; const finalGoal = dailyGoal || 50;
-    setPomoWorkDuration(finalWork); setPomoBreakDuration(finalBreak); setPomoTotalBlocks(finalBlocks); setDailyGoal(finalGoal); setIsPomoSettingsOpen(false);
-    if (!pomoActive) setPomoTime(pomoMode === 'work' ? finalWork * 60 : finalBreak * 60);
-    if (user && db) setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { pomoWorkDuration: finalWork, pomoBreakDuration: finalBreak, pomoTotalBlocks: finalBlocks, dailyGoal: finalGoal }, { merge: true }).catch(console.error);
+    const finalGoal = dailyGoal || 50;
+    setDailyGoal(finalGoal); setIsSettingsOpen(false);
+    if (user && db) setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { dailyGoal: finalGoal }, { merge: true }).catch(console.error);
     showToast("Configurações salvas!");
   };
 
@@ -1806,7 +1714,7 @@ export default function App() {
     const points = activityData.map((data, i) => {
       const showLabel = reportPeriod === 'week' || (reportPeriod === 'month' && i % 3 === 0) || (reportPeriod === 'all' && i % Math.max(1, Math.floor(daysCount / 10)) === 0);
       const x = n <= 1 ? 50 : (i / (n - 1)) * 100;
-      const y = maxActivity === 0 ? 0 : (data.count / maxActivity) * 90; // O topo será de no máx 90% para não cortar o ponto
+      const y = maxActivity === 0 ? 0 : (data.count / maxActivity) * 75; // O topo será de no máx 75% para não cortar o ponto
       return { ...data, x, y, showLabel };
     });
 
@@ -1878,7 +1786,7 @@ export default function App() {
                 className="relative h-full min-h-[200px]" 
                 style={{ minWidth: reportPeriod === 'all' ? `${Math.max(100, points.length * 30)}px` : '100%' }}
               >
-                <div className="absolute inset-0 top-2 bottom-[30px] w-full">
+                <div className="absolute inset-0 top-6 bottom-[30px] w-full">
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible">
                     <defs>
                       <linearGradient id="line-gradient" x1="0" x2="0" y1="0" y2="1">
@@ -2389,7 +2297,7 @@ export default function App() {
           {type === 'standard' && (
             <div key={currentCard.id} className="w-full animate-slide-right">
               <div 
-                className="relative w-full h-[500px] cursor-pointer transition-transform duration-500" 
+                className="relative w-full h-[65vh] min-h-[400px] max-h-[800px] cursor-pointer transition-transform duration-500" 
                 style={{ transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
                 onClick={() => setIsFlipped(prev => !prev)} 
               >
@@ -2416,8 +2324,10 @@ export default function App() {
                       <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique (ou Espaço) para virar</span>
                     </div>
                   </div>
-                  <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
-                    <div className="text-2xl sm:text-3xl text-slate-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                  <div className="flex-grow overflow-y-auto custom-scrollbar relative">
+                    <div className="min-h-full flex flex-col justify-center p-6 sm:p-8">
+                      <div className="w-full text-2xl sm:text-3xl text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                    </div>
                   </div>
                 </div>
 
@@ -2444,8 +2354,10 @@ export default function App() {
                       <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors border border-indigo-500/30" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }} title="Virar Novamente"><RefreshCcw className="w-4 h-4" /></button>
                     </div>
                   </div>
-                  <div className="flex-grow flex items-center justify-center p-8 overflow-y-auto custom-scrollbar">
-                    <div className="text-2xl sm:text-3xl text-indigo-100 text-center w-full" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                  <div className="flex-grow overflow-y-auto custom-scrollbar relative">
+                    <div className="min-h-full flex flex-col justify-center p-6 sm:p-8">
+                      <div className="w-full text-2xl sm:text-3xl text-indigo-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2453,7 +2365,7 @@ export default function App() {
           )}
 
           {type !== 'standard' && (
-            <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] animate-slide-right relative group">
+            <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] max-h-[80vh] animate-slide-right relative group overflow-hidden">
               <div className="absolute top-4 right-4 z-30" onClick={e => e.stopPropagation()}>
                  <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition-colors shadow-md" title="Opções do Cartão">
                     <MoreVertical className="w-4 h-4" />
@@ -2466,69 +2378,74 @@ export default function App() {
                     </div>
                  )}
               </div>
-              <div className="p-8 border-b border-slate-800/50">
-                <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
-              </div>
-              <div className="flex-grow p-6 sm:px-10 bg-slate-950/50 flex flex-col justify-center gap-4">
-                {type === 'choice' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
-                    {currentCard.options?.map((opt, idx) => {
-                      const isEliminated = eliminatedOptions.has(idx);
-                      let btnClass = "bg-slate-900 border-slate-700 text-slate-300 hover:border-indigo-500";
-                      
-                      if (isFlipped) {
-                        if (idx === currentCard.correctOption) btnClass = "bg-emerald-500/20 border-emerald-500 text-emerald-300";
-                        else if (reviewInteraction === idx) btnClass = "bg-rose-500/20 border-rose-500 text-rose-300";
-                        else btnClass = "opacity-30";
-                      } else if (isEliminated) {
-                        btnClass = "bg-slate-950 border-slate-800 text-slate-600 line-through opacity-40 grayscale";
-                      }
+              
+              <div className="overflow-y-auto custom-scrollbar flex-grow flex flex-col">
+                <div className="p-6 sm:p-8 border-b border-slate-800/50 shrink-0">
+                  <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                </div>
+                <div className="flex-grow p-6 sm:px-10 bg-slate-950/50 flex flex-col justify-center gap-4">
+                  {type === 'choice' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
+                      {currentCard.options?.map((opt, idx) => {
+                        const isEliminated = eliminatedOptions.has(idx);
+                        let btnClass = "bg-slate-900 border-slate-700 text-slate-300 hover:border-indigo-500";
+                        
+                        if (isFlipped) {
+                          if (idx === currentCard.correctOption) btnClass = "bg-emerald-500/20 border-emerald-500 text-emerald-300";
+                          else if (reviewInteraction === idx) btnClass = "bg-rose-500/20 border-rose-500 text-rose-300";
+                          else btnClass = "opacity-30";
+                        } else if (isEliminated) {
+                          btnClass = "bg-slate-950 border-slate-800 text-slate-600 line-through opacity-40 grayscale";
+                        }
 
-                      const isOdd = currentCard.options.length % 2 !== 0;
-                      const isLast = idx === currentCard.options.length - 1;
-                      const spanClass = isOdd && isLast ? "md:col-span-2" : "";
+                        const isOdd = currentCard.options.length % 2 !== 0;
+                        const isLast = idx === currentCard.options.length - 1;
+                        const spanClass = isOdd && isLast ? "md:col-span-2" : "";
 
-                      return (
-                        <div key={idx} className={`relative flex ${spanClass}`}>
-                           <button 
-                             disabled={isFlipped || isEliminated} 
-                             onClick={() => handleInteractiveSubmit(idx)} 
-                             className={`w-full p-4 pr-12 rounded-xl border-2 text-left font-medium transition-all flex justify-between items-center text-lg ${btnClass}`}
-                           >
-                             <span>{opt}</span> 
-                             <span className="text-xs opacity-30 font-mono hidden sm:block">{idx+1}</span>
-                           </button>
-                           {!isFlipped && (
+                        return (
+                          <div key={idx} className={`relative flex ${spanClass}`}>
                              <button 
-                               onClick={(e) => { e.stopPropagation(); toggleEliminateOption(idx); }}
-                               className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${isEliminated ? 'text-indigo-400 hover:text-indigo-300' : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'}`}
-                               title={isEliminated ? "Restaurar alternativa" : "Riscar alternativa (Eliminar)"}
+                               disabled={isFlipped || isEliminated} 
+                               onClick={() => handleInteractiveSubmit(idx)} 
+                               className={`w-full p-4 pr-12 rounded-xl border-2 text-left font-medium transition-all flex justify-between items-center text-lg ${btnClass}`}
                              >
-                               {isEliminated ? <RotateCcw className="w-4 h-4"/> : <X className="w-4 h-4"/>}
+                               <span>{opt}</span> 
+                               <span className="text-xs opacity-30 font-mono hidden sm:block">{idx+1}</span>
                              </button>
-                           )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {type === 'tf' && (
-                  <div className="flex gap-4 h-32">
-                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(true)} className={`flex-1 rounded-2xl border-2 font-bold text-2xl transition-all ${isFlipped ? (currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10'} relative`}>VERDADEIRO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">1</span></button>
-                    <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(false)} className={`flex-1 rounded-2xl border-2 font-bold text-2xl transition-all ${isFlipped ? (!currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-rose-500/30 text-rose-500 hover:bg-rose-500/10'} relative`}>FALSO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">2</span></button>
-                  </div>
-                )}
-                {type === 'typing' && (
-                  <div className="w-full flex flex-col items-center gap-4">
-                    <input type="text" autoFocus disabled={isFlipped} value={isFlipped ? reviewInteraction : typedInput} onChange={e => setTypedInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && typedInput && handleInteractiveSubmit(typedInput)} className={`w-full max-w-lg bg-transparent border-b-2 text-center text-3xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : ((reviewInteraction || '').toLowerCase() === (currentCard.typeAnswer || '').toLowerCase() ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`} placeholder="" />
-                    {isFlipped && (reviewInteraction || '').toLowerCase() !== (currentCard.typeAnswer || '').toLowerCase() && (
-                      <div className="text-emerald-400 font-mono text-2xl animate-pop"><span className="text-slate-500 text-sm block">Correta:</span>{currentCard.typeAnswer}</div>
-                    )}
-                  </div>
-                )}
+                             {!isFlipped && (
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); toggleEliminateOption(idx); }}
+                                 className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${isEliminated ? 'text-indigo-400 hover:text-indigo-300' : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'}`}
+                                 title={isEliminated ? "Restaurar alternativa" : "Riscar alternativa (Eliminar)"}
+                               >
+                                 {isEliminated ? <RotateCcw className="w-4 h-4"/> : <X className="w-4 h-4"/>}
+                               </button>
+                             )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {type === 'tf' && (
+                    <div className="flex gap-4 h-32">
+                      <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(true)} className={`flex-1 rounded-2xl border-2 font-bold text-2xl transition-all ${isFlipped ? (currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10'} relative`}>VERDADEIRO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">1</span></button>
+                      <button disabled={isFlipped} onClick={() => handleInteractiveSubmit(false)} className={`flex-1 rounded-2xl border-2 font-bold text-2xl transition-all ${isFlipped ? (!currentCard.isTrue ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'opacity-30') : 'bg-slate-900 border-rose-500/30 text-rose-500 hover:bg-rose-500/10'} relative`}>FALSO <span className="absolute top-2 left-2 text-xs opacity-50 font-mono">2</span></button>
+                    </div>
+                  )}
+                  {type === 'typing' && (
+                    <div className="w-full flex flex-col items-center gap-4">
+                      <input type="text" autoFocus disabled={isFlipped} value={isFlipped ? reviewInteraction : typedInput} onChange={e => setTypedInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && typedInput && handleInteractiveSubmit(typedInput)} className={`w-full max-w-lg bg-transparent border-b-2 text-center text-3xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : ((reviewInteraction || '').toLowerCase() === (currentCard.typeAnswer || '').toLowerCase() ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`} placeholder="" />
+                      {isFlipped && (reviewInteraction || '').toLowerCase() !== (currentCard.typeAnswer || '').toLowerCase() && (
+                        <div className="text-emerald-400 font-mono text-2xl animate-pop"><span className="text-slate-500 text-sm block">Correta:</span>{currentCard.typeAnswer}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               {isFlipped && currentCard.back && (
-                <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 animate-in fade-in duration-300"><div dangerouslySetInnerHTML={{ __html: currentCard.back }} /></div>
+                <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 shrink-0 animate-in fade-in duration-300">
+                  <div dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                </div>
               )}
             </div>
           )}
@@ -2612,9 +2529,16 @@ export default function App() {
             <div className="flex items-center gap-2 bg-slate-900/50 backdrop-blur-md p-1.5 rounded-full border border-slate-800/80 shadow-sm">
               <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
               
-              <div className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-medium items-center gap-1.5 border transition-all ${calculateStreak() > 0 ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`} title="Ofensiva (Dias Seguidos)">
-                <Flame className={`w-4 h-4 ${calculateStreak() > 0 ? 'fill-current' : ''}`} /> {calculateStreak()}
-              </div>
+              {(() => {
+                const streakCount = calculateStreak();
+                const hasDoneToday = getDailyCount(getTodayStr()) > 0;
+                const displayStreak = Math.max(streakCount, 0); // Mostrar 0 se não tiver ofensiva
+                return (
+                  <div className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-medium items-center gap-1.5 border transition-all ${hasDoneToday ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700/50 opacity-60'}`} title={hasDoneToday ? "Ofensiva (Dias Seguidos)" : "Faça um flashcard hoje para manter a ofensiva!"}>
+                    <Flame className={`w-4 h-4 ${hasDoneToday ? 'fill-current text-orange-400' : 'opacity-50'}`} /> {displayStreak}
+                  </div>
+                );
+              })()}
               
               {isImporting ? (
                 <div className="flex items-center justify-center w-8 h-8 rounded-full text-emerald-400 bg-emerald-500/10 border border-emerald-500/20"><Loader2 className="w-4 h-4 animate-spin" /></div>
@@ -2625,6 +2549,10 @@ export default function App() {
               )}
               
               <div className="w-px h-5 bg-slate-800 mx-1"></div>
+
+              <button onClick={() => setIsSettingsOpen(true)} className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 rounded-full transition-colors" title="Configurações">
+                <Settings className="w-4 h-4" />
+              </button>
               
               <button onClick={toggleFullScreen} className="w-8 h-8 flex items-center justify-center bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-full transition-colors" title="Ecrã Inteiro">
                 {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
@@ -2643,64 +2571,12 @@ export default function App() {
             {currentView === 'finished' && renderFinished()}
           </main>
 
-          {/* WIDGET FLUTUANTE POMODORO (Colapsável p/ Celular) */}
-          <div className={`fixed left-1/2 -translate-x-1/2 sm:translate-x-0 sm:left-6 z-[50] animate-pop pointer-events-auto transition-all duration-300 ${currentView === 'dashboard' ? 'bottom-24 sm:bottom-6' : 'bottom-6'}`}>
-            <div className={`bg-slate-900/95 backdrop-blur-xl border p-1 sm:p-1.5 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.6)] flex items-center transition-all duration-500 hover:bg-slate-900 hover:shadow-2xl ${pomoActive ? (pomoMode === 'work' ? 'border-indigo-500/40 shadow-indigo-500/20' : 'border-emerald-500/40 shadow-emerald-500/20') : 'border-slate-700/60'}`}>
-
-              {/* Progress Ring / Play Button */}
-              <div className="relative w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center shrink-0">
-                <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 36 36">
-                  <path className="text-slate-800/80" strokeWidth="2.5" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                  <path className={`${pomoMode === 'work' ? 'text-indigo-500' : 'text-emerald-500'} transition-all duration-1000 ease-linear`} strokeWidth="2.5" strokeDasharray={`${(pomoTime / ((pomoMode === 'work' ? pomoWorkDuration : pomoBreakDuration) * 60)) * 100}, 100`} strokeLinecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                </svg>
-                <button onClick={() => setPomoActive(!pomoActive)} className={`relative w-7 h-7 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors ${pomoActive ? (pomoMode === 'work' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-emerald-500/20 text-emerald-400') : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}>
-                   {pomoActive ? <Pause className="w-3 h-3 sm:w-4 sm:h-4 fill-current" /> : <Play className="w-3 h-3 sm:w-4 sm:h-4 fill-current ml-0.5" />}
-                </button>
-              </div>
-
-              {/* Área Ocultável */}
-              <div className={`flex items-center overflow-hidden transition-all duration-500 ease-in-out ${isPomoExpanded ? 'max-w-[300px] opacity-100 ml-1 sm:ml-2' : 'max-w-0 opacity-0 ml-0'}`}>
-                {/* Info */}
-                <div className="flex flex-col justify-center px-1 sm:px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => setIsPomoSettingsOpen(true)}>
-                  <span className={`font-mono text-lg sm:text-xl font-bold tracking-tight leading-none ${pomoActive ? 'text-slate-100' : 'text-slate-300'}`}>
-                    {formatPomoTime(pomoTime)}
-                  </span>
-                  <div className="flex items-center gap-1.5 mt-0.5 sm:mt-1">
-                    <span className={`text-[8px] sm:text-[9px] uppercase font-bold tracking-wider ${pomoMode === 'work' ? 'text-indigo-400' : 'text-emerald-400'}`}>
-                      {pomoMode === 'work' ? 'Foco' : 'Pausa'}
-                    </span>
-                    <div className="flex gap-0.5">
-                      {Array.from({length: pomoTotalBlocks}).map((_, i) => (
-                         <div key={i} className={`w-1 h-1 rounded-full ${i < currentPomoBlock ? (pomoMode==='work' ? 'bg-indigo-400' : 'bg-emerald-400') : 'bg-slate-700'}`} />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Controls */}
-                <div className="flex items-center gap-0.5 pl-1 pr-1 border-l border-slate-700/50 ml-1 shrink-0">
-                  <button onClick={(e) => { e.stopPropagation(); setIsPomoSettingsOpen(true); }} className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors" title="Configurações">
-                    <Settings className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); setPomoActive(false); setPomoTime(pomoMode === 'work' ? pomoWorkDuration * 60 : pomoBreakDuration * 60); setCurrentPomoBlock(1); }} className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors" title="Reiniciar Ciclo">
-                    <RotateCcw className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Botão de Expandir/Recolher */}
-              <button onClick={() => setIsPomoExpanded(!isPomoExpanded)} className="ml-1 mr-1 p-1 text-slate-500 hover:text-slate-300 rounded-full transition-colors shrink-0">
-                {isPomoExpanded ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              </button>
-
-            </div>
-          </div>
         </>
       )}
 
-      {/* MODAL CONFIG POMODORO */}
-      {isPomoSettingsOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsPomoSettingsOpen(false)}>
+      {/* MODAL CONFIGURAÇÕES */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsSettingsOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <h3 className="text-2xl font-bold text-slate-100 mb-6 flex items-center gap-2"><Settings className="w-6 h-6 text-indigo-400" /> Configurações</h3>
             <form onSubmit={handleSaveSettings} className="space-y-4">
@@ -2708,20 +2584,8 @@ export default function App() {
                 <label className="block text-sm font-medium text-slate-400 mb-1">Meta Diária (cartões)</label>
                 <input type="number" min="1" max="1000" required value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
               </div>
-              <div className="pt-4 border-t border-slate-800">
-                <label className="block text-sm font-medium text-slate-400 mb-1">Total de Blocos do Ciclo</label>
-                <input type="number" min="1" max="20" required value={pomoTotalBlocks} onChange={(e) => setPomoTotalBlocks(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Tempo de Foco (minutos)</label>
-                <input type="number" min="1" max="120" required value={pomoWorkDuration} onChange={(e) => setPomoWorkDuration(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Tempo de Pausa (minutos)</label>
-                <input type="number" min="1" max="60" required value={pomoBreakDuration} onChange={(e) => setPomoBreakDuration(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
-              </div>
               <div className="flex gap-3 mt-8 pt-2">
-                <button type="button" onClick={() => setIsPomoSettingsOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+                <button type="button" onClick={() => setIsSettingsOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
                 <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar</button>
               </div>
             </form>
