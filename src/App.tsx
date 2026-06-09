@@ -1639,9 +1639,18 @@ export default function App() {
           if(canRecover) {
              setStreakRecoveryDate(dateStr);
           }
-        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-10' : 'cursor-default'} ${bg}`} title={`${d} de ${monthNames[month]}: ${count} revisões${canRecover ? ' (Clique para recuperar ofensiva)' : (isRecovered ? ' (Ofensiva Recuperada)' : '')}`}>
-          <span className="text-sm">{d}</span>
-          {isToday && <div className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-indigo-400"></div>}
+        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all group ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-20' : 'cursor-default hover:scale-110 hover:z-20'} ${bg}`}>
+          <span className="text-sm pointer-events-none">{d}</span>
+          {isToday && <div className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-indigo-400 pointer-events-none"></div>}
+          
+          {/* TOOLTIP CUSTOMIZADO */}
+          <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-2 group-hover:translate-y-0 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700 flex flex-col items-center origin-bottom">
+            <span className={count > 0 ? "text-emerald-400 text-sm" : "text-slate-400"}>{count} revisões</span>
+            {isRecovered && count === 0 && <span className="text-indigo-400 text-[10px] mt-0.5">Ofensiva Recuperada</span>}
+            {canRecover && <span className="text-indigo-400 text-[10px] mt-0.5">Clique p/ recuperar</span>}
+            {!isRecovered && !canRecover && count === 0 && <span className="text-slate-500 text-[10px] mt-0.5">Nenhuma revisão</span>}
+            <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-800"></div>
+          </div>
         </div>
       );
     }
