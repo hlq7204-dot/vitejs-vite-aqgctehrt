@@ -33,7 +33,7 @@ import {
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
   PieChart, RotateCcw, Settings, Home, Flame, BarChart2, LogOut,
   Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight, X,
-  Eye, EyeOff, History
+  Eye, EyeOff, History, Timer
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -1634,16 +1634,16 @@ export default function App() {
       }
 
       cells.push(
-        <div key={d} onClick={() => { 
+        <div key={d} tabIndex="0" onClick={() => { 
           if(canRecover) {
              setStreakRecoveryDate(dateStr);
           }
-        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all group/cell ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-20' : 'cursor-default hover:scale-110 hover:z-20'} ${bg}`}>
+        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all group focus:outline-none ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-20 focus:z-20' : 'cursor-default hover:scale-110 hover:z-20 focus:scale-110 focus:z-20'} ${bg}`}>
           <span className="text-sm pointer-events-none">{d}</span>
           {isToday && <div className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-indigo-400 pointer-events-none"></div>}
           
           {/* TOOLTIP DISCRETO */}
-          <div className="absolute bottom-full mb-1.5 opacity-0 group-hover/cell:opacity-100 transition-all duration-200 translate-y-1 group-hover/cell:translate-y-0 bg-slate-800/95 text-slate-200 text-[10px] font-medium px-2 py-1.5 rounded-lg pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700/80 flex flex-col items-center backdrop-blur-md">
+          <div className="absolute bottom-full mb-1.5 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-all duration-200 translate-y-1 group-hover:translate-y-0 group-focus:translate-y-0 bg-slate-800/95 text-slate-200 text-[10px] font-medium px-2 py-1.5 rounded-lg pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700/80 flex flex-col items-center backdrop-blur-md">
             <span className={count > 0 ? "text-emerald-400 font-bold text-xs" : "text-slate-400"}>{count} revisões</span>
             {isRecovered && count === 0 && <span className="text-indigo-300 text-[9px] mt-0.5 uppercase tracking-wider">Recuperada</span>}
             {canRecover && <span className="text-indigo-300 text-[9px] mt-0.5 uppercase tracking-wider">Recuperar</span>}
