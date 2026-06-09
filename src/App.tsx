@@ -1808,9 +1808,9 @@ export default function App() {
          {totalEffort === 0 ? (
             <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10">Nenhum dado de estudo ainda.</div>
          ) : (
-            <div className="flex flex-col sm:flex-row items-center gap-6 flex-grow relative z-10">
+            <div className="flex flex-col sm:flex-row items-center gap-6 flex-grow relative z-10 w-full min-w-0">
                <div className="relative w-32 h-32 shrink-0 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] mx-auto sm:mx-0">
-                  <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
+                  <svg viewBox="-10 -10 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
                      <circle cx="50" cy="50" r="40" fill="transparent" stroke="#1e293b" strokeWidth="16" />
                      {dist.map((item, i) => {
                          const percent = (item.effort / totalEffort) * 100;
@@ -1839,14 +1839,14 @@ export default function App() {
                   </div>
                </div>
                
-               <div className="flex flex-col gap-3 flex-grow w-full">
+               <div className="flex flex-col gap-3 flex-grow w-full min-w-0">
                   {dist.map((item, i) => (
-                     <div key={i} className="flex items-center justify-between text-sm group">
-                        <div className="flex items-center gap-2.5 overflow-hidden">
+                     <div key={i} className="flex items-center justify-between text-sm group min-w-0 w-full gap-2">
+                        <div className="flex items-center gap-2.5 overflow-hidden flex-grow min-w-0">
                            <div className="w-3 h-3 rounded-full shrink-0 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: colors[i], color: colors[i] }}></div>
-                           <span className="text-slate-300 font-medium truncate group-hover:text-slate-100 transition-colors" title={item.name}>{item.name}</span>
+                           <span className="text-slate-300 font-medium truncate group-hover:text-slate-100 transition-colors flex-grow" title={item.name}>{item.name}</span>
                         </div>
-                        <span className="font-black text-slate-400 pl-2 shrink-0">{Math.round((item.effort / totalEffort) * 100)}%</span>
+                        <span className="font-black text-slate-400 shrink-0 w-10 text-right">{Math.round((item.effort / totalEffort) * 100)}%</span>
                      </div>
                   ))}
                </div>
