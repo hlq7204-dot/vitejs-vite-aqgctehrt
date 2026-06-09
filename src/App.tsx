@@ -174,13 +174,12 @@ const cleanupData = (map, recs) => {
 
           for (const id of ids) {
               const strId = String(id);
-              // Migrar os fantasmas antigos para o array oficial de recuperação
               if (strId.startsWith('recovered-') || strId === 'dummy' || strId === 'phantom' || strId === 'ghost') {
                   hadFakeOrBug = true;
                   newRecSet.add(date);
               } else {
                   idCounts[strId] = (idCounts[strId] || 0) + 1;
-                  // Bloqueia as 50 duplicatas bugadas (max 10 da mesma revisão por segurança)
+                  // Bloqueia duplicatas excessivas para o mesmo id num dia
                   if (idCounts[strId] <= 10) {
                       realIds.push(id);
                   } else {
@@ -607,9 +606,8 @@ export default function App() {
   const [reportPeriod, setReportPeriod] = useState('week'); 
   const [forecastPeriod, setForecastPeriod] = useState('week');
   const [reportDeckId, setReportDeckId] = useState('all'); 
-  
-  const [distPeriod, setDistPeriod] = useState('all'); 
-  const [distFolderId, setDistFolderId] = useState('all'); 
+  const [distFolderId, setDistFolderId] = useState('all');
+  const [distPeriod, setDistPeriod] = useState('all');
   
   const [activeDeckId, setActiveDeckId] = useState(null);
 
@@ -1782,24 +1780,16 @@ export default function App() {
     );
   };
 
-  const renderDeckDistribution = () => {
-    let allowedDecks = validDecks.filter(d => !d.isIgnored);
-    
-    if (distFolderId !== 'all') {
-       const folderDecks = getDecksInFolder(distFolderId);
-       const folderDeckIds = new Set(folderDecks.map(d => d.id));
-       allowedDecks = allowedDecks.filter(d => folderDeckIds.has(d.id));
-    }
+  const renderIntensity = () => {
+    const allowedDecks = validDecks.filter(d => !d.isIgnored && (distFolderId === 'all' || d.parentId === distFolderId));
+    let deckEffort = {};
 
     const cardDeckMap = {};
-    allowedDecks.forEach(deck => {
-       (deck.cards || []).forEach(card => {
-           cardDeckMap[card.id] = deck;
+    allowedDecks.forEach(d => {
+       (d.cards || []).forEach(c => {
+           cardDeckMap[c.id] = d;
        });
     });
-
-    let deckEffort = {};
-    allowedDecks.forEach(d => deckEffort[d.id] = 0);
 
     if (distPeriod === 'all') {
        allowedDecks.forEach(deck => {
@@ -1829,7 +1819,10 @@ export default function App() {
 
     let dist = Object.keys(deckEffort).map(deckId => {
         const deck = allowedDecks.find(d => d.id === deckId);
-        return { name: deck.name, effort: deckEffort[deckId] };
+        const totalCards = deck.cards?.length || 1; 
+        const absolute = deckEffort[deckId];
+        const weightedEffort = absolute / totalCards; 
+        return { name: deck.name, effort: weightedEffort, absoluteEffort: absolute, totalCards, isOthers: false };
     }).filter(d => d.effort > 0).sort((a,b) => b.effort - a.effort);
 
     const totalEffort = dist.reduce((sum, d) => sum + d.effort, 0);
@@ -1837,7 +1830,7 @@ export default function App() {
     if (dist.length > 4) {
        const top = dist.slice(0, 3);
        const othersEffort = dist.slice(3).reduce((sum, d) => sum + d.effort, 0);
-       top.push({ name: 'Outros', effort: othersEffort });
+       top.push({ name: 'Outros', effort: othersEffort, absoluteEffort: 0, isOthers: true });
        dist = top;
     }
 
@@ -1849,7 +1842,10 @@ export default function App() {
          <div className="absolute bottom-0 left-0 p-32 bg-amber-500/5 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
          
          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 relative z-10 gap-3">
-           <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Distribuição</h3>
+           <div className="flex items-center gap-2 group/title relative cursor-help">
+             <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Intensidade</h3>
+             <div className="absolute bottom-full left-0 mb-2 opacity-0 group-hover/title:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-300 text-xs font-medium px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700">Média de revisões por cartão. Revela<br/>onde você tem mais dificuldade.</div>
+           </div>
            <div className="flex gap-2 w-full sm:w-auto">
               <select value={distFolderId} onChange={e => setDistFolderId(e.target.value)} className="flex-1 sm:w-32 bg-slate-950 border border-slate-700 text-slate-300 py-1.5 px-2.5 rounded-lg text-xs font-medium focus:outline-none focus:border-amber-500/50 transition-colors cursor-pointer">
                   <option value="all">Todas Coleções</option>
@@ -1864,7 +1860,7 @@ export default function App() {
          </div>
          
          {totalEffort === 0 ? (
-            <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10">Nenhum dado no período.</div>
+            <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10">Nenhum dado de estudo ainda.</div>
          ) : (
             <div className="flex flex-col sm:flex-row items-center gap-6 flex-grow relative z-10 w-full min-w-0">
                <div className="relative w-32 h-32 shrink-0 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] mx-auto sm:mx-0">
@@ -1886,7 +1882,7 @@ export default function App() {
                                 strokeDashoffset={-dashOffset}
                                 className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
                              >
-                                <title>{item.name}: {item.effort} revisões</title>
+                                <title>{item.name}: {item.effort.toFixed(1)} revisões/cartão {item.isOthers ? '' : `(${item.absoluteEffort} totais)`}</title>
                              </circle>
                          );
                      })}
@@ -2321,7 +2317,7 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 mb-8 pb-10">
             <div className="lg:col-span-2 xl:col-span-2">{renderCalendar()}</div>
             <div className="lg:col-span-1 xl:col-span-1">{renderMastery()}</div>
-            <div className="lg:col-span-1 xl:col-span-1">{renderDeckDistribution()}</div>
+            <div className="lg:col-span-1 xl:col-span-1">{renderIntensity()}</div>
             <div className="lg:col-span-2 xl:col-span-2">{renderForecast()}</div>
           </div>
         )}
@@ -2408,7 +2404,7 @@ export default function App() {
                       </div>
                     ))}
                     {choiceOptions.length < 6 && (
-                      <button type="button" onClick={addChoiceOption} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mt-2 p-1"><Plus className="w-4 h-4"/> Adicionar opção</button>
+                       <button type="button" onClick={addChoiceOption} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mt-2 p-1"><Plus className="w-4 h-4"/> Adicionar opção</button>
                     )}
                   </div>
                 )}
