@@ -961,13 +961,28 @@ export default function App() {
 
   const getCardStats = (cards) => {
     const now = Date.now();
+    const learnAheadLimit = 20 * 60 * 1000; // Permite antecipar cartões de aprendizado em até 20 minutos
+    
     return (cards || []).reduce((acc, card) => {
       const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
       const r = card.reviews || 0;
-      if (state === 0 || r === 0) acc.new++;
-      else if (state === 1 || state === 3 || card.interval < 1) acc.learning++;
-      else if (card.dueDate <= now) acc.review++;
-      else acc.learned++;
+      
+      const isNew = state === 0 || r === 0;
+      const isLearning = state === 1 || state === 3 || card.interval < 1;
+      
+      const isDue = !card.dueDate || (isLearning ? card.dueDate <= (now + learnAheadLimit) : card.dueDate <= now);
+
+      if (isNew) {
+        if (isDue) acc.new++;
+      }
+      else if (isLearning) {
+        if (isDue) acc.learning++;
+        else acc.learned++;
+      }
+      else {
+        if (isDue) acc.review++;
+        else acc.learned++;
+      }
       return acc;
     }, { new: 0, learning: 0, review: 0, learned: 0 });
   };
@@ -1041,10 +1056,20 @@ export default function App() {
 
   const startReview = (deckId, forceAll = false, folderId = null) => {
     let dueCards = [];
+    const now = Date.now();
+    const learnAheadLimit = 20 * 60 * 1000; // Antecipa em até 20 minutos
+
+    const isCardDue = (c) => {
+       if (!c.dueDate) return true;
+       const state = c.state !== undefined ? c.state : (c.reviews > 0 ? 2 : 0);
+       const isLearning = state === 1 || state === 3 || c.interval < 1;
+       return isLearning ? c.dueDate <= (now + learnAheadLimit) : c.dueDate <= now;
+    };
+
     if (folderId) {
       const decksToStudy = getDecksInFolder(folderId).filter(d => !d.isIgnored);
       decksToStudy.forEach(deck => {
-        let cards = (deck.cards || []).filter(c => c.dueDate <= Date.now() || !c.dueDate);
+        let cards = (deck.cards || []).filter(isCardDue);
         if (forceAll) cards = deck.cards || [];
         cards = cards.map(c => ({ ...c, _deckId: deck.id }));
         dueCards.push(...cards);
@@ -1056,7 +1081,7 @@ export default function App() {
           if(deck?.isIgnored) showToast("Este baralho está ignorado.", "info");
           return;
       }
-      let cards = (deck.cards || []).filter(c => c.dueDate <= Date.now() || !c.dueDate);
+      let cards = (deck.cards || []).filter(isCardDue);
       if (forceAll) cards = deck.cards || [];
       cards = cards.map(c => ({ ...c, _deckId: deck.id }));
       dueCards.push(...cards);
