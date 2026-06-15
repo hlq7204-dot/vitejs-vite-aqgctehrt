@@ -4,7 +4,6 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
-// --- GARANTIA DE DESIGN E BLOQUEIO DE TRADUÇÃO ---
 if (typeof document !== 'undefined') {
   document.documentElement.lang = 'pt-BR';
   document.documentElement.setAttribute('translate', 'no');
@@ -25,7 +24,6 @@ if (typeof document !== 'undefined') {
   }
 }
 
-// --- ÍCONES ---
 import { 
   BookOpen, Plus, Play, ArrowLeft, CheckCircle2, BrainCircuit, Trash2, 
   Sparkles, Folder, ChevronRight, ChevronLeft, FolderPlus, Upload, 
@@ -36,7 +34,6 @@ import {
   Eye, EyeOff, History, Timer
 } from 'lucide-react';
 
-// --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
   ? JSON.parse(__firebase_config) 
   : {
@@ -64,7 +61,6 @@ const appId = appIdRaw.replace(/\//g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
 const initialFolders = [];
 const initialDecks = [];
 
-// TEMAS REFORMULADOS
 const FOLDER_THEMES = [
   { id: 'indigo', label: 'Índigo', color: 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' },
   { id: 'blue', label: 'Azul', color: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' },
@@ -101,7 +97,6 @@ const CARD_TYPES = [
   { id: 'typing', label: 'Digitação', Icon: Keyboard }
 ];
 
-// --- MOTOR DE ANIMAÇÕES E ESTILOS GLOBAIS ---
 const globalStyles = `
   body, html { margin: 0; padding: 0; width: 100%; min-height: 100vh; overflow-x: hidden; background-color: #020617; }
   #root { width: 100%; min-height: 100vh; }
@@ -140,7 +135,7 @@ const globalStyles = `
 
   .chart-scroll-container {
     overflow-x: auto;
-    overflow-y: visible; /* Ajustado para permitir tooltips */
+    overflow-y: visible;
     scroll-behavior: smooth;
   }
   
@@ -156,9 +151,6 @@ const globalStyles = `
   }
 `;
 
-// ============================================================================
-// LÓGICA DE LIMPEZA INTELIGENTE DE FANTASMAS E DUPLICATAS
-// ============================================================================
 const cleanupData = (map, recs) => {
   let mapChanged = false;
   const newMap = { ...map };
@@ -179,7 +171,7 @@ const cleanupData = (map, recs) => {
                   newRecSet.add(date);
               } else {
                   idCounts[strId] = (idCounts[strId] || 0) + 1;
-                  // Bloqueia duplicatas excessivas para o mesmo id num dia
+                  // Bloqueia as 50 duplicatas bugadas
                   if (idCounts[strId] <= 10) {
                       realIds.push(id);
                   } else {
@@ -202,17 +194,13 @@ const cleanupData = (map, recs) => {
   };
 };
 
-// ============================================================================
-// ALGORITMO FSRS v6.1.1 (Free Spaced Repetition Scheduler) + Anki Native Steps
-// ============================================================================
-
 const w = [0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542];
 const requestRetention = 0.9;
 const maximumInterval = 36500;
 const DECAY = -w[20];
 const FACTOR = Math.pow(0.9, 1 / DECAY) - 1;
 const enable_fuzz = true;
-const LEARNING_STEPS = [1, 10]; // Passos Nativos do Anki (em minutos)
+const LEARNING_STEPS = [1, 10]; 
 
 const ratings = { "again": 1, "hard": 2, "good": 3, "easy": 4 };
 
@@ -377,6 +365,19 @@ const calculateNextReview = (card, qualityUI) => {
     dueDate: nextDue, 
     reviews: (card.reviews || 0) + 1 
   };
+};
+
+const checkCardDue = (card) => {
+  if (!card.dueDate) return true;
+  const now = Date.now();
+  
+  if (card.interval > 1) {
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+    return card.dueDate <= endOfToday.getTime();
+  }
+  
+  return card.dueDate <= now;
 };
 
 const formatInterval = (days) => {
@@ -606,8 +607,6 @@ export default function App() {
   const [reportPeriod, setReportPeriod] = useState('week'); 
   const [forecastPeriod, setForecastPeriod] = useState('week');
   const [reportDeckId, setReportDeckId] = useState('all'); 
-  const [distFolderId, setDistFolderId] = useState('all');
-  const [distPeriod, setDistPeriod] = useState('all');
   
   const [activeDeckId, setActiveDeckId] = useState(null);
 
@@ -621,6 +620,7 @@ export default function App() {
     }
   }
   const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
+  const validCardIds = new Set(validDecks.flatMap(d => (d.cards || []).map(c => c.id)));
   const activeDeck = validDecks.find(d => d.id === activeDeckId) || decks.find(d => d.id === activeDeckId);
   
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -696,7 +696,6 @@ export default function App() {
   useEffect(() => { localStorage.setItem('lumina_streakRecoveries', JSON.stringify(streakRecoveries)); }, [streakRecoveries]);
   useEffect(() => { localStorage.setItem('lumina_dailyGoal', dailyGoal); }, [dailyGoal]);
 
-  // ROTINA DE LIMPEZA INTELIGENTE
   useEffect(() => {
     if (!hasCleanedUpPhantoms.current && Object.keys(activityMap).length > 0) {
         const { cleanMap, cleanRecoveries, hasChanges } = cleanupData(activityMap, streakRecoveries);
@@ -775,7 +774,6 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         
-        // Verifica e limpa os dados antes de jogar no estado da UI
         const currentDataMap = data.activityMap || {};
         const currentDataRecs = data.streakRecoveries || [];
         const { cleanMap, cleanRecoveries, hasChanges } = cleanupData(currentDataMap, currentDataRecs);
@@ -783,7 +781,6 @@ export default function App() {
         setActivityMap(cleanMap);
         setStreakRecoveries(cleanRecoveries);
 
-        // Se encontrou fantasmas vindos do Firebase, corrige a nuvem
         if (hasChanges) {
            setDoc(profileRef, { activityMap: cleanMap, streakRecoveries: cleanRecoveries }, { merge: true }).catch(console.error);
         }
@@ -960,24 +957,17 @@ export default function App() {
   };
 
   const getCardStats = (cards) => {
-    const now = Date.now();
-    const learnAheadLimit = 20 * 60 * 1000; // Permite antecipar cartões de aprendizado em até 20 minutos
-    
     return (cards || []).reduce((acc, card) => {
       const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
       const r = card.reviews || 0;
+      const isDue = checkCardDue(card);
       
-      const isNew = state === 0 || r === 0;
-      const isLearning = state === 1 || state === 3 || card.interval < 1;
-      
-      const isDue = !card.dueDate || (isLearning ? card.dueDate <= (now + learnAheadLimit) : card.dueDate <= now);
-
-      if (isNew) {
+      if (state === 0 || r === 0) {
         if (isDue) acc.new++;
       }
-      else if (isLearning) {
+      else if (state === 1 || state === 3 || card.interval < 1) {
         if (isDue) acc.learning++;
-        else acc.learned++;
+        else acc.learned++; 
       }
       else {
         if (isDue) acc.review++;
@@ -1056,20 +1046,10 @@ export default function App() {
 
   const startReview = (deckId, forceAll = false, folderId = null) => {
     let dueCards = [];
-    const now = Date.now();
-    const learnAheadLimit = 20 * 60 * 1000; // Antecipa em até 20 minutos
-
-    const isCardDue = (c) => {
-       if (!c.dueDate) return true;
-       const state = c.state !== undefined ? c.state : (c.reviews > 0 ? 2 : 0);
-       const isLearning = state === 1 || state === 3 || c.interval < 1;
-       return isLearning ? c.dueDate <= (now + learnAheadLimit) : c.dueDate <= now;
-    };
-
     if (folderId) {
       const decksToStudy = getDecksInFolder(folderId).filter(d => !d.isIgnored);
       decksToStudy.forEach(deck => {
-        let cards = (deck.cards || []).filter(isCardDue);
+        let cards = (deck.cards || []).filter(c => checkCardDue(c));
         if (forceAll) cards = deck.cards || [];
         cards = cards.map(c => ({ ...c, _deckId: deck.id }));
         dueCards.push(...cards);
@@ -1081,7 +1061,7 @@ export default function App() {
           if(deck?.isIgnored) showToast("Este baralho está ignorado.", "info");
           return;
       }
-      let cards = (deck.cards || []).filter(isCardDue);
+      let cards = (deck.cards || []).filter(c => checkCardDue(c));
       if (forceAll) cards = deck.cards || [];
       cards = cards.map(c => ({ ...c, _deckId: deck.id }));
       dueCards.push(...cards);
@@ -1668,7 +1648,6 @@ export default function App() {
           <span className="text-sm pointer-events-none">{d}</span>
           {isToday && <div className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-indigo-400 pointer-events-none"></div>}
           
-          {/* TOOLTIP DISCRETO */}
           <div className="absolute bottom-full mb-1.5 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-all duration-200 translate-y-1 group-hover:translate-y-0 group-focus:translate-y-0 bg-slate-800/95 text-slate-200 text-[10px] font-medium px-2 py-1.5 rounded-lg pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700/80 flex flex-col items-center backdrop-blur-md">
             <span className={count > 0 ? "text-emerald-400 font-bold text-xs" : "text-slate-400"}>{count} revisões</span>
             {isRecovered && count === 0 && <span className="text-indigo-300 text-[9px] mt-0.5 uppercase tracking-wider">Recuperada</span>}
@@ -1737,30 +1716,34 @@ export default function App() {
 
     let overdue = 0;
     allCards.forEach(c => {
-      if (c.dueDate) {
-        const cDateStart = new Date(c.dueDate); 
-        cDateStart.setHours(0,0,0,0);
-        
-        if (cDateStart.getTime() < today.getTime()) {
-           overdue++;
-        } else {
-           if (forecastPeriod === 'week' || forecastPeriod === 'month') {
+      if (!c.dueDate) return;
+      
+      if (checkCardDue(c)) {
+          if (forecastPeriod === 'week' || forecastPeriod === 'month') {
+              buckets[0].count++;
+          } else if (forecastPeriod === 'year') {
+              const bIdx = buckets.findIndex(b => b.month === today.getMonth() && b.year === today.getFullYear());
+              if (bIdx !== -1) buckets[bIdx].count++;
+          }
+      } else {
+          const cDateStart = new Date(c.dueDate); 
+          cDateStart.setHours(0,0,0,0);
+          
+          if (forecastPeriod === 'week' || forecastPeriod === 'month') {
               const diffTime = cDateStart.getTime() - today.getTime();
               const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-              if (diffDays >= 0 && diffDays < bucketCount) {
+              if (diffDays > 0 && diffDays < bucketCount) {
                   buckets[diffDays].count++;
               }
-           } else if (forecastPeriod === 'year') {
+          } else if (forecastPeriod === 'year') {
               const bIdx = buckets.findIndex(b => b.month === cDateStart.getMonth() && b.year === cDateStart.getFullYear());
               if (bIdx !== -1) {
                   buckets[bIdx].count++;
               }
-           }
-        }
+          }
       }
     });
     
-    buckets[0].count += overdue;
     const max = Math.max(...buckets.map(b => b.count), 10);
 
     return (
@@ -1805,57 +1788,20 @@ export default function App() {
     );
   };
 
-  const renderIntensity = () => {
-    const allowedDecks = validDecks.filter(d => !d.isIgnored && (distFolderId === 'all' || d.parentId === distFolderId));
-    let deckEffort = {};
-
-    const cardDeckMap = {};
-    allowedDecks.forEach(d => {
-       (d.cards || []).forEach(c => {
-           cardDeckMap[c.id] = d;
-       });
-    });
-
-    if (distPeriod === 'all') {
-       allowedDecks.forEach(deck => {
-          const effort = (deck.cards || []).reduce((sum, c) => sum + (c.reviews || 0), 0);
-          deckEffort[deck.id] = effort;
-       });
-    } else {
-       const today = new Date();
-       const daysCount = distPeriod === 'week' ? 7 : 30;
-       for(let i = 0; i < daysCount; i++) {
-           const d = new Date(today);
-           d.setDate(d.getDate() - i);
-           const y = d.getFullYear(); 
-           const m = String(d.getMonth() + 1).padStart(2, '0'); 
-           const dy = String(d.getDate()).padStart(2, '0');
-           const dateStr = `${y}-${m}-${dy}`;
-           
-           const dayActivity = activityMap[dateStr] || [];
-           dayActivity.forEach(cardId => {
-               const deck = cardDeckMap[cardId];
-               if (deck) {
-                   deckEffort[deck.id] = (deckEffort[deck.id] || 0) + 1;
-               }
-           });
-       }
-    }
-
-    let dist = Object.keys(deckEffort).map(deckId => {
-        const deck = allowedDecks.find(d => d.id === deckId);
-        const totalCards = deck.cards?.length || 1; 
-        const absolute = deckEffort[deckId];
-        const weightedEffort = absolute / totalCards; 
-        return { name: deck.name, effort: weightedEffort, absoluteEffort: absolute, totalCards, isOthers: false };
-    }).filter(d => d.effort > 0).sort((a,b) => b.effort - a.effort);
+  const renderDeckDistribution = () => {
+    let dist = validDecks.filter(d => !d.isIgnored).map(d => {
+       const effort = (d.cards || []).reduce((sum, c) => sum + (c.reviews || 0), 0);
+       const cardCount = d.cards?.length || 1;
+       const intensity = effort / cardCount;
+       return { name: d.name, effort: intensity, rawEffort: effort, cardCount };
+    }).filter(d => d.rawEffort > 0).sort((a,b) => b.effort - a.effort);
 
     const totalEffort = dist.reduce((sum, d) => sum + d.effort, 0);
     
     if (dist.length > 4) {
        const top = dist.slice(0, 3);
        const othersEffort = dist.slice(3).reduce((sum, d) => sum + d.effort, 0);
-       top.push({ name: 'Outros', effort: othersEffort, absoluteEffort: 0, isOthers: true });
+       top.push({ name: 'Outros', effort: othersEffort });
        dist = top;
     }
 
@@ -1865,23 +1811,9 @@ export default function App() {
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-200">
          <div className="absolute bottom-0 left-0 p-32 bg-amber-500/5 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
-         
-         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 relative z-10 gap-3">
-           <div className="flex items-center gap-2 group/title relative cursor-help">
-             <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Intensidade</h3>
-             <div className="absolute bottom-full left-0 mb-2 opacity-0 group-hover/title:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-300 text-xs font-medium px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700">Média de revisões por cartão. Revela<br/>onde tem mais dificuldade.</div>
-           </div>
-           <div className="flex gap-2 w-full sm:w-auto">
-              <select value={distFolderId} onChange={e => setDistFolderId(e.target.value)} className="flex-1 sm:w-32 bg-slate-950 border border-slate-700 text-slate-300 py-1.5 px-2.5 rounded-lg text-xs font-medium focus:outline-none focus:border-amber-500/50 transition-colors cursor-pointer">
-                  <option value="all">Todas Coleções</option>
-                  {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
-              <select value={distPeriod} onChange={e => setDistPeriod(e.target.value)} className="flex-1 sm:w-24 bg-slate-950 border border-slate-700 text-slate-300 py-1.5 px-2.5 rounded-lg text-xs font-medium focus:outline-none focus:border-amber-500/50 transition-colors cursor-pointer">
-                  <option value="week">7 Dias</option>
-                  <option value="month">30 Dias</option>
-                  <option value="all">Sempre</option>
-              </select>
-           </div>
+         <div className="flex justify-between items-center mb-8 relative z-10">
+           <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Intensidade</h3>
+           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Média de Esforço</span>
          </div>
          
          {totalEffort === 0 ? (
@@ -1907,7 +1839,7 @@ export default function App() {
                                 strokeDashoffset={-dashOffset}
                                 className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
                              >
-                                <title>{item.name}: {item.effort.toFixed(1)} revisões/cartão {item.isOthers ? '' : `(${item.absoluteEffort} totais)`}</title>
+                                <title>{item.name}: média de {item.effort.toFixed(1)} revisões p/ cartão</title>
                              </circle>
                          );
                      })}
@@ -1969,13 +1901,12 @@ export default function App() {
       if (state === 2 && c.stability) { 
         revCardsCount++; const elapsed = Math.max((now - (c.last_review || now)) / 86400000, 0); const r = forgetting_curve(elapsed, c.stability); totalR += r;
         if (r >= 0.9) retentionBuckets.exc++; else if (r >= 0.8) retentionBuckets.good++; else if (r >= 0.7) retentionBuckets.fair++; else retentionBuckets.poor++;
-        if (c.interval >= 21) matureCount++;
+        if (c.interval >= 21) matureCount++; 
       }
     });
 
     const avgRetention = revCardsCount > 0 ? ((totalR / revCardsCount) * 100).toFixed(1) : 'N/A';
-    const totalCardsCount = targetCards.length; 
-    const maturePercent = totalCardsCount > 0 ? Math.round((matureCount / totalCardsCount) * 100) : 0;
+    const maturePercent = targetCards.length > 0 ? Math.round((matureCount / targetCards.length) * 100) : 0;
 
     // --- LÓGICA DO GRÁFICO DE LINHA ---
     const maxActivity = Math.max(...activityData.map(a => a.count), 5);
@@ -2140,7 +2071,6 @@ export default function App() {
 
     return (
       <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 pb-16 sm:pb-0 animate-in fade-in duration-300">
-        {/* Desktop Tabs */}
         <div className="hidden sm:flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-fit mb-6">
           <button onClick={() => { setMainTab('home'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'home' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
             <Home className="w-4 h-4" /> Início
@@ -2153,7 +2083,6 @@ export default function App() {
           </button>
         </div>
 
-        {/* Mobile Fixed Bottom Navigation */}
         <div className="sm:hidden fixed bottom-0 left-0 right-0 z-[60] bg-slate-950/95 backdrop-blur-xl border-t border-slate-800 flex justify-around items-center px-2 py-3 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
           <button onClick={() => { setMainTab('home'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'home' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
             <Home className="w-5 h-5" />
@@ -2169,11 +2098,8 @@ export default function App() {
           </button>
         </div>
 
-        {/* --- INÍCIO (HOME) --- */}
         {mainTab === 'home' && (
           <div className="animate-in fade-in duration-300 pb-10">
-            
-            {/* Secção Hero com Meta Diária no ecrã inicial principal */}
             {currentFolderId === null && (
               <div className="mb-8 bg-gradient-to-br from-indigo-900/40 to-purple-900/10 border border-indigo-500/20 p-6 sm:p-8 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden shadow-xl shadow-indigo-900/10">
                 <div className="absolute top-0 right-0 p-32 bg-indigo-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
@@ -2201,7 +2127,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Breadcrumbs da Biblioteca */}
             {currentFolderId !== null && (
               <div className="flex items-center gap-2 mb-6 text-sm font-medium text-slate-400 bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-full overflow-x-auto custom-scrollbar">
                 <button onClick={() => setCurrentFolderId(null)} className="flex items-center gap-2 transition-colors whitespace-nowrap hover:text-slate-200"><Home className="w-4 h-4" /> Início</button>
@@ -2214,7 +2139,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Novo Painel para Estudar Toda a Pasta Atual (quando aplicável) */}
             {currentFolderId !== null && (
               <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-gradient-to-r from-indigo-900/30 to-slate-900 border border-indigo-500/20 p-5 rounded-2xl shadow-lg gap-4">
                  <div>
@@ -2343,7 +2267,7 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 mb-8 pb-10">
             <div className="lg:col-span-2 xl:col-span-2">{renderCalendar()}</div>
             <div className="lg:col-span-1 xl:col-span-1">{renderMastery()}</div>
-            <div className="lg:col-span-1 xl:col-span-1">{renderIntensity()}</div>
+            <div className="lg:col-span-1 xl:col-span-1">{renderDeckDistribution()}</div>
             <div className="lg:col-span-2 xl:col-span-2">{renderForecast()}</div>
           </div>
         )}
@@ -2430,7 +2354,7 @@ export default function App() {
                       </div>
                     ))}
                     {choiceOptions.length < 6 && (
-                       <button type="button" onClick={addChoiceOption} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mt-2 p-1"><Plus className="w-4 h-4"/> Adicionar opção</button>
+                      <button type="button" onClick={addChoiceOption} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mt-2 p-1"><Plus className="w-4 h-4"/> Adicionar opção</button>
                     )}
                   </div>
                 )}
