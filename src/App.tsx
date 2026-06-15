@@ -1844,7 +1844,7 @@ export default function App() {
          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 relative z-10 gap-3">
            <div className="flex items-center gap-2 group/title relative cursor-help">
              <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Intensidade</h3>
-             <div className="absolute bottom-full left-0 mb-2 opacity-0 group-hover/title:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-300 text-xs font-medium px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700">Média de revisões por cartão. Revela<br/>onde você tem mais dificuldade.</div>
+             <div className="absolute bottom-full left-0 mb-2 opacity-0 group-hover/title:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-300 text-xs font-medium px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700">Média de revisões por cartão. Revela<br/>onde tem mais dificuldade.</div>
            </div>
            <div className="flex gap-2 w-full sm:w-auto">
               <select value={distFolderId} onChange={e => setDistFolderId(e.target.value)} className="flex-1 sm:w-32 bg-slate-950 border border-slate-700 text-slate-300 py-1.5 px-2.5 rounded-lg text-xs font-medium focus:outline-none focus:border-amber-500/50 transition-colors cursor-pointer">
@@ -1937,19 +1937,20 @@ export default function App() {
     else { const deck = validDecks.find(d => d.id === reportDeckId); if (deck && !deck.isIgnored) targetCards = deck.cards || []; }
 
     let totalR = 0; let revCardsCount = 0; const retentionBuckets = { exc: 0, good: 0, fair: 0, poor: 0 };
-    let matureCount = 0; let youngCount = 0; const now = Date.now();
+    let matureCount = 0; const now = Date.now();
 
     targetCards.forEach(c => {
       const state = c.state !== undefined ? c.state : (c.reviews > 0 ? 2 : 0);
       if (state === 2 && c.stability) { 
         revCardsCount++; const elapsed = Math.max((now - (c.last_review || now)) / 86400000, 0); const r = forgetting_curve(elapsed, c.stability); totalR += r;
         if (r >= 0.9) retentionBuckets.exc++; else if (r >= 0.8) retentionBuckets.good++; else if (r >= 0.7) retentionBuckets.fair++; else retentionBuckets.poor++;
-        if (c.interval >= 21) matureCount++; else youngCount++;
-      } else if (state === 1 || state === 3) { youngCount++; }
+        if (c.interval >= 21) matureCount++;
+      }
     });
 
     const avgRetention = revCardsCount > 0 ? ((totalR / revCardsCount) * 100).toFixed(1) : 'N/A';
-    const totalStudied = revCardsCount + youngCount; const maturePercent = totalStudied > 0 ? Math.round((matureCount / totalStudied) * 100) : 0;
+    const totalCardsCount = targetCards.length; 
+    const maturePercent = totalCardsCount > 0 ? Math.round((matureCount / totalCardsCount) * 100) : 0;
 
     // --- LÓGICA DO GRÁFICO DE LINHA ---
     const maxActivity = Math.max(...activityData.map(a => a.count), 5);
