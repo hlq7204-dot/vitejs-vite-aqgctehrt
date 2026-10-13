@@ -2079,14 +2079,15 @@ export default function App() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
             <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
-            <p className="text-sm text-slate-500 mb-6">Cartões revistos ao longo do tempo</p>
+            <p className="text-sm text-slate-500 mb-4">Cartões revistos ao longo do tempo</p>
             
-            <div className="flex-grow w-full chart-scroll-container overflow-x-auto overflow-y-visible relative pb-2 px-2 sm:px-4">
+            {}
+            <div className="flex-grow w-full chart-scroll-container overflow-x-auto relative pb-2 px-4 sm:px-6">
               <div 
-                className="relative h-full min-h-[200px]" 
+                className="relative h-full min-h-[240px]" 
                 style={{ minWidth: reportPeriod === 'all' ? `${Math.max(100, points.length * 30)}px` : '100%' }}
               >
-                <div className="absolute inset-0 top-6 bottom-[30px] w-full">
+                <div className="absolute inset-x-2 top-16 bottom-[30px]">
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible">
                     <defs>
                       <linearGradient id="line-gradient" x1="0" x2="0" y1="0" y2="1">
@@ -2121,7 +2122,7 @@ export default function App() {
                   ))}
                 </div>
                 
-                <div className="absolute bottom-0 left-0 w-full h-[24px]">
+                <div className="absolute bottom-0 inset-x-2 h-[24px]">
                   {points.map((p, i) => (
                     p.showLabel && (
                       <span
