@@ -1,7 +1,10 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
+import { 
+  getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, 
+  signOut, signInWithCustomToken, signInAnonymously 
+} from 'firebase/auth';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
 if (typeof document !== 'undefined') {
@@ -31,7 +34,7 @@ import {
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
   PieChart, RotateCcw, Settings, Home, Flame, BarChart2, LogOut,
   Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight, X,
-  Eye, EyeOff, History, Timer
+  Eye, EyeOff, History, Timer, Send
 } from 'lucide-react';
 
 const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
@@ -158,51 +161,67 @@ const cleanupData = (map, recs) => {
   const newRecSet = new Set(safeRecs);
 
   for (const date in newMap) {
-      if (Array.isArray(newMap[date])) {
-          const ids = newMap[date];
-          const realIds = [];
-          const idCounts = {};
-          let hadFakeOrBug = false;
+    if (Array.isArray(newMap[date])) {
+      const ids = newMap[date];
+      const realIds = [];
+      const idCounts = {};
+      let hadFakeOrBug = false;
 
-          for (const id of ids) {
-              const strId = String(id);
-              if (strId.startsWith('recovered-') || strId === 'dummy' || strId === 'phantom' || strId === 'ghost') {
-                  hadFakeOrBug = true;
-                  newRecSet.add(date);
-              } else {
-                  idCounts[strId] = (idCounts[strId] || 0) + 1;
-                  // Bloqueia as 50 duplicatas bugadas
-                  if (idCounts[strId] <= 10) {
-                      realIds.push(id);
-                  } else {
-                      hadFakeOrBug = true;
-                  }
-              }
+      for (const id of ids) {
+        const strId = String(id);
+        if (strId.startsWith('recovered-') || strId === 'dummy' || strId === 'phantom' || strId === 'ghost') {
+          hadFakeOrBug = true;
+          newRecSet.add(date);
+        } else {
+          idCounts[strId] = (idCounts[strId] || 0) + 1;
+          if (idCounts[strId] <= 10) {
+            realIds.push(id);
+          } else {
+            hadFakeOrBug = true;
           }
-
-          if (hadFakeOrBug || realIds.length !== ids.length) {
-              newMap[date] = realIds;
-              mapChanged = true;
-          }
+        }
       }
+
+      if (hadFakeOrBug || realIds.length !== ids.length) {
+        newMap[date] = realIds;
+        mapChanged = true;
+      }
+    }
   }
 
   return {
-      cleanMap: newMap,
-      cleanRecoveries: Array.from(newRecSet),
-      hasChanges: mapChanged || newRecSet.size !== safeRecs.length
+    cleanMap: newMap,
+    cleanRecoveries: Array.from(newRecSet),
+    hasChanges: mapChanged || newRecSet.size !== safeRecs.length
   };
 };
 
 const w = [0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542];
 const requestRetention = 0.9;
 const maximumInterval = 36500;
+const S_MIN = 0.01;
 const DECAY = -w[20];
-const FACTOR = Math.pow(0.9, 1 / DECAY) - 1;
 const enable_fuzz = true;
-const LEARNING_STEPS = [1, 10]; 
+const LEARNING_STEPS = [1, 10]; // em minutos
 
 const ratings = { "again": 1, "hard": 2, "good": 3, "easy": 4 };
+
+function roundTo(num, precision = 8) {
+  const factor = Math.pow(10, precision);
+  return Math.round(num * factor) / factor;
+}
+
+function clamp(val, min, max) {
+  return Math.min(Math.max(val, min), max);
+}
+
+const FACTOR = roundTo(Math.exp(Math.pow(DECAY, -1) * Math.log(0.9)) - 1.0, 8);
+
+function calculate_interval_modifier(reqRetention) {
+  return roundTo((Math.pow(reqRetention, 1 / DECAY) - 1) / FACTOR, 8);
+}
+
+const INTERVAL_MODIFIER = calculate_interval_modifier(requestRetention);
 
 function generate_fuzz_factor(card) {
   const seedStr = `${card.id}_${card.reviews || 0}`;
@@ -215,77 +234,107 @@ function generate_fuzz_factor(card) {
   return (h >>> 0) / 4294967296;
 }
 
-function constrain_difficulty(difficulty) { return Math.min(Math.max(+Number(difficulty).toFixed(2), 1), 10); }
-
 function apply_fuzz(ivl, fuzz_factor) {
   if (!enable_fuzz || ivl < 2.5) return Math.round(ivl);
   ivl = Math.round(ivl);
-  let min_ivl = Math.max(2, Math.round(ivl * 0.95 - 1));
-  let max_ivl = Math.round(ivl * 1.05 + 1);
+  const min_ivl = Math.max(2, Math.round(ivl * 0.95 - 1));
+  const max_ivl = Math.min(maximumInterval, Math.round(ivl * 1.05 + 1));
   return Math.floor(fuzz_factor * (max_ivl - min_ivl + 1) + min_ivl);
 }
 
-function forgetting_curve(elapsed_days, stability) { return Math.pow(1 + FACTOR * elapsed_days / stability, DECAY); }
-
-function next_interval(stability, fuzz_factor) {
-  const new_interval = apply_fuzz(stability / FACTOR * (Math.pow(requestRetention, 1 / DECAY) - 1), fuzz_factor);
-  return Math.min(Math.max(Math.round(new_interval), 1), maximumInterval);
+function forgetting_curve(elapsed_days, stability) {
+  const safeS = Math.max(stability || S_MIN, S_MIN);
+  return roundTo(Math.pow(1 + (FACTOR * elapsed_days) / safeS, DECAY), 8);
 }
 
-function linear_damping(delta_d, old_d) { return delta_d * (10 - old_d) / 9; }
-function mean_reversion(init, current) { return w[7] * init + (1 - w[7]) * current; }
+function next_interval(stability, fuzz_factor) {
+  const raw_interval = clamp(Math.round(stability * INTERVAL_MODIFIER), 1, maximumInterval);
+  return clamp(apply_fuzz(raw_interval, fuzz_factor), 1, maximumInterval);
+}
+
+function linear_damping(delta_d, old_d) {
+  return roundTo((delta_d * (10 - old_d)) / 9, 8);
+}
+
+function mean_reversion(init, current) {
+  return roundTo(w[7] * init + (1 - w[7]) * current, 8);
+}
+
+function init_difficulty(ratingStr) {
+  const g = ratings[ratingStr];
+  return roundTo(w[4] - Math.exp((g - 1) * w[5]) + 1, 8);
+}
+
+function init_stability(ratingStr) {
+  const g = ratings[ratingStr];
+  return Math.max(w[g - 1], 0.1);
+}
 
 function next_difficulty(d, ratingStr) {
-  let delta_d = -w[6] * (ratings[ratingStr] - 3);
-  let next_d = d + linear_damping(delta_d, d);
-  return constrain_difficulty(mean_reversion(init_difficulty("easy"), next_d));
+  const g = ratings[ratingStr];
+  const delta_d = -w[6] * (g - 3);
+  const next_d = d + linear_damping(delta_d, d);
+  return clamp(mean_reversion(init_difficulty("easy"), next_d), 1, 10);
 }
 
 function next_recall_stability(d, s, r, ratingStr) {
-  let hardPenalty = ratingStr === "hard" ? w[15] : 1;
-  let easyBonus = ratingStr === "easy" ? w[16] : 1;
-  return +(s * (1 + Math.exp(w[8]) * (11 - d) * Math.pow(s, -w[9]) * (Math.exp((1 - r) * w[10]) - 1) * hardPenalty * easyBonus)).toFixed(2);
+  const g = ratings[ratingStr];
+  const hard_penalty = g === 2 ? w[15] : 1;
+  const easy_bound = g === 4 ? w[16] : 1;
+  return roundTo(
+    clamp(
+      s * (1 + Math.exp(w[8]) * (11 - d) * Math.pow(s, -w[9]) * (Math.exp((1 - r) * w[10]) - 1) * hard_penalty * easy_bound),
+      S_MIN,
+      36500.0
+    ),
+    8
+  );
 }
 
 function next_forget_stability(d, s, r) {
-  let sMin = s / Math.exp(w[17] * w[18]);
-  return +Math.min(w[11] * Math.pow(d, -w[12]) * (Math.pow(s + 1, w[13]) - 1) * Math.exp((1 - r) * w[14]), sMin).toFixed(2);
+  const s_after_fail = roundTo(
+    clamp(
+      w[11] * Math.pow(d, -w[12]) * (Math.pow(s + 1, w[13]) - 1) * Math.exp((1 - r) * w[14]),
+      S_MIN,
+      36500.0
+    ),
+    8
+  );
+  const next_s_min = s / Math.exp(w[17] * w[18]);
+  return clamp(roundTo(next_s_min, 8), S_MIN, s_after_fail);
 }
 
 function next_short_term_stability(s, ratingStr) {
-  let sinc = Math.exp(w[17] * (ratings[ratingStr] - 3 + w[18])) * Math.pow(s, -w[19]);
-  if (ratings[ratingStr] >= 3) sinc = Math.max(sinc, 1);
-  return +(s * sinc).toFixed(2);
+  const g = ratings[ratingStr];
+  const sinc = Math.pow(s, -w[19]) * Math.exp(w[17] * (g - 3 + w[18]));
+  const maskedSinc = g >= 2 ? Math.max(sinc, 1.0) : sinc;
+  return roundTo(clamp(s * maskedSinc, S_MIN, 36500.0), 8);
 }
-
-function init_difficulty(ratingStr) { return +constrain_difficulty(w[4] - Math.exp(w[5] * (ratings[ratingStr] - 1)) + 1).toFixed(2); }
-function init_stability(ratingStr) { return +Math.max(w[ratings[ratingStr] - 1], 0.1).toFixed(2); }
 
 const calculateNextReview = (card, qualityUI) => {
   const RATING_STRINGS = ["again", "hard", "good", "easy"];
   const ratingStr = RATING_STRINGS[qualityUI];
   const now = Date.now();
-
-  const fuzz_factor = generate_fuzz_factor(card); 
+  const fuzz_factor = generate_fuzz_factor(card);
 
   let state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
   let stepIndex = card.stepIndex !== undefined ? card.stepIndex : 0;
   let difficulty = card.difficulty;
   let stability = card.stability;
   let last_review = card.last_review || now;
-  
+
   const elapsed_days = Math.max((now - last_review) / 86400000, 0);
-  let interval = 0; 
+  let interval = 0;
   let isMinutes = false;
 
-  if (stability == null && state !== 0) {
+  if ((stability == null || difficulty == null || stability < S_MIN) && state !== 0) {
     stability = init_stability("good");
-    difficulty = init_difficulty("good");
+    difficulty = clamp(init_difficulty("good"), 1, 10);
   }
 
-  if (state === 0) { 
+  if (state === 0) {
     stability = init_stability(ratingStr);
-    difficulty = init_difficulty(ratingStr);
+    difficulty = clamp(init_difficulty(ratingStr), 1, 10);
 
     if (ratingStr === "again") {
       state = 1; stepIndex = 0; interval = LEARNING_STEPS[0]; isMinutes = true;
@@ -294,41 +343,40 @@ const calculateNextReview = (card, qualityUI) => {
     } else if (ratingStr === "good") {
       state = 1; stepIndex = 1; interval = LEARNING_STEPS[1]; isMinutes = true;
     } else if (ratingStr === "easy") {
-      state = 2; 
-      let good_ivl = next_interval(init_stability("good"), fuzz_factor);
-      interval = Math.max(next_interval(init_stability("easy"), fuzz_factor), good_ivl + 1);
+      state = 2;
+      const good_ivl = next_interval(init_stability("good"), fuzz_factor);
+      interval = Math.max(next_interval(stability, fuzz_factor), good_ivl + 1);
     }
-  } 
-  else if (state === 1 || state === 3) { 
-    let last_s = stability;
-    let last_d = difficulty;
-    
+  } else if (state === 1 || state === 3) {
+    const last_s = stability;
+    const last_d = difficulty;
+
     difficulty = next_difficulty(last_d, ratingStr);
     stability = next_short_term_stability(last_s, ratingStr);
 
     if (ratingStr === "again") {
       stepIndex = 0; interval = LEARNING_STEPS[0]; isMinutes = true;
     } else if (ratingStr === "hard") {
-      interval = LEARNING_STEPS[stepIndex] || 5; isMinutes = true; 
+      interval = LEARNING_STEPS[stepIndex] || LEARNING_STEPS[0]; isMinutes = true;
     } else if (ratingStr === "good") {
       stepIndex++;
       if (stepIndex < LEARNING_STEPS.length) {
         interval = LEARNING_STEPS[stepIndex]; isMinutes = true;
       } else {
-        state = 2; 
+        state = 2;
         interval = next_interval(stability, fuzz_factor);
       }
     } else if (ratingStr === "easy") {
-      state = 2; 
-      let good_ivl = next_interval(next_short_term_stability(last_s, "good"), fuzz_factor);
+      state = 2;
+      const good_s = next_short_term_stability(last_s, "good");
+      const good_ivl = next_interval(good_s, fuzz_factor);
       interval = Math.max(next_interval(stability, fuzz_factor), good_ivl + 1);
     }
-  } 
-  else if (state === 2) { 
+  } else if (state === 2) {
     const retrievability = forgetting_curve(elapsed_days, stability);
-    let last_s = stability;
-    let last_d = difficulty;
-    
+    const last_s = stability;
+    const last_d = difficulty;
+
     if (ratingStr === "again") {
       difficulty = next_difficulty(last_d, "again");
       stability = next_forget_stability(last_d, last_s, retrievability);
@@ -336,11 +384,11 @@ const calculateNextReview = (card, qualityUI) => {
     } else {
       difficulty = next_difficulty(last_d, ratingStr);
       stability = next_recall_stability(last_d, last_s, retrievability, ratingStr);
-      
+
       let hard_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "hard"), fuzz_factor);
       let good_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "good"), fuzz_factor);
       let easy_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "easy"), fuzz_factor);
-      
+
       hard_ivl = Math.min(hard_ivl, good_ivl);
       good_ivl = Math.max(good_ivl, hard_ivl + 1);
       easy_ivl = Math.max(easy_ivl, good_ivl + 1);
@@ -352,18 +400,18 @@ const calculateNextReview = (card, qualityUI) => {
   }
 
   const intervalInDays = isMinutes ? interval / 1440 : interval;
-  const nextDue = isMinutes ? now + (interval * 60000) : now + (interval * 24 * 60 * 60 * 1000);
+  const nextDue = isMinutes ? now + (interval * 60000) : now + (interval * 86400000);
 
-  return { 
-    ...card, 
+  return {
+    ...card,
     state,
     difficulty,
     stability,
     stepIndex,
-    interval: intervalInDays, 
+    interval: intervalInDays,
     last_review: now,
-    dueDate: nextDue, 
-    reviews: (card.reviews || 0) + 1 
+    dueDate: nextDue,
+    reviews: (card.reviews || 0) + 1
   };
 };
 
@@ -371,7 +419,7 @@ const checkCardDue = (card) => {
   if (!card.dueDate) return true;
   const now = Date.now();
   
-  if (card.interval > 1) {
+  if (card.interval >= 1) {
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
     return card.dueDate <= endOfToday.getTime();
@@ -435,20 +483,23 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
         ctx.drawImage(img, 0, 0, width, height);
         
         try {
-            let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
-            if (!compressedBase64.startsWith('data:image/webp')) {
-               compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
-            }
-            
-            document.execCommand('insertImage', false, compressedBase64);
-            if (editorRef.current) {
-                const imgs = editorRef.current.querySelectorAll('img');
-                imgs.forEach(i => {
-                    if (i.src === compressedBase64) i.dataset.compressed = "true";
-                });
-            }
+          let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
+          if (!compressedBase64.startsWith('data:image/webp')) {
+            compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
+          }
+          
+          if (editorRef.current) {
+            editorRef.current.focus();
+          }
+          document.execCommand('insertImage', false, compressedBase64);
+          if (editorRef.current) {
+            const imgs = editorRef.current.querySelectorAll('img');
+            imgs.forEach(i => {
+              if (i.src === compressedBase64) i.dataset.compressed = "true";
+            });
             onChange(editorRef.current.innerHTML);
-        } catch(e) { console.error(e) }
+          }
+        } catch(e) { console.error(e); }
       };
       img.src = event.target.result;
     };
@@ -456,51 +507,51 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
   };
 
   const compressEditorImages = () => {
-     if (!editorRef.current) return;
-     const imgs = editorRef.current.querySelectorAll('img:not([data-compressed="true"])');
-     if (imgs.length === 0) return;
-     
-     imgs.forEach(img => {
-        img.dataset.compressed = "true"; 
+    if (!editorRef.current) return;
+    const imgs = editorRef.current.querySelectorAll('img:not([data-compressed="true"])');
+    if (imgs.length === 0) return;
+    
+    imgs.forEach(img => {
+      img.dataset.compressed = "true"; 
 
-        if (img.src.includes('image/gif') || img.src.toLowerCase().endsWith('.gif')) return;
-        
-        const tempImg = new Image();
-        if (!img.src.startsWith('data:image')) {
-            tempImg.crossOrigin = "Anonymous";
+      if (img.src.includes('image/gif') || img.src.toLowerCase().endsWith('.gif')) return;
+      
+      const tempImg = new Image();
+      if (!img.src.startsWith('data:image')) {
+        tempImg.crossOrigin = "Anonymous";
+      }
+      tempImg.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 1080;
+        let width = tempImg.width;
+        let height = tempImg.height;
+
+        if (width > height) {
+          if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
+        } else {
+          if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
         }
-        tempImg.onload = () => {
-            const canvas = document.createElement('canvas');
-            const MAX_SIZE = 1080;
-            let width = tempImg.width;
-            let height = tempImg.height;
-
-            if (width > height) {
-              if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
-            } else {
-              if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
-            }
-            
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(tempImg, 0, 0, width, height);
-            
-            try {
-                let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
-                if (!compressedBase64.startsWith('data:image/webp')) {
-                   compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
-                }
-                img.src = compressedBase64;
-                onChange(editorRef.current.innerHTML);
-            } catch(e) {
-                console.warn("CORS impediu a compressão. Mantendo original.");
-            }
-        };
-        tempImg.src = img.src;
-     });
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(tempImg, 0, 0, width, height);
+        
+        try {
+          let compressedBase64 = canvas.toDataURL('image/webp', 0.82);
+          if (!compressedBase64.startsWith('data:image/webp')) {
+            compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
+          }
+          img.src = compressedBase64;
+          if (editorRef.current) onChange(editorRef.current.innerHTML);
+        } catch(e) {
+          console.warn("CORS impediu a compressão. Mantendo original.");
+        }
+      };
+      tempImg.src = img.src;
+    });
   };
   
   const handlePaste = (e) => {
@@ -510,18 +561,18 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
       if (items[i].type.indexOf('image') !== -1) {
         const file = items[i].getAsFile();
         if (file) {
-            processImageFile(file);
-            handled = true;
-            e.preventDefault(); 
-            return;
+          processImageFile(file);
+          handled = true;
+          e.preventDefault(); 
+          return;
         }
       }
     }
     if (!handled) {
-        setTimeout(() => {
-            compressEditorImages();
-            if (editorRef.current) onChange(editorRef.current.innerHTML);
-        }, 100);
+      setTimeout(() => {
+        compressEditorImages();
+        if (editorRef.current) onChange(editorRef.current.innerHTML);
+      }, 100);
     }
   };
 
@@ -529,23 +580,23 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
     const items = e.dataTransfer.items;
     let handled = false;
     if (items) {
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].type.indexOf('image') !== -1) {
-            const file = items[i].getAsFile();
-            if (file) {
-                processImageFile(file);
-                handled = true;
-                e.preventDefault();
-                return;
-            }
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            processImageFile(file);
+            handled = true;
+            e.preventDefault();
+            return;
           }
         }
+      }
     }
     if (!handled) {
-        setTimeout(() => {
-            compressEditorImages();
-            if (editorRef.current) onChange(editorRef.current.innerHTML);
-        }, 100);
+      setTimeout(() => {
+        compressEditorImages();
+        if (editorRef.current) onChange(editorRef.current.innerHTML);
+      }, 100);
     }
   };
 
@@ -620,11 +671,10 @@ export default function App() {
     }
   }
   const validDecks = decks.filter(d => reachableFolders.has(d.parentId));
-  const validCardIds = new Set(validDecks.flatMap(d => (d.cards || []).map(c => c.id)));
   const activeDeck = validDecks.find(d => d.id === activeDeckId) || decks.find(d => d.id === activeDeckId);
   
   const [calendarMonth, setCalendarMonth] = useState(() => {
-     const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1);
+    const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   
   const [reviewQueue, setReviewQueue] = useState([]);
@@ -676,7 +726,7 @@ export default function App() {
   const [importProgress, setImportProgress] = useState('');
   const [toast, setToast] = useState(null);
 
-  const stateRef = useRef();
+  const stateRef = useRef({});
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
 
@@ -686,25 +736,25 @@ export default function App() {
     if (newMap) payload.activityMap = newMap;
     if (newRecs) payload.streakRecoveries = newRecs;
     if (Object.keys(payload).length > 0) {
-        setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), payload, { merge: true }).catch(console.error);
+      setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), payload, { merge: true }).catch(console.error);
     }
   };
 
-  useEffect(() => { localStorage.setItem('lumina_decks', JSON.stringify(decks)); }, [decks]);
-  useEffect(() => { localStorage.setItem('lumina_folders', JSON.stringify(folders)); }, [folders]);
-  useEffect(() => { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); }, [activityMap]);
-  useEffect(() => { localStorage.setItem('lumina_streakRecoveries', JSON.stringify(streakRecoveries)); }, [streakRecoveries]);
-  useEffect(() => { localStorage.setItem('lumina_dailyGoal', dailyGoal); }, [dailyGoal]);
+  useEffect(() => { try { localStorage.setItem('lumina_decks', JSON.stringify(decks)); } catch(e){} }, [decks]);
+  useEffect(() => { try { localStorage.setItem('lumina_folders', JSON.stringify(folders)); } catch(e){} }, [folders]);
+  useEffect(() => { try { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); } catch(e){} }, [activityMap]);
+  useEffect(() => { try { localStorage.setItem('lumina_streakRecoveries', JSON.stringify(streakRecoveries)); } catch(e){} }, [streakRecoveries]);
+  useEffect(() => { try { localStorage.setItem('lumina_dailyGoal', dailyGoal); } catch(e){} }, [dailyGoal]);
 
   useEffect(() => {
     if (!hasCleanedUpPhantoms.current && Object.keys(activityMap).length > 0) {
-        const { cleanMap, cleanRecoveries, hasChanges } = cleanupData(activityMap, streakRecoveries);
-        if (hasChanges) {
-            setActivityMap(cleanMap);
-            setStreakRecoveries(cleanRecoveries);
-            syncDataToCloud(cleanMap, cleanRecoveries);
-        }
-        hasCleanedUpPhantoms.current = true;
+      const { cleanMap, cleanRecoveries, hasChanges } = cleanupData(activityMap, streakRecoveries);
+      if (hasChanges) {
+        setActivityMap(cleanMap);
+        setStreakRecoveries(cleanRecoveries);
+        syncDataToCloud(cleanMap, cleanRecoveries);
+      }
+      hasCleanedUpPhantoms.current = true;
     }
   }, [activityMap, streakRecoveries]);
 
@@ -717,7 +767,7 @@ export default function App() {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
+        } else if (!auth.currentUser) {
           await signInAnonymously(auth); 
         }
       } catch (err) { 
@@ -752,8 +802,9 @@ export default function App() {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
+      showToast("Conectado com o Google com sucesso!");
     } catch (error) {
-      showToast("Erro ao fazer login.", "error");
+      showToast("Não foi possível abrir o pop-up do Google neste ambiente.", "error");
     }
   };
 
@@ -782,7 +833,7 @@ export default function App() {
         setStreakRecoveries(cleanRecoveries);
 
         if (hasChanges) {
-           setDoc(profileRef, { activityMap: cleanMap, streakRecoveries: cleanRecoveries }, { merge: true }).catch(console.error);
+          setDoc(profileRef, { activityMap: cleanMap, streakRecoveries: cleanRecoveries }, { merge: true }).catch(console.error);
         }
 
         if (data.dailyGoal) setDailyGoal(data.dailyGoal);
@@ -839,7 +890,13 @@ export default function App() {
       const s = stateRef.current;
       if (!s || s.currentView !== 'review') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-      if (e.code === 'Space') { e.preventDefault(); setIsFlipped(prev => !prev); } 
+      
+      if (e.code === 'Space') { 
+        e.preventDefault(); 
+        if (s.cardType === 'standard' || s.isFlipped) {
+          setIsFlipped(prev => !prev); 
+        }
+      } 
       else if (s.isFlipped) {
         if (e.key === '1') s.handleAnswer(0); 
         if (e.key === '2') s.handleAnswer(1);
@@ -847,18 +904,21 @@ export default function App() {
         if (e.key === '4') s.handleAnswer(3);
       } else if (!s.isFlipped) {
         if (s.cardType === 'choice' && ['1','2','3','4','5','6'].includes(e.key)) {
-            const idx = parseInt(e.key) - 1;
-            const currentOptsLen = s.reviewQueue[s.currentCardIndex]?.options?.length || 4;
-            if (idx < currentOptsLen && !eliminatedOptions.has(idx)) {
-                s.handleInteractiveSubmit(idx);
-            }
+          const idx = parseInt(e.key) - 1;
+          const currentOptsLen = s.reviewQueue[s.currentCardIndex]?.options?.length || 4;
+          if (idx < currentOptsLen && !eliminatedOptions.has(idx)) {
+            s.handleInteractiveSubmit(idx);
+          }
         }
-        else if (s.cardType === 'tf') { if (e.key === '1') s.handleInteractiveSubmit(true); if (e.key === '2') s.handleInteractiveSubmit(false); }
+        else if (s.cardType === 'tf') { 
+          if (e.key === '1') s.handleInteractiveSubmit(true); 
+          if (e.key === '2') s.handleInteractiveSubmit(false); 
+        }
       }
       
-      if (e.key === 'z' && e.ctrlKey) {
-          e.preventDefault();
-          if (s.handleUndo) s.handleUndo();
+      if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (s.handleUndo) s.handleUndo();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -926,19 +986,19 @@ export default function App() {
       const isCompleted = getDailyCount(str) > 0 || streakRecoveries.includes(str);
 
       if (isCompleted) { 
-          streak++; 
-          d.setDate(d.getDate() - 1); 
+        streak++; 
+        d.setDate(d.getDate() - 1); 
       } else if (streak === 0 && str === getTodayStr()) { 
-          d.setDate(d.getDate() - 1); 
+        d.setDate(d.getDate() - 1); 
       } else { 
-          break; 
+        break; 
       }
     }
     return streak;
   };
 
   const getRecoveriesCountForMonth = (yearMonthStr) => {
-     return streakRecoveries.filter(d => d.startsWith(yearMonthStr)).length;
+    return streakRecoveries.filter(d => d.startsWith(yearMonthStr)).length;
   };
 
   const confirmRecoverStreak = () => {
@@ -946,12 +1006,12 @@ export default function App() {
     const yearMonthStr = streakRecoveryDate.substring(0, 7);
     
     if (getRecoveriesCountForMonth(yearMonthStr) >= 2) {
-        showToast("Limite de 2 recuperações por mês atingido.", "error");
+      showToast("Limite de 2 recuperações por mês atingido.", "error");
     } else {
-        const newRecs = [...streakRecoveries, streakRecoveryDate];
-        setStreakRecoveries(newRecs);
-        syncDataToCloud(null, newRecs);
-        showToast("Ofensiva recuperada com sucesso!");
+      const newRecs = [...streakRecoveries, streakRecoveryDate];
+      setStreakRecoveries(newRecs);
+      syncDataToCloud(null, newRecs);
+      showToast("Ofensiva recuperada com sucesso!");
     }
     setStreakRecoveryDate(null);
   };
@@ -1021,12 +1081,12 @@ export default function App() {
     const cleanData = JSON.parse(JSON.stringify(deckData));
     setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'decks', deckData.id), cleanData)
     .catch(e => {
-        console.error("Firebase sync error", e);
-        if (e.message && e.message.toLowerCase().includes('exceeds the limit')) {
-            showToast("Falha ao sincronizar: O baralho excedeu o limite de tamanho (1MB). Reduza a quantidade de imagens.", "error");
-        } else {
-            showToast("Erro ao sincronizar na nuvem.", "error");
-        }
+      console.error("Firebase sync error", e);
+      if (e.message && e.message.toLowerCase().includes('exceeds the limit')) {
+        showToast("Falha ao sincronizar: O baralho excedeu o limite de tamanho (1MB). Reduza a quantidade de imagens.", "error");
+      } else {
+        showToast("Erro ao sincronizar na nuvem.", "error");
+      }
     });
   };
 
@@ -1037,11 +1097,11 @@ export default function App() {
   };
 
   const toggleIgnoreDeck = (deck, e) => {
-      e.stopPropagation();
-      const updatedDeck = { ...deck, isIgnored: !deck.isIgnored };
-      setDecks(prev => prev.map(d => d.id === deck.id ? updatedDeck : d));
-      updateDeckInCloud(updatedDeck);
-      showToast(updatedDeck.isIgnored ? "Baralho ignorado das estatísticas." : "Baralho reativado.");
+    e.stopPropagation();
+    const updatedDeck = { ...deck, isIgnored: !deck.isIgnored };
+    setDecks(prev => prev.map(d => d.id === deck.id ? updatedDeck : d));
+    updateDeckInCloud(updatedDeck);
+    showToast(updatedDeck.isIgnored ? "Baralho ignorado das estatísticas." : "Baralho reativado.");
   };
 
   const startReview = (deckId, forceAll = false, folderId = null) => {
@@ -1058,8 +1118,8 @@ export default function App() {
     } else {
       const deck = validDecks.find(d => d.id === deckId);
       if (!deck || deck.isIgnored) {
-          if(deck?.isIgnored) showToast("Este baralho está ignorado.", "info");
-          return;
+        if(deck?.isIgnored) showToast("Este baralho está ignorado.", "info");
+        return;
       }
       let cards = (deck.cards || []).filter(c => checkCardDue(c));
       if (forceAll) cards = deck.cards || [];
@@ -1104,7 +1164,8 @@ export default function App() {
     setActivityMap(newActivityMap); syncDataToCloud(newActivityMap, null);
 
     let newQueue = [...reviewQueue];
-    if (updatedCard.interval === 0) newQueue.push({ ...updatedCard, _deckId: currentCard._deckId });
+    // Cartões marcados como "Errei" (quality === 0) voltam para o fim da fila na sessão atual
+    if (quality === 0) newQueue.push({ ...updatedCard, _deckId: currentCard._deckId });
     if (currentCardIndex + 1 < newQueue.length) { setReviewQueue(newQueue); setIsFlipped(false); setCurrentCardIndex(prev => prev + 1); } 
     else setCurrentView('finished');
   };
@@ -1125,6 +1186,19 @@ export default function App() {
       updateDeckInCloud(updatedDeck);
     }
 
+    // Reverte também o registro no activityMap do dia para não inflar estatísticas
+    const todayStr = getTodayStr();
+    if (Array.isArray(activityMap[todayStr])) {
+      const currentList = [...activityMap[todayStr]];
+      const lastIdx = currentList.lastIndexOf(lastState.card.id);
+      if (lastIdx !== -1) {
+        currentList.splice(lastIdx, 1);
+        const newActivityMap = { ...activityMap, [todayStr]: currentList };
+        setActivityMap(newActivityMap);
+        syncDataToCloud(newActivityMap, null);
+      }
+    }
+
     setSessionStats(lastState.sessionStats); setReviewQueue(lastState.queue); setCurrentCardIndex(lastState.index);
     setIsFlipped(true); setReviewHistory(prev => prev.slice(0, -1));
   };
@@ -1135,41 +1209,45 @@ export default function App() {
     const currentDeck = validDecks.find(d => d.id === targetDeckId);
     
     if (currentDeck) {
-       const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== currentCard.id) };
-       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
-       updateDeckInCloud(updatedDeck);
-       removeDeletedCardsFromActivity(new Set([currentCard.id]));
-       
-       const newQueue = reviewQueue.filter(c => c.id !== currentCard.id);
-       
-       if (newQueue.length === 0) setCurrentView('finished');
-       else {
-           setReviewQueue(newQueue);
-           if (currentCardIndex >= newQueue.length) setCurrentCardIndex(newQueue.length - 1);
-           setIsFlipped(false); setReviewInteraction(null); setTypedInput(''); setEliminatedOptions(new Set());
-       }
-       setReviewHistory([]);
-       showToast("Cartão excluído com sucesso!");
+      const updatedDeck = { ...currentDeck, cards: currentDeck.cards.filter(c => c.id !== currentCard.id) };
+      setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
+      updateDeckInCloud(updatedDeck);
+      removeDeletedCardsFromActivity(new Set([currentCard.id]));
+      
+      const newQueue = reviewQueue.filter(c => c.id !== currentCard.id);
+      
+      if (newQueue.length === 0) setCurrentView('finished');
+      else {
+        setReviewQueue(newQueue);
+        if (currentCardIndex >= newQueue.length) setCurrentCardIndex(newQueue.length - 1);
+        setIsFlipped(false); setReviewInteraction(null); setTypedInput(''); setEliminatedOptions(new Set());
+      }
+      setReviewHistory([]);
+      showToast("Cartão excluído com sucesso!");
     }
   };
 
-  const handleInteractiveSubmit = (val) => { setReviewInteraction(val); setIsFlipped(true); };
+  const handleInteractiveSubmit = (val) => { 
+    const finalVal = typeof val === 'string' ? val.trim() : val;
+    setReviewInteraction(finalVal); 
+    setIsFlipped(true); 
+  };
 
   const toggleEliminateOption = (idx) => {
     setEliminatedOptions(prev => {
-        const next = new Set(prev);
-        if (next.has(idx)) next.delete(idx);
-        else next.add(idx);
-        return next;
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
     });
   };
 
   const toggleCardSelection = (id) => {
     setSelectedCardIds(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(id)) newSet.delete(id);
-        else newSet.add(id);
-        return newSet;
+      const newSet = new Set(prev);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      return newSet;
     });
   };
 
@@ -1195,6 +1273,7 @@ export default function App() {
   };
 
   const processAnkiImport = async (file) => {
+    let sqliteDb = null;
     try {
       setImportProgress('A carregar...');
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
@@ -1213,7 +1292,7 @@ export default function App() {
       
       let dbData = await dbFile.async("uint8array");
       if (dbFile.name === "collection.anki21b") { if (!window.fzstd) throw new Error("Biblioteca de descompressão falhou."); dbData = window.fzstd.decompress(dbData); }
-      const db = new SQL.Database(dbData);
+      sqliteDb = new SQL.Database(dbData);
 
       let mediaMap = {};
       if (zip.file("media")) {
@@ -1234,11 +1313,11 @@ export default function App() {
 
       let decksInfo = [];
       try {
-        const decksTable = db.exec("SELECT id, name FROM decks");
+        const decksTable = sqliteDb.exec("SELECT id, name FROM decks");
         if (decksTable.length > 0 && decksTable[0].values) decksTable[0].values.forEach(row => decksInfo.push({ id: String(row[0]), name: String(row[1]) }));
       } catch (e) {
         try {
-          const colQuery = db.exec("SELECT decks FROM col");
+          const colQuery = sqliteDb.exec("SELECT decks FROM col");
           if (colQuery.length > 0 && colQuery[0].values && colQuery[0].values[0]) {
             const parsed = JSON.parse(colQuery[0].values[0][0]);
             Object.values(parsed).forEach(d => decksInfo.push({ id: String(d.id), name: String(d.name) }));
@@ -1246,11 +1325,12 @@ export default function App() {
         } catch (err) { }
       }
 
+      const importBatchId = Date.now();
       const newDecksMap = {}; const newFoldersToCloud = [];
       const getOrCreateFolder = (fName, parentId) => {
         let f = newFoldersToCloud.find(x => x.name === fName && x.parentId === parentId) || folders.find(x => x.name === fName && x.parentId === parentId);
         if (f) return f.id;
-        const newId = `f-anki-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const newId = `f-anki-${importBatchId}-${Math.random().toString(36).substring(2, 9)}`;
         const newFolder = { id: newId, name: fName, parentId, color: FOLDER_THEMES[0].color };
         newFoldersToCloud.push(newFolder); setFolders(prev => [...prev, newFolder]); updateFolderInCloud(newFolder);
         return newId;
@@ -1262,11 +1342,11 @@ export default function App() {
         if (pathParts.length === 0) return;
         let parent = currentFolderId; const deckName = pathParts.pop();
         pathParts.forEach(p => { parent = getOrCreateFolder(p, parent); });
-        newDecksMap[ankiDeck.id] = { id: `d-anki-${ankiDeck.id}`, name: deckName, parentId: parent, color: DECK_THEMES[0].color, cards: [] };
+        newDecksMap[ankiDeck.id] = { id: `d-anki-${importBatchId}-${ankiDeck.id}`, name: deckName, parentId: parent, color: DECK_THEMES[0].color, cards: [] };
       });
 
-      const fallbackDeck = { id: `d-fb-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, color: DECK_THEMES[0].color, cards: [] };
-      const cardsQuery = db.exec("SELECT c.did, n.flds FROM cards c JOIN notes n ON c.nid = n.id");
+      const fallbackDeck = { id: `d-fb-${importBatchId}`, name: file.name.split('.')[0], parentId: currentFolderId, color: DECK_THEMES[0].color, cards: [] };
+      const cardsQuery = sqliteDb.exec("SELECT c.did, n.flds FROM cards c JOIN notes n ON c.nid = n.id");
       
       let importedCount = 0;
       if (cardsQuery.length > 0) {
@@ -1279,7 +1359,7 @@ export default function App() {
               front = front.split(imgName).join(b64).split(encodeURIComponent(imgName)).join(b64);
               back = back.split(imgName).join(b64).split(encodeURIComponent(imgName)).join(b64);
             });
-            const newCard = { id: `c-anki-${Math.random()}`, type: 'standard', front, back, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
+            const newCard = { id: `c-anki-${importBatchId}-${Math.random().toString(36).substring(2, 9)}`, type: 'standard', front, back, state: 0, interval: 0, dueDate: Date.now(), reviews: 0 };
             if (newDecksMap[String(row[0])]) newDecksMap[String(row[0])].cards.push(newCard); else fallbackDeck.cards.push(newCard);
             importedCount++;
           }
@@ -1293,7 +1373,15 @@ export default function App() {
       if(importedCount > 0) showToast(`${importedCount} cartões importados!`);
       else showToast("Nenhum cartão lido.", "error");
 
-    } catch (e) { showToast(`Erro: ${e.message}`, "error"); } finally { setIsImporting(false); setImportProgress(''); }
+    } catch (e) { 
+      showToast(`Erro: ${e.message}`, "error"); 
+    } finally { 
+      if (sqliteDb) {
+        try { sqliteDb.close(); } catch (closeErr) {}
+      }
+      setIsImporting(false); 
+      setImportProgress(''); 
+    }
   };
 
   const processTextImport = (file) => {
@@ -1305,7 +1393,7 @@ export default function App() {
       lines.forEach((line) => {
         if (!line.trim()) return;
         
-        let cardType = 'standard';
+        let parsedType = 'standard';
         let parsedFront = '';
         let parsedBack = '';
         let parsedOptions = ['', '', '', ''];
@@ -1314,52 +1402,52 @@ export default function App() {
         const gabaritoIndex = line.search(/Gabarito:/i);
 
         if (gabaritoIndex !== -1 && /[a-e]\)/i.test(line.substring(0, gabaritoIndex))) {
-           cardType = 'choice';
-           const rawFront = line.substring(0, gabaritoIndex).replace(/[\t\s]+$/, '');
-           const rawBack = line.substring(gabaritoIndex);
+          parsedType = 'choice';
+          const rawFront = line.substring(0, gabaritoIndex).replace(/[\t\s]+$/, '');
+          const rawBack = line.substring(gabaritoIndex);
 
-           const firstOptionMatch = rawFront.match(/(?:<br\s*\/?>\s*)*a\)/i);
-           if (firstOptionMatch) {
-               const questionEndIndex = firstOptionMatch.index;
-               parsedFront = rawFront.substring(0, questionEndIndex).replace(/<br\s*[\/]?>/gi, '<br>').trim();
+          const firstOptionMatch = rawFront.match(/(?:<br\s*\/?>\s*)*a\)/i);
+          if (firstOptionMatch) {
+            const questionEndIndex = firstOptionMatch.index;
+            parsedFront = rawFront.substring(0, questionEndIndex).replace(/<br\s*[\/]?>/gi, '<br>').trim();
 
-               const optionsPart = rawFront.substring(questionEndIndex);
-               const optionsRegex = /[a-e]\)\s*([\s\S]*?)(?=(?:<br\s*\/?>\s*)*[a-e]\)|$)/gi;
-               let match;
-               let extractedOptions = [];
-               while ((match = optionsRegex.exec(optionsPart)) !== null) {
-                   extractedOptions.push(match[1].replace(/<br\s*\/?>/gi, '').trim());
-               }
-               if (extractedOptions.length >= 2) {
-                   parsedOptions = extractedOptions;
-               }
-           } else {
-               parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-           }
+            const optionsPart = rawFront.substring(questionEndIndex);
+            const optionsRegex = /[a-e]\)\s*([\s\S]*?)(?=(?:<br\s*\/?>\s*)*[a-e]\)|$)/gi;
+            let match;
+            let extractedOptions = [];
+            while ((match = optionsRegex.exec(optionsPart)) !== null) {
+              extractedOptions.push(match[1].replace(/<br\s*\/?>/gi, '').trim());
+            }
+            if (extractedOptions.length >= 2) {
+              parsedOptions = extractedOptions;
+            }
+          } else {
+            parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+          }
 
-           const gabaritoMatch = rawBack.match(/Gabarito:\s*([a-e])\)/i);
-           if (gabaritoMatch) {
-               const letter = gabaritoMatch[1].toLowerCase();
-               parsedCorrectOption = letter.charCodeAt(0) - 97; 
-           }
+          const gabaritoMatch = rawBack.match(/Gabarito:\s*([a-e])\)/i);
+          if (gabaritoMatch) {
+            const letter = gabaritoMatch[1].toLowerCase();
+            parsedCorrectOption = letter.charCodeAt(0) - 97; 
+          }
 
-           const justMatch = rawBack.match(/Justificativa:\s*([\s\S]*)/i);
-           if (justMatch) {
-               parsedBack = `<strong>Justificativa:</strong><br>${justMatch[1].replace(/<br\s*[\/]?>/gi, '<br>').trim()}`;
-           } else {
-               parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-           }
+          const justMatch = rawBack.match(/Justificativa:\s*([\s\S]*)/i);
+          if (justMatch) {
+            parsedBack = `<strong>Justificativa:</strong><br>${justMatch[1].replace(/<br\s*[\/]?>/gi, '<br>').trim()}`;
+          } else {
+            parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+          }
         } else {
-           const separator = line.includes('\t') ? '\t' : ',';
-           const parts = line.split(separator);
-           const rawFront = parts[0] || '';
-           const rawBack = parts.slice(1).join(separator) || '';
-           
-           parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-           parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+          const separator = line.includes('\t') ? '\t' : ',';
+          const parts = line.split(separator);
+          const rawFront = parts[0] || '';
+          const rawBack = parts.slice(1).join(separator) || '';
+          
+          parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+          parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
         }
 
-        importedCards.push({ id: `c-imp-${Date.now()}-${Math.random()}`, type: cardType, front: parsedFront, back: parsedBack, options: parsedOptions, correctOption: parsedCorrectOption, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 });
+        importedCards.push({ id: `c-imp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`, type: parsedType, front: parsedFront, back: parsedBack, options: parsedOptions, correctOption: parsedCorrectOption, state: 0, interval: 0, dueDate: Date.now(), reviews: 0 });
       });
       if (importedCards.length > 0) {
         const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: DECK_THEMES[0].color, cards: importedCards };
@@ -1467,60 +1555,77 @@ export default function App() {
   };
 
   const handleMoveCards = () => {
-      const sourceDeck = activeDeck;
-      const targetDeck = validDecks.find(d => d.id === moveCardsTargetDeckId);
-      if (!sourceDeck || !targetDeck || selectedCardIds.size === 0) return;
+    const sourceDeck = activeDeck;
+    const targetDeck = validDecks.find(d => d.id === moveCardsTargetDeckId);
+    if (!sourceDeck || !targetDeck || selectedCardIds.size === 0) return;
 
-      const cardsToMove = sourceDeck.cards.filter(c => selectedCardIds.has(c.id));
-      const updatedSourceDeck = { ...sourceDeck, cards: sourceDeck.cards.filter(c => !selectedCardIds.has(c.id)) };
-      const updatedTargetDeck = { ...targetDeck, cards: [...(targetDeck.cards || []), ...cardsToMove] };
+    const cardsToMove = sourceDeck.cards.filter(c => selectedCardIds.has(c.id));
+    const updatedSourceDeck = { ...sourceDeck, cards: sourceDeck.cards.filter(c => !selectedCardIds.has(c.id)) };
+    const updatedTargetDeck = { ...targetDeck, cards: [...(targetDeck.cards || []), ...cardsToMove] };
 
-      setDecks(prev => prev.map(d => {
-          if (d.id === sourceDeck.id) return updatedSourceDeck;
-          if (d.id === targetDeck.id) return updatedTargetDeck;
-          return d;
-      }));
+    setDecks(prev => prev.map(d => {
+      if (d.id === sourceDeck.id) return updatedSourceDeck;
+      if (d.id === targetDeck.id) return updatedTargetDeck;
+      return d;
+    }));
 
-      updateDeckInCloud(updatedSourceDeck);
-      updateDeckInCloud(updatedTargetDeck);
+    updateDeckInCloud(updatedSourceDeck);
+    updateDeckInCloud(updatedTargetDeck);
 
-      setIsMoveCardsModalOpen(false);
-      setIsSelectMode(false);
-      setSelectedCardIds(new Set());
-      showToast(`${cardsToMove.length} cartões movidos com sucesso!`);
+    setIsMoveCardsModalOpen(false);
+    setIsSelectMode(false);
+    setSelectedCardIds(new Set());
+    showToast(`${cardsToMove.length} cartões movidos com sucesso!`);
   };
 
   const handleSaveCard = (e) => {
     e.preventDefault(); if (!newCardFront.trim() || !user || isProcessingRef.current) return;
     isProcessingRef.current = true;
 
-    let processedCard = { id: editingCardId || `c-${Date.now()}`, type: cardType, front: newCardFront, back: newCardBack, repetition: 0, interval: 0, easeFactor: 2.5, dueDate: Date.now(), reviews: 0 };
+    let processedCard = { 
+      id: editingCardId || `c-${Date.now()}`, 
+      type: cardType, 
+      front: newCardFront, 
+      back: newCardBack, 
+      state: 0,
+      interval: 0, 
+      dueDate: Date.now(), 
+      reviews: 0 
+    };
     
     const targetDeckId = currentView === 'review' ? (reviewQueue[currentCardIndex]?._deckId || activeDeckId) : activeDeckId;
     const currentDeck = validDecks.find(d => d.id === targetDeckId);
 
     if (editingCardId && currentDeck) {
       const existing = currentDeck.cards.find(c => c.id === editingCardId);
-      if (existing) processedCard = { ...processedCard, repetition: existing.repetition, interval: existing.interval, easeFactor: existing.easeFactor, dueDate: existing.dueDate, reviews: existing.reviews };
+      if (existing) {
+        // Preserva integralmente o histórico FSRS (state, stability, difficulty, stepIndex, last_review, dueDate, interval, reviews)
+        processedCard = { 
+          ...existing, 
+          type: cardType, 
+          front: newCardFront, 
+          back: newCardBack 
+        };
+      }
     }
 
     if (cardType === 'choice') { processedCard.options = [...choiceOptions]; processedCard.correctOption = correctOption; } 
     else if (cardType === 'tf') { processedCard.isTrue = tfCorrect; } 
-    else if (cardType === 'typing') { processedCard.typeAnswer = typeAnswer; }
+    else if (cardType === 'typing') { processedCard.typeAnswer = typeAnswer.trim(); }
 
-    if(currentDeck) {
-       let updatedCards;
-       if (editingCardId) updatedCards = currentDeck.cards.map(c => c.id === editingCardId ? processedCard : c);
-       else updatedCards = [...(currentDeck.cards || []), processedCard];
-       
-       const updatedDeck = { ...currentDeck, cards: updatedCards };
-       setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); updateDeckInCloud(updatedDeck);
-       
-       if (editingCardId && currentView === 'review') {
-           setReviewQueue(prev => prev.map(c => c.id === editingCardId ? { ...c, front: processedCard.front, back: processedCard.back, type: processedCard.type, options: processedCard.options, correctOption: processedCard.correctOption, isTrue: processedCard.isTrue, typeAnswer: processedCard.typeAnswer } : c));
-       }
+    if (currentDeck) {
+      let updatedCards;
+      if (editingCardId) updatedCards = currentDeck.cards.map(c => c.id === editingCardId ? processedCard : c);
+      else updatedCards = [...(currentDeck.cards || []), processedCard];
+      
+      const updatedDeck = { ...currentDeck, cards: updatedCards };
+      setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); updateDeckInCloud(updatedDeck);
+      
+      if (editingCardId && currentView === 'review') {
+        setReviewQueue(prev => prev.map(c => c.id === editingCardId ? { ...c, ...processedCard, _deckId: c._deckId } : c));
+      }
 
-       showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
+      showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
     }
     setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setEditingCardId(null);
     setTimeout(() => { isProcessingRef.current = false; }, 300);
@@ -1543,28 +1648,19 @@ export default function App() {
     }
   };
 
-  stateRef.current = { ...stateRef.current, handleUndo };
+  const activeReviewCardType = reviewQueue[currentCardIndex]?.type || 'standard';
+  stateRef.current = {
+    currentView,
+    isFlipped,
+    cardType: activeReviewCardType,
+    reviewQueue,
+    currentCardIndex,
+    handleAnswer,
+    handleInteractiveSubmit,
+    handleUndo
+  };
 
   if (isAuthLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-indigo-400 notranslate" translate="no"><Loader2 className="w-8 h-8 animate-spin" /></div>;
-
-  if (!user) {
-    return (
-      <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 notranslate" translate="no">
-        <h1 className="text-4xl sm:text-5xl font-extrabold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
-        <button onClick={signInWithGoogle} className="flex items-center gap-3 bg-white text-slate-900 hover:bg-slate-200 px-6 py-4 rounded-2xl font-bold transition-all transform hover:scale-105 active:scale-95 shadow-xl shadow-white/10">
-          <svg className="w-6 h-6" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" /><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
-          Continuar com o Google
-        </button>
-        {toast && (
-          <div className="fixed bottom-6 right-6 z-[90] animate-in slide-in-from-bottom-4 fade-in duration-300">
-            <div className="flex items-center gap-3 px-6 py-4 rounded-2xl shadow-xl shadow-black/50 border backdrop-blur-md bg-rose-950/80 border-rose-500/30 text-rose-200">
-              <Info className="w-5 h-5 text-rose-400" /><p className="font-medium text-sm">{toast.message}</p>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
 
   const renderStatBadges = (stats) => {
     if (calculateTotalDue(stats) === 0) return null;
@@ -1584,16 +1680,16 @@ export default function App() {
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between animate-pop delay-300">
         <div className="absolute top-0 right-0 p-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
         <div>
-            <div className="flex justify-between items-center mb-6 relative z-10">
-              <h3 className="font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-blue-400" /> Domínio Global</h3>
-              <span className="text-xl font-black text-blue-400">{gCards.length} <span className="text-sm text-slate-500">cartões</span></span>
-            </div>
-            <div className="w-full flex h-4 rounded-full overflow-hidden border border-slate-800 mb-6 relative z-10">
-              <div title={`Novos: ${gStats.new}`} className="bg-blue-500" style={{ width: `${(gStats.new / totalC) * 100}%` }}></div>
-              <div title={`Aprender: ${gStats.learning}`} className="bg-rose-500" style={{ width: `${(gStats.learning / totalC) * 100}%` }}></div>
-              <div title={`Revisar: ${gStats.review}`} className="bg-emerald-400" style={{ width: `${(gStats.review / totalC) * 100}%` }}></div>
-              <div title={`Aprendidos: ${gStats.learned}`} className="bg-slate-600" style={{ width: `${(gStats.learned / totalC) * 100}%` }}></div>
-            </div>
+          <div className="flex justify-between items-center mb-6 relative z-10">
+            <h3 className="font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-blue-400" /> Domínio Global</h3>
+            <span className="text-xl font-black text-blue-400">{gCards.length} <span className="text-sm text-slate-500">cartões</span></span>
+          </div>
+          <div className="w-full flex h-4 rounded-full overflow-hidden border border-slate-800 mb-6 relative z-10">
+            <div title={`Novos: ${gStats.new}`} className="bg-blue-500" style={{ width: `${(gStats.new / totalC) * 100}%` }}></div>
+            <div title={`Aprender: ${gStats.learning}`} className="bg-rose-500" style={{ width: `${(gStats.learning / totalC) * 100}%` }}></div>
+            <div title={`Revisar: ${gStats.review}`} className="bg-emerald-400" style={{ width: `${(gStats.review / totalC) * 100}%` }}></div>
+            <div title={`Aprendidos: ${gStats.learned}`} className="bg-slate-600" style={{ width: `${(gStats.learned / totalC) * 100}%` }}></div>
+          </div>
         </div>
         <div className="grid grid-cols-4 gap-2 text-center relative z-10 mt-auto">
           <div className="flex flex-col"><span className="text-[10px] uppercase text-slate-500 font-bold mb-1">Novos</span><span className="text-sm font-semibold text-blue-400">{gStats.new}</span></div>
@@ -1632,17 +1728,17 @@ export default function App() {
 
       let bg = 'bg-slate-900/50 border-slate-800 text-slate-400';
       if (isCompleted) {
-          if (count === 0 && isRecovered) bg = 'bg-indigo-900/60 border-indigo-500/40 text-indigo-200'; // Dia Recuperado
-          else if (count > 0 && count < 5) bg = 'bg-emerald-900/60 border-emerald-900 text-emerald-200';
-          else if (count >= 5 && count < 15) bg = 'bg-emerald-700/80 border-emerald-700 text-emerald-100';
-          else if (count >= 15 && count < 30) bg = 'bg-emerald-500 border-emerald-400 text-white';
-          else if (count >= 30) bg = 'bg-emerald-400 border-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.4)] text-slate-900 font-bold';
+        if (count === 0 && isRecovered) bg = 'bg-indigo-900/60 border-indigo-500/40 text-indigo-200';
+        else if (count > 0 && count < 5) bg = 'bg-emerald-900/60 border-emerald-900 text-emerald-200';
+        else if (count >= 5 && count < 15) bg = 'bg-emerald-700/80 border-emerald-700 text-emerald-100';
+        else if (count >= 15 && count < 30) bg = 'bg-emerald-500 border-emerald-400 text-white';
+        else if (count >= 30) bg = 'bg-emerald-400 border-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.4)] text-slate-900 font-bold';
       }
 
       cells.push(
         <div key={d} tabIndex="0" onClick={() => { 
           if(canRecover) {
-             setStreakRecoveryDate(dateStr);
+            setStreakRecoveryDate(dateStr);
           }
         }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all group focus:outline-none ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-20 focus:z-20' : 'cursor-default hover:scale-110 hover:z-20 focus:scale-110 focus:z-20'} ${bg}`}>
           <span className="text-sm pointer-events-none">{d}</span>
@@ -1658,25 +1754,25 @@ export default function App() {
     }
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl overflow-hidden flex flex-col h-full relative animate-pop delay-100">
-         <div className="absolute top-0 right-0 p-32 bg-emerald-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-         <div className="flex justify-between items-start mb-6 relative z-10">
-            <div>
-              <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><CalendarDays className="w-5 h-5 text-emerald-400" /> Histórico</h3>
-              <div className="flex items-center gap-4 mt-3">
-                <button onClick={prevMonth} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"><ChevronLeft className="w-4 h-4" /></button>
-                <span className="text-sm font-semibold text-slate-200 uppercase tracking-wider">{monthNames[month]} {year}</span>
-                <button onClick={nextMonth} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"><ChevronRight className="w-4 h-4" /></button>
-              </div>
+        <div className="absolute top-0 right-0 p-32 bg-emerald-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+        <div className="flex justify-between items-start mb-6 relative z-10">
+          <div>
+            <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><CalendarDays className="w-5 h-5 text-emerald-400" /> Histórico</h3>
+            <div className="flex items-center gap-4 mt-3">
+              <button onClick={prevMonth} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"><ChevronLeft className="w-4 h-4" /></button>
+              <span className="text-sm font-semibold text-slate-200 uppercase tracking-wider">{monthNames[month]} {year}</span>
+              <button onClick={nextMonth} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"><ChevronRight className="w-4 h-4" /></button>
             </div>
-            <div className="text-right bg-slate-950/50 px-4 py-2 rounded-2xl border border-slate-800/80">
-              <span className="text-2xl font-black text-emerald-400">{monthTotalRevisions}</span>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Neste Mês</p>
-            </div>
-         </div>
-         <div className="relative z-10 w-full mt-2">
-           <div className="grid grid-cols-7 gap-1.5 mb-2">{dayNames.map(day => <div key={day} className="text-center text-[10px] font-bold text-slate-500 uppercase tracking-widest">{day}</div>)}</div>
-           <div className="grid grid-cols-7 gap-1.5">{cells}</div>
-         </div>
+          </div>
+          <div className="text-right bg-slate-950/50 px-4 py-2 rounded-2xl border border-slate-800/80">
+            <span className="text-2xl font-black text-emerald-400">{monthTotalRevisions}</span>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Neste Mês</p>
+          </div>
+        </div>
+        <div className="relative z-10 w-full mt-2">
+          <div className="grid grid-cols-7 gap-1.5 mb-2">{dayNames.map(day => <div key={day} className="text-center text-[10px] font-bold text-slate-500 uppercase tracking-widest">{day}</div>)}</div>
+          <div className="grid grid-cols-7 gap-1.5">{cells}</div>
+        </div>
       </div>
     );
   };
@@ -1714,33 +1810,32 @@ export default function App() {
       }
     }
 
-    let overdue = 0;
     allCards.forEach(c => {
       if (!c.dueDate) return;
       
       if (checkCardDue(c)) {
-          if (forecastPeriod === 'week' || forecastPeriod === 'month') {
-              buckets[0].count++;
-          } else if (forecastPeriod === 'year') {
-              const bIdx = buckets.findIndex(b => b.month === today.getMonth() && b.year === today.getFullYear());
-              if (bIdx !== -1) buckets[bIdx].count++;
-          }
+        if (forecastPeriod === 'week' || forecastPeriod === 'month') {
+          buckets[0].count++;
+        } else if (forecastPeriod === 'year') {
+          const bIdx = buckets.findIndex(b => b.month === today.getMonth() && b.year === today.getFullYear());
+          if (bIdx !== -1) buckets[bIdx].count++;
+        }
       } else {
-          const cDateStart = new Date(c.dueDate); 
-          cDateStart.setHours(0,0,0,0);
-          
-          if (forecastPeriod === 'week' || forecastPeriod === 'month') {
-              const diffTime = cDateStart.getTime() - today.getTime();
-              const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-              if (diffDays > 0 && diffDays < bucketCount) {
-                  buckets[diffDays].count++;
-              }
-          } else if (forecastPeriod === 'year') {
-              const bIdx = buckets.findIndex(b => b.month === cDateStart.getMonth() && b.year === cDateStart.getFullYear());
-              if (bIdx !== -1) {
-                  buckets[bIdx].count++;
-              }
+        const cDateStart = new Date(c.dueDate); 
+        cDateStart.setHours(0,0,0,0);
+        
+        if (forecastPeriod === 'week' || forecastPeriod === 'month') {
+          const diffTime = cDateStart.getTime() - today.getTime();
+          const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+          if (diffDays > 0 && diffDays < bucketCount) {
+            buckets[diffDays].count++;
           }
+        } else if (forecastPeriod === 'year') {
+          const bIdx = buckets.findIndex(b => b.month === cDateStart.getMonth() && b.year === cDateStart.getFullYear());
+          if (bIdx !== -1) {
+            buckets[bIdx].count++;
+          }
+        }
       }
     });
     
@@ -1763,26 +1858,26 @@ export default function App() {
         </div>
 
         <div className="flex items-end justify-between flex-grow min-h-[200px] gap-1.5 sm:gap-2 relative z-10 mt-auto chart-scroll-container overflow-x-auto pb-2 pt-16">
-           <div className={`flex items-end justify-between h-full w-full gap-1.5 sm:gap-2 ${forecastPeriod === 'month' ? 'min-w-[600px]' : 'min-w-min'}`}>
-             {buckets.map((b, i) => {
-               const height = Math.max((b.count / max) * 100, 4);
-               const showLabel = forecastPeriod === 'week' || forecastPeriod === 'year' || (forecastPeriod === 'month' && i % 3 === 0);
-               return (
-                 <div key={i} className="relative flex flex-col items-center flex-1 h-full justify-end group/bar">
-                   <div className="absolute bottom-full mb-2 opacity-0 group-hover/bar:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700 flex flex-col items-center origin-bottom">
-                     <span className="text-indigo-300 text-sm">{b.count} <span className="text-xs text-slate-400 font-medium">cartões</span></span>
-                     <span className="text-[9px] text-slate-500 uppercase tracking-wider mt-0.5">{b.label}</span>
-                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-800"></div>
-                   </div>
+          <div className={`flex items-end justify-between h-full w-full gap-1.5 sm:gap-2 ${forecastPeriod === 'month' ? 'min-w-[600px]' : 'min-w-min'}`}>
+            {buckets.map((b, i) => {
+              const height = Math.max((b.count / max) * 100, 4);
+              const showLabel = forecastPeriod === 'week' || forecastPeriod === 'year' || (forecastPeriod === 'month' && i % 3 === 0);
+              return (
+                <div key={i} className="relative flex flex-col items-center flex-1 h-full justify-end group/bar">
+                  <div className="absolute bottom-full mb-2 opacity-0 group-hover/bar:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700 flex flex-col items-center origin-bottom">
+                    <span className="text-indigo-300 text-sm">{b.count} <span className="text-xs text-slate-400 font-medium">cartões</span></span>
+                    <span className="text-[9px] text-slate-500 uppercase tracking-wider mt-0.5">{b.label}</span>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-800"></div>
+                  </div>
 
-                   <div className="w-full max-w-[40px] relative flex items-end justify-center h-full bg-slate-950 rounded-t-sm sm:rounded-t-xl border border-b-0 border-slate-800/80 hover:border-indigo-500/50 transition-colors">
-                     <div className="w-full bg-gradient-to-t from-indigo-600/80 to-purple-400/80 rounded-t-sm sm:rounded-t-xl transition-all duration-500 group-hover/bar:from-indigo-500 group-hover/bar:to-purple-300" style={{ height: `${height}%` }}></div>
-                   </div>
-                   <span className="text-[9px] sm:text-xs font-bold text-slate-500 uppercase tracking-widest mt-2 h-4 text-center w-full truncate">{showLabel ? b.label : ''}</span>
-                 </div>
-               )
-             })}
-           </div>
+                  <div className="w-full max-w-[40px] relative flex items-end justify-center h-full bg-slate-950 rounded-t-sm sm:rounded-t-xl border border-b-0 border-slate-800/80 hover:border-indigo-500/50 transition-colors">
+                    <div className="w-full bg-gradient-to-t from-indigo-600/80 to-purple-400/80 rounded-t-sm sm:rounded-t-xl transition-all duration-500 group-hover/bar:from-indigo-500 group-hover/bar:to-purple-300" style={{ height: `${height}%` }}></div>
+                  </div>
+                  <span className="text-[9px] sm:text-xs font-bold text-slate-500 uppercase tracking-widest mt-2 h-4 text-center w-full truncate">{showLabel ? b.label : ''}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
@@ -1790,19 +1885,19 @@ export default function App() {
 
   const renderDeckDistribution = () => {
     let dist = validDecks.filter(d => !d.isIgnored).map(d => {
-       const effort = (d.cards || []).reduce((sum, c) => sum + (c.reviews || 0), 0);
-       const cardCount = d.cards?.length || 1;
-       const intensity = effort / cardCount;
-       return { name: d.name, effort: intensity, rawEffort: effort, cardCount };
+      const effort = (d.cards || []).reduce((sum, c) => sum + (c.reviews || 0), 0);
+      const cardCount = d.cards?.length || 1;
+      const intensity = effort / cardCount;
+      return { name: d.name, effort: intensity, rawEffort: effort, cardCount };
     }).filter(d => d.rawEffort > 0).sort((a,b) => b.effort - a.effort);
 
     const totalEffort = dist.reduce((sum, d) => sum + d.effort, 0);
     
     if (dist.length > 4) {
-       const top = dist.slice(0, 3);
-       const othersEffort = dist.slice(3).reduce((sum, d) => sum + d.effort, 0);
-       top.push({ name: 'Outros', effort: othersEffort });
-       dist = top;
+      const top = dist.slice(0, 3);
+      const othersEffort = dist.slice(3).reduce((sum, d) => sum + d.effort, 0);
+      top.push({ name: 'Outros', effort: othersEffort });
+      dist = top;
     }
 
     const colors = ['#818cf8', '#34d399', '#fbbf24', '#f472b6', '#94a3b8'];
@@ -1810,59 +1905,59 @@ export default function App() {
 
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-200">
-         <div className="absolute bottom-0 left-0 p-32 bg-amber-500/5 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
-         <div className="flex justify-between items-center mb-8 relative z-10">
-           <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Intensidade</h3>
-           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Média de Esforço</span>
-         </div>
-         
-         {totalEffort === 0 ? (
-            <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10">Nenhum dado de estudo ainda.</div>
-         ) : (
-            <div className="flex flex-col sm:flex-row items-center gap-6 flex-grow relative z-10 w-full min-w-0">
-               <div className="relative w-32 h-32 shrink-0 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] mx-auto sm:mx-0">
-                  <svg viewBox="-10 -10 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
-                     <circle cx="50" cy="50" r="40" fill="transparent" stroke="#1e293b" strokeWidth="16" />
-                     {dist.map((item, i) => {
-                         const percent = (item.effort / totalEffort) * 100;
-                         const dashArray = (percent * 251.327) / 100;
-                         const dashOffset = (cumulativePercent * 251.327) / 100;
-                         cumulativePercent += percent;
-                         return (
-                             <circle
-                                key={i}
-                                cx="50" cy="50" r="40"
-                                fill="transparent"
-                                stroke={colors[i]}
-                                strokeWidth="16"
-                                strokeDasharray={`${dashArray} 251.327`}
-                                strokeDashoffset={-dashOffset}
-                                className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
-                             >
-                                <title>{item.name}: média de {item.effort.toFixed(1)} revisões p/ cartão</title>
-                             </circle>
-                         );
-                     })}
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                     <span className="text-2xl font-black text-slate-200 leading-none">{dist.length}</span>
-                     <span className="text-[10px] text-slate-500 uppercase font-bold mt-1">Baralhos</span>
-                  </div>
-               </div>
-               
-               <div className="flex flex-col gap-3 flex-grow w-full min-w-0">
-                  {dist.map((item, i) => (
-                     <div key={i} className="flex items-center justify-between text-sm group min-w-0 w-full gap-2">
-                        <div className="flex items-center gap-2.5 overflow-hidden flex-grow min-w-0">
-                           <div className="w-3 h-3 rounded-full shrink-0 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: colors[i], color: colors[i] }}></div>
-                           <span className="text-slate-300 font-medium truncate group-hover:text-slate-100 transition-colors flex-grow" title={item.name}>{item.name}</span>
-                        </div>
-                        <span className="font-black text-slate-400 shrink-0 w-10 text-right">{Math.round((item.effort / totalEffort) * 100)}%</span>
-                     </div>
-                  ))}
-               </div>
+        <div className="absolute bottom-0 left-0 p-32 bg-amber-500/5 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
+        <div className="flex justify-between items-center mb-8 relative z-10">
+          <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Intensidade</h3>
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Média de Esforço</span>
+        </div>
+        
+        {totalEffort === 0 ? (
+          <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10">Nenhum dado de estudo ainda.</div>
+        ) : (
+          <div className="flex flex-col sm:flex-row items-center gap-6 flex-grow relative z-10 w-full min-w-0">
+            <div className="relative w-32 h-32 shrink-0 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] mx-auto sm:mx-0">
+              <svg viewBox="-10 -10 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
+                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#1e293b" strokeWidth="16" />
+                {dist.map((item, i) => {
+                  const percent = (item.effort / totalEffort) * 100;
+                  const dashArray = (percent * 251.327) / 100;
+                  const dashOffset = (cumulativePercent * 251.327) / 100;
+                  cumulativePercent += percent;
+                  return (
+                    <circle
+                      key={i}
+                      cx="50" cy="50" r="40"
+                      fill="transparent"
+                      stroke={colors[i]}
+                      strokeWidth="16"
+                      strokeDasharray={`${dashArray} 251.327`}
+                      strokeDashoffset={-dashOffset}
+                      className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
+                    >
+                      <title>{item.name}: média de {item.effort.toFixed(1)} revisões p/ cartão</title>
+                    </circle>
+                  );
+                })}
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-2xl font-black text-slate-200 leading-none">{dist.length}</span>
+                <span className="text-[10px] text-slate-500 uppercase font-bold mt-1">Baralhos</span>
+              </div>
             </div>
-         )}
+            
+            <div className="flex flex-col gap-3 flex-grow w-full min-w-0">
+              {dist.map((item, i) => (
+                <div key={i} className="flex items-center justify-between text-sm group min-w-0 w-full gap-2">
+                  <div className="flex items-center gap-2.5 overflow-hidden flex-grow min-w-0">
+                    <div className="w-3 h-3 rounded-full shrink-0 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: colors[i], color: colors[i] }}></div>
+                    <span className="text-slate-300 font-medium truncate group-hover:text-slate-100 transition-colors flex-grow" title={item.name}>{item.name}</span>
+                  </div>
+                  <span className="font-black text-slate-400 shrink-0 w-10 text-right">{Math.round((item.effort / totalEffort) * 100)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -1871,15 +1966,17 @@ export default function App() {
     let daysCount = 7; let days = []; const today = new Date();
 
     if (reportPeriod === 'all') {
-        const dates = Object.keys(activityMap).sort();
-        if (dates.length > 0) {
-            const firstDate = new Date(dates[0]); const diffTime = Math.abs(today - firstDate);
-            daysCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-            for(let i = 0; i < daysCount; i++) { const d = new Date(firstDate); d.setDate(firstDate.getDate() + i); days.push(d); }
-        } else { days.push(today); daysCount = 1; }
+      const dates = Object.keys(activityMap).sort();
+      if (dates.length > 0) {
+        // Usa T12:00:00 para evitar deslocamento de fuso horário UTC-3
+        const firstDate = new Date(dates[0] + 'T12:00:00'); 
+        const diffTime = Math.abs(today - firstDate);
+        daysCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        for(let i = 0; i < daysCount; i++) { const d = new Date(firstDate); d.setDate(firstDate.getDate() + i); days.push(d); }
+      } else { days.push(today); daysCount = 1; }
     } else {
-        daysCount = reportPeriod === 'week' ? 7 : 30;
-        for(let i = daysCount - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d); }
+      daysCount = reportPeriod === 'week' ? 7 : 30;
+      for(let i = daysCount - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(d); }
     }
 
     let totalReviewsPeriod = 0;
@@ -1908,13 +2005,12 @@ export default function App() {
     const avgRetention = revCardsCount > 0 ? ((totalR / revCardsCount) * 100).toFixed(1) : 'N/A';
     const maturePercent = targetCards.length > 0 ? Math.round((matureCount / targetCards.length) * 100) : 0;
 
-    // --- LÓGICA DO GRÁFICO DE LINHA ---
     const maxActivity = Math.max(...activityData.map(a => a.count), 5);
     const n = activityData.length;
     const points = activityData.map((data, i) => {
       const showLabel = reportPeriod === 'week' || (reportPeriod === 'month' && i % 3 === 0) || (reportPeriod === 'all' && i % Math.max(1, Math.floor(daysCount / 10)) === 0);
       const x = n <= 1 ? 50 : (i / (n - 1)) * 100;
-      const y = maxActivity === 0 ? 0 : (data.count / maxActivity) * 75; // Topo limitado a 75%
+      const y = maxActivity === 0 ? 0 : (data.count / maxActivity) * 75;
       return { ...data, x, y, showLabel };
     });
 
@@ -1998,7 +2094,7 @@ export default function App() {
                         <path d={smoothLinePath} fill="none" stroke="#818cf8" strokeWidth="3" vectorEffect="non-scaling-stroke" strokeLinecap="round" />
                       </>
                     ) : points.length === 1 ? (
-                       <circle cx={points[0].x} cy={100 - points[0].y} r="3" fill="#818cf8" />
+                      <circle cx={points[0].x} cy={100 - points[0].y} r="3" fill="#818cf8" />
                     ) : null}
                   </svg>
 
@@ -2055,7 +2151,7 @@ export default function App() {
                     </div>
                     <div className="w-8 sm:w-12 text-right text-xs sm:text-sm font-bold text-slate-200">{tier.count}</div>
                   </div>
-                )
+                );
               })}
             </div>
             {revCardsCount === 0 && <div className="text-center text-sm text-slate-500 mt-4 italic">Sem dados suficientes de revisão para calcular.</div>}
@@ -2104,25 +2200,25 @@ export default function App() {
               <div className="mb-8 bg-gradient-to-br from-indigo-900/40 to-purple-900/10 border border-indigo-500/20 p-6 sm:p-8 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden shadow-xl shadow-indigo-900/10">
                 <div className="absolute top-0 right-0 p-32 bg-indigo-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
                 <div className="relative z-10 w-full md:w-1/2">
-                   <h2 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2">{getGreeting()}, pronto para focar?</h2>
-                   <div className="flex flex-wrap items-center gap-3 mt-3">
-                     <p className="text-slate-400">Você tem <strong className="text-indigo-400 text-lg">{calculateTotalDue(globalStats)}</strong> cartões pendentes hoje.</p>
-                     {calculateTotalDue(globalStats) > 0 && (
-                       <span className="flex items-center gap-1.5 text-sm bg-slate-900/80 text-amber-400 px-3 py-1.5 rounded-xl border border-amber-500/20 shadow-lg shadow-amber-500/5 animate-pop delay-100">
-                          <Timer className="w-4 h-4" />
-                          <strong>~{Math.max(1, Math.ceil(calculateTotalDue(globalStats) * 0.33))} min</strong> de foco
-                       </span>
-                     )}
-                   </div>
+                  <h2 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2">{getGreeting()}, pronto para focar?</h2>
+                  <div className="flex flex-wrap items-center gap-3 mt-3">
+                    <p className="text-slate-400">Você tem <strong className="text-indigo-400 text-lg">{calculateTotalDue(globalStats)}</strong> cartões pendentes hoje.</p>
+                    {calculateTotalDue(globalStats) > 0 && (
+                      <span className="flex items-center gap-1.5 text-sm bg-slate-900/80 text-amber-400 px-3 py-1.5 rounded-xl border border-amber-500/20 shadow-lg shadow-amber-500/5 animate-pop delay-100">
+                        <Timer className="w-4 h-4" />
+                        <strong>~{Math.max(1, Math.ceil(calculateTotalDue(globalStats) * 0.33))} min</strong> de foco
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="relative z-10 w-full md:w-1/2 bg-slate-950/60 p-5 rounded-2xl border border-slate-800/80 backdrop-blur-sm">
-                   <div className="flex justify-between text-sm font-medium mb-3">
-                     <span className="text-slate-300 flex items-center gap-1.5"><Target className="w-4 h-4 text-rose-400"/> Meta Diária</span>
-                     <span className="text-rose-400 font-bold">{getDailyCount(getTodayStr())} / {dailyGoal}</span>
-                   </div>
-                   <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
-                     <div className="bg-gradient-to-r from-orange-400 to-rose-500 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(244,63,94,0.5)]" style={{ width: `${Math.min((getDailyCount(getTodayStr()) / dailyGoal) * 100, 100)}%` }}></div>
-                   </div>
+                  <div className="flex justify-between text-sm font-medium mb-3">
+                    <span className="text-slate-300 flex items-center gap-1.5"><Target className="w-4 h-4 text-rose-400"/> Meta Diária</span>
+                    <span className="text-rose-400 font-bold">{getDailyCount(getTodayStr())} / {dailyGoal}</span>
+                  </div>
+                  <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
+                    <div className="bg-gradient-to-r from-orange-400 to-rose-500 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(244,63,94,0.5)]" style={{ width: `${Math.min((getDailyCount(getTodayStr()) / dailyGoal) * 100, 100)}%` }}></div>
+                  </div>
                 </div>
               </div>
             )}
@@ -2141,42 +2237,42 @@ export default function App() {
 
             {currentFolderId !== null && (
               <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-gradient-to-r from-indigo-900/30 to-slate-900 border border-indigo-500/20 p-5 rounded-2xl shadow-lg gap-4">
-                 <div>
-                    <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-                       <Folder className="w-5 h-5 text-indigo-400" />
-                       {folders.find(f => f.id === currentFolderId)?.name}
-                    </h2>
-                    <p className="text-sm text-slate-400 mt-1">
-                       <strong className="text-indigo-400">{calculateTotalDue(getFolderStats(currentFolderId))}</strong> cartões pendentes em sub-baralhos.
-                    </p>
-                 </div>
-                 <div className="flex gap-2 w-full sm:w-auto">
-                     <button onClick={() => startReview(null, false, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${calculateTotalDue(getFolderStats(currentFolderId)) > 0 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
-                         <Play className="w-4 h-4" fill="currentColor" /> Estudar Tudo
-                     </button>
-                     <button onClick={() => startReview(null, true, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0 && getFolderStats(currentFolderId).learned === 0} className={`flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95`} title="Rever ignorando agendamento">
-                         <FastForward className="w-4 h-4" fill="currentColor" /> Modo Livre
-                     </button>
-                 </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                    <Folder className="w-5 h-5 text-indigo-400" />
+                    {folders.find(f => f.id === currentFolderId)?.name}
+                  </h2>
+                  <p className="text-sm text-slate-400 mt-1">
+                    <strong className="text-indigo-400">{calculateTotalDue(getFolderStats(currentFolderId))}</strong> cartões pendentes em sub-baralhos.
+                  </p>
+                </div>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button onClick={() => startReview(null, false, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${calculateTotalDue(getFolderStats(currentFolderId)) > 0 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
+                    <Play className="w-4 h-4" fill="currentColor" /> Estudar Tudo
+                  </button>
+                  <button onClick={() => startReview(null, true, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0 && getFolderStats(currentFolderId).learned === 0} className={`flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95`} title="Rever ignorando agendamento">
+                    <FastForward className="w-4 h-4" fill="currentColor" /> Modo Livre
+                  </button>
+                </div>
               </div>
             )}
 
             <div className="mb-10">
-               <div className="flex items-center justify-between mb-5">
-                 <h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><Folder className="w-5 h-5 text-indigo-400" /> Coleções</h2>
-               </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-                 {currentFolders.map((folder, index) => {
-                   const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || FOLDER_THEMES[0].color;
-                   return (
-                     <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-600 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
-                       <div className="flex items-center gap-4 flex-grow min-w-0 pr-3">
-                         <div className={`relative p-3 rounded-xl shrink-0 ${colorClass}`}>
-                           <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
-                         </div>
-                         <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 break-words" title={folder.name}>{folder.name}</span>
-                       </div>
-                       <div className="flex items-center gap-3 shrink-0 ml-2">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><Folder className="w-5 h-5 text-indigo-400" /> Coleções</h2>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+                {currentFolders.map((folder, index) => {
+                  const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || FOLDER_THEMES[0].color;
+                  return (
+                    <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-600 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
+                      <div className="flex items-center gap-4 flex-grow min-w-0 pr-3">
+                        <div className={`relative p-3 rounded-xl shrink-0 ${colorClass}`}>
+                          <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
+                        </div>
+                        <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 break-words" title={folder.name}>{folder.name}</span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 ml-2">
                         {renderStatBadges(getFolderStats(folder.id))}
                         <div className="relative" onClick={e => e.stopPropagation()}>
                           <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : folder.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
@@ -2191,78 +2287,77 @@ export default function App() {
                             </div>
                           )}
                         </div>
-                       </div>
-                     </div>
-                   )
-                 })}
-                 <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-5 border-2 border-dashed border-slate-800/60 hover:border-indigo-500/40 cursor-pointer flex items-center gap-4 text-slate-500 hover:text-indigo-400 animate-pop hover:-translate-y-1 transition-all duration-300">
-                    <div className="p-3 bg-slate-950/50 rounded-xl"><FolderPlus className="w-6 h-6" /></div>
-                    <span className="font-medium">Nova Coleção</span>
-                 </div>
-               </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-5 border-2 border-dashed border-slate-800/60 hover:border-indigo-500/40 cursor-pointer flex items-center gap-4 text-slate-500 hover:text-indigo-400 animate-pop hover:-translate-y-1 transition-all duration-300">
+                  <div className="p-3 bg-slate-950/50 rounded-xl"><FolderPlus className="w-6 h-6" /></div>
+                  <span className="font-medium">Nova Coleção</span>
+                </div>
+              </div>
             </div>
 
             <div>
-               <div className="flex items-center justify-between mb-5">
-                 <h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><BookOpen className="w-5 h-5 text-indigo-400" /> Baralhos</h2>
-               </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-                 {currentDecks.map((deck, index) => {
-                   const stats = getCardStats(deck.cards); const due = calculateTotalDue(stats);
-                   const isMenuOpen = activeMenuId === deck.id; const colorClass = deck.color || DECK_THEMES[0].color;
-                   const playDisabled = due === 0 || deck.isIgnored;
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><BookOpen className="w-5 h-5 text-indigo-400" /> Baralhos</h2>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+                {currentDecks.map((deck, index) => {
+                  const stats = getCardStats(deck.cards); const due = calculateTotalDue(stats);
+                  const isMenuOpen = activeMenuId === deck.id; const colorClass = deck.color || DECK_THEMES[0].color;
+                  const playDisabled = due === 0 || deck.isIgnored;
 
-                   return (
-                     <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className={`bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 50}ms`}}>
-                       <div className="flex items-start justify-between mb-4 w-full">
-                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
-                         <div className="relative" onClick={e => e.stopPropagation()}>
-                           <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : deck.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
-                             <MoreVertical className="w-5 h-5" />
-                           </button>
-                           {isMenuOpen && (
-                             <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                               <button onClick={(e) => { toggleIgnoreDeck(deck, e); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2">
-                                  {deck.isIgnored ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                                  {deck.isIgnored ? 'Ativar Baralho' : 'Ignorar Baralho'}
-                               </button>
-                               <div className="h-px bg-slate-700 w-full"></div>
-                               <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                               <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
-                               <div className="h-px bg-slate-700 w-full"></div>
-                               <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
-                             </div>
-                           )}
-                         </div>
-                       </div>
-                       <h3 className="text-xl font-bold text-slate-200 mb-2 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words w-full" title={deck.name}>{deck.name}</h3>
-                       <div className="mb-3 w-full flex flex-wrap gap-1.5 items-center">
-                         {deck.isIgnored ? (
-                            <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-0.5 rounded border border-slate-700 flex items-center gap-1"><EyeOff className="w-3 h-3"/> Ignorado</span>
-                         ) : (
-                            renderStatBadges(stats)
-                         )}
-                       </div>
-                       <p className="text-slate-400 text-sm flex-grow line-clamp-2 w-full" title={deck.description}>{deck.description}</p>
-                       <div className="mt-4 pt-4 border-t border-slate-800/50 flex justify-between items-center text-sm text-slate-500 w-full">
-                         <span>{deck.cards?.length || 0} cartões totais</span>
-                         <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={playDisabled} className={`p-2 rounded-full transition-all ${!playDisabled ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:scale-110' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed'}`}>
-                           <Play className="w-5 h-5" fill="currentColor" />
-                         </button>
-                       </div>
-                     </div>
-                   )
-                 })}
-                 <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/30 rounded-2xl p-6 border-2 border-dashed border-slate-800/80 flex flex-col items-center justify-center text-slate-500 hover:text-indigo-400 hover:border-indigo-500/40 hover:bg-indigo-950/10 transition-all duration-300 cursor-pointer min-h-[220px] animate-pop hover:-translate-y-1">
-                   <Plus className="w-10 h-10 mb-2" />
-                   <span className="font-medium">Novo Baralho</span>
-                 </div>
-               </div>
+                  return (
+                    <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className={`bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 50}ms`}}>
+                      <div className="flex items-start justify-between mb-4 w-full">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
+                        <div className="relative" onClick={e => e.stopPropagation()}>
+                          <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : deck.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
+                            <MoreVertical className="w-5 h-5" />
+                          </button>
+                          {isMenuOpen && (
+                            <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                              <button onClick={(e) => { toggleIgnoreDeck(deck, e); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2">
+                                {deck.isIgnored ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                {deck.isIgnored ? 'Ativar Baralho' : 'Ignorar Baralho'}
+                              </button>
+                              <div className="h-px bg-slate-700 w-full"></div>
+                              <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                              <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
+                              <div className="h-px bg-slate-700 w-full"></div>
+                              <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-200 mb-2 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words w-full" title={deck.name}>{deck.name}</h3>
+                      <div className="mb-3 w-full flex flex-wrap gap-1.5 items-center">
+                        {deck.isIgnored ? (
+                          <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-0.5 rounded border border-slate-700 flex items-center gap-1"><EyeOff className="w-3 h-3"/> Ignorado</span>
+                        ) : (
+                          renderStatBadges(stats)
+                        )}
+                      </div>
+                      <p className="text-slate-400 text-sm flex-grow line-clamp-2 w-full" title={deck.description}>{deck.description}</p>
+                      <div className="mt-4 pt-4 border-t border-slate-800/50 flex justify-between items-center text-sm text-slate-500 w-full">
+                        <span>{deck.cards?.length || 0} cartões totais</span>
+                        <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={playDisabled} className={`p-2 rounded-full transition-all ${!playDisabled ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:scale-110' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed'}`}>
+                          <Play className="w-5 h-5" fill="currentColor" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/30 rounded-2xl p-6 border-2 border-dashed border-slate-800/80 flex flex-col items-center justify-center text-slate-500 hover:text-indigo-400 hover:border-indigo-500/40 hover:bg-indigo-950/10 transition-all duration-300 cursor-pointer min-h-[220px] animate-pop hover:-translate-y-1">
+                  <Plus className="w-10 h-10 mb-2" />
+                  <span className="font-medium">Novo Baralho</span>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* --- ESTATÍSTICAS (STATS) --- */}
         {mainTab === 'stats' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 mb-8 pb-10">
             <div className="lg:col-span-2 xl:col-span-2">{renderCalendar()}</div>
@@ -2272,7 +2367,6 @@ export default function App() {
           </div>
         )}
         
-        {/* --- RELATÓRIOS (REPORTS) --- */}
         {mainTab === 'reports' && renderReports()}
 
       </div>
@@ -2296,11 +2390,11 @@ export default function App() {
             <div className="flex items-center gap-6">
               <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center shrink-0 ${activeDeck.color || DECK_THEMES[0].color}`}><BookOpen className="w-8 h-8 sm:w-10 sm:h-10" /></div>
               <div>
-                 <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2 flex items-center gap-3">
-                    {activeDeck.name}
-                    {activeDeck.isIgnored && <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-1 rounded border border-slate-700 flex items-center gap-1 uppercase tracking-wider"><EyeOff className="w-3 h-3"/> Ignorado</span>}
-                 </h1>
-                 <p className="text-slate-400">Gerir e adicionar cartões de estudo</p>
+                <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2 flex items-center gap-3">
+                  {activeDeck.name}
+                  {activeDeck.isIgnored && <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-1 rounded border border-slate-700 flex items-center gap-1 uppercase tracking-wider"><EyeOff className="w-3 h-3"/> Ignorado</span>}
+                </h1>
+                <p className="text-slate-400">Gerir e adicionar cartões de estudo</p>
               </div>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
@@ -2391,30 +2485,31 @@ export default function App() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-200 flex items-center gap-2">Cartões <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full text-xs">{activeDeck.cards?.length || 0}</span></h3>
               {activeDeck.cards?.length > 0 && (
-                 <div className="flex items-center gap-2 w-full sm:w-auto">
-                    {isSelectMode && (
-                      <button onClick={() => {
-                         if (selectedCardIds.size === activeDeck.cards?.length && activeDeck.cards?.length > 0) {
-                            setSelectedCardIds(new Set());
-                         } else {
-                            setSelectedCardIds(new Set(activeDeck.cards?.map(c => c.id)));
-                         }
-                      }} className="text-sm px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-slate-100 border border-slate-700 transition-colors flex-1 sm:flex-none">
-                        {selectedCardIds.size === activeDeck.cards?.length && activeDeck.cards?.length > 0 ? 'Desmarcar Todos' : 'Selecionar Todos'}
-                      </button>
-                    )}
-                    <button onClick={() => { setIsSelectMode(!isSelectMode); setSelectedCardIds(new Set()); }} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors flex-1 sm:flex-none ${isSelectMode ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'}`}>
-                       {isSelectMode ? 'Concluir Seleção' : 'Selecionar Múltiplos'}
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  {isSelectMode && (
+                    <button onClick={() => {
+                      if (selectedCardIds.size === activeDeck.cards?.length && activeDeck.cards?.length > 0) {
+                        setSelectedCardIds(new Set());
+                      } else {
+                        setSelectedCardIds(new Set(activeDeck.cards?.map(c => c.id)));
+                      }
+                    }} className="text-sm px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-slate-100 border border-slate-700 transition-colors flex-1 sm:flex-none">
+                      {selectedCardIds.size === activeDeck.cards?.length && activeDeck.cards?.length > 0 ? 'Desmarcar Todos' : 'Selecionar Todos'}
                     </button>
-                 </div>
+                  )}
+                  <button onClick={() => { setIsSelectMode(!isSelectMode); setSelectedCardIds(new Set()); }} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors flex-1 sm:flex-none ${isSelectMode ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'}`}>
+                    {isSelectMode ? 'Concluir Seleção' : 'Selecionar Múltiplos'}
+                  </button>
+                </div>
               )}
             </div>
             
             {(activeDeck.cards || []).slice().reverse().map((card) => {
+              const cardState = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
               let statusLabel = ''; let statusColor = '';
-              if (card.reviews === 0) { statusLabel = 'Novo'; statusColor = 'text-blue-400 bg-blue-500/10 border-blue-500/20'; }
-              else if (card.interval === 0) { statusLabel = 'Aprender'; statusColor = 'text-rose-400 bg-rose-500/10 border-rose-500/20'; }
-              else if (card.dueDate <= Date.now()) { statusLabel = 'Revisar'; statusColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'; }
+              if (cardState === 0 || card.reviews === 0) { statusLabel = 'Novo'; statusColor = 'text-blue-400 bg-blue-500/10 border-blue-500/20'; }
+              else if (cardState === 1 || cardState === 3 || card.interval < 1) { statusLabel = 'Aprender'; statusColor = 'text-rose-400 bg-rose-500/10 border-rose-500/20'; }
+              else if (checkCardDue(card)) { statusLabel = 'Revisar'; statusColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'; }
               else { statusLabel = 'Aprendido'; statusColor = 'text-slate-400 bg-slate-800 border-slate-700'; }
 
               const typeObj = CARD_TYPES.find(t => t.id === (card.type || 'standard')) || CARD_TYPES[0];
@@ -2422,21 +2517,21 @@ export default function App() {
 
               return (
                 <div key={card.id} 
-                     className={`bg-slate-900/80 p-5 rounded-2xl border flex items-start gap-3 sm:gap-4 group transition-all duration-300 anki-content ${isSelectMode && selectedCardIds.has(card.id) ? 'border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : (editingCardId === card.id ? 'border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'border-slate-800 hover:border-slate-700 hover:-translate-y-1')} ${isSelectMode ? 'cursor-pointer' : ''}`}
-                     onClick={() => { if (isSelectMode) toggleCardSelection(card.id); }}
+                  className={`bg-slate-900/80 p-5 rounded-2xl border flex items-start gap-3 sm:gap-4 group transition-all duration-300 anki-content ${isSelectMode && selectedCardIds.has(card.id) ? 'border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : (editingCardId === card.id ? 'border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'border-slate-800 hover:border-slate-700 hover:-translate-y-1')} ${isSelectMode ? 'cursor-pointer' : ''}`}
+                  onClick={() => { if (isSelectMode) toggleCardSelection(card.id); }}
                 >
                   {isSelectMode && (
-                     <div className="flex items-center h-full mr-4 pt-1 shrink-0">
-                         <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors border ${selectedCardIds.has(card.id) ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-slate-950 border-slate-600 text-transparent'}`}>
-                            <Check className="w-3.5 h-3.5" />
-                         </div>
-                     </div>
+                    <div className="flex items-center h-full mr-4 pt-1 shrink-0">
+                      <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors border ${selectedCardIds.has(card.id) ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-slate-950 border-slate-600 text-transparent'}`}>
+                        <Check className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
                   )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow pr-2 sm:pr-4">
                     <div className="max-h-64 overflow-y-auto custom-scrollbar">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">
-                           <TypeIconComp className="w-3 h-3" /> {typeObj.label}
+                          <TypeIconComp className="w-3 h-3" /> {typeObj.label}
                         </span>
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${statusColor}`}>{statusLabel}</span>
                       </div>
@@ -2450,23 +2545,22 @@ export default function App() {
                     </div>
                   </div>
                   {!isSelectMode && (
-                      <div className="flex flex-col gap-2 shrink-0">
-                        <button onClick={(e) => { e.stopPropagation(); editCard(card); }} className="text-slate-600 hover:text-indigo-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-indigo-500/10" title="Editar"><Pencil className="w-5 h-5" /></button>
-                        <button onClick={(e) => { e.stopPropagation(); deleteCard(card.id); }} className="text-slate-600 hover:text-red-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-red-500/10" title="Eliminar"><Trash2 className="w-5 h-5" /></button>
-                      </div>
+                    <div className="flex flex-col gap-2 shrink-0">
+                      <button onClick={(e) => { e.stopPropagation(); editCard(card); }} className="text-slate-600 hover:text-indigo-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-indigo-500/10" title="Editar"><Pencil className="w-5 h-5" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); deleteCard(card.id); }} className="text-slate-600 hover:text-red-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-red-500/10" title="Eliminar"><Trash2 className="w-5 h-5" /></button>
+                    </div>
                   )}
                 </div>
-              )
+              );
             })}
             {(!activeDeck.cards || activeDeck.cards.length === 0) && <div className="text-center py-10 text-slate-600 border border-dashed border-slate-800 rounded-2xl">Este baralho está vazio.</div>}
             
-            {/* FLOATING ACTION BAR PARA SELEÇÕES */}
             {selectedCardIds.size > 0 && (
               <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/95 backdrop-blur-md p-3 sm:p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] border border-slate-700 flex items-center gap-4 z-50 animate-pop">
-                 <span className="text-slate-200 font-bold whitespace-nowrap"><span className="text-indigo-400">{selectedCardIds.size}</span> selecionados</span>
-                 <div className="w-px h-6 bg-slate-700"></div>
-                 <button onClick={() => setIsMoveCardsModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-xl font-bold transition-all shadow-lg active:scale-95 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
-                 <button onClick={() => setSelectedCardIds(new Set())} className="text-slate-400 hover:text-slate-200 px-3 py-2 rounded-xl font-medium transition-colors hidden sm:block">Desmarcar</button>
+                <span className="text-slate-200 font-bold whitespace-nowrap"><span className="text-indigo-400">{selectedCardIds.size}</span> selecionados</span>
+                <div className="w-px h-6 bg-slate-700"></div>
+                <button onClick={() => setIsMoveCardsModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-xl font-bold transition-all shadow-lg active:scale-95 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
+                <button onClick={() => setSelectedCardIds(new Set())} className="text-slate-400 hover:text-slate-200 px-3 py-2 rounded-xl font-medium transition-colors hidden sm:block">Desmarcar</button>
               </div>
             )}
           </div>
@@ -2482,14 +2576,18 @@ export default function App() {
     const intervalLabels = [0,1,2,3].map(q => formatInterval(calculateNextReview(currentCard, q).interval));
     const type = currentCard.type || 'standard';
 
+    const normalizedUserTyped = (reviewInteraction || '').trim().toLowerCase();
+    const normalizedExpectedAnswer = (currentCard.typeAnswer || '').trim().toLowerCase();
+    const isTypingCorrect = normalizedUserTyped === normalizedExpectedAnswer;
+
     return (
       <div className="w-full px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col pb-24" onClick={() => setActiveMenuId(null)}>
         <div className="flex items-center justify-between mb-8 pt-4 gap-4">
           <div className="flex items-center gap-2">
-             <button onClick={() => setCurrentView('dashboard')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
-             <button onClick={handleUndo} disabled={reviewHistory.length === 0} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${reviewHistory.length > 0 ? 'text-indigo-400 hover:bg-indigo-900/30 cursor-pointer' : 'text-slate-700 cursor-not-allowed'}`} title="Desfazer último cartão">
-                <RotateCcw className="w-5 h-5" /> <span className="hidden sm:inline text-sm font-bold">Desfazer</span>
-             </button>
+            <button onClick={() => setCurrentView('dashboard')} className="text-slate-500 p-2 rounded-lg hover:bg-slate-800 transition-colors"><ArrowLeft className="w-6 h-6" /></button>
+            <button onClick={handleUndo} disabled={reviewHistory.length === 0} className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${reviewHistory.length > 0 ? 'text-indigo-400 hover:bg-indigo-900/30 cursor-pointer' : 'text-slate-700 cursor-not-allowed'}`} title="Desfazer último cartão (Ctrl+Z)">
+              <RotateCcw className="w-5 h-5" /> <span className="hidden sm:inline text-sm font-bold">Desfazer</span>
+            </button>
           </div>
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
         </div>
@@ -2502,7 +2600,6 @@ export default function App() {
                 style={{ transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
                 onClick={() => setIsFlipped(prev => !prev)} 
               >
-                {/* FRENTE */}
                 <div 
                   className="absolute inset-0 w-full h-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl"
                   style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
@@ -2511,28 +2608,27 @@ export default function App() {
                     <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
                     <div className="flex items-center gap-2">
                       <div className="relative" onClick={e => e.stopPropagation()}>
-                         <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-700 hover:text-indigo-300 rounded-lg transition-colors border border-slate-700/50" title="Opções do Cartão">
-                           <MoreVertical className="w-3.5 h-3.5" />
-                         </button>
-                         {activeMenuId === 'review_menu' && (
-                            <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                              <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                              <div className="h-px bg-slate-700 w-full"></div>
-                              <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
-                            </div>
-                         )}
+                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-700 hover:text-indigo-300 rounded-lg transition-colors border border-slate-700/50" title="Opções do Cartão">
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+                        {activeMenuId === 'review_menu' && (
+                          <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                            <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                            <div className="h-px bg-slate-700 w-full"></div>
+                            <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
+                          </div>
+                        )}
                       </div>
                       <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique (ou Espaço) para virar</span>
                     </div>
                   </div>
                   <div className="flex-grow overflow-y-auto custom-scrollbar relative">
                     <div className="min-h-full flex flex-col justify-center p-6 sm:p-8">
-                      <div className="w-full text-2xl sm:text-3xl text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                      <div className="w-full text-2xl sm:text-3xl text-slate-100 text-center anki-content" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
                     </div>
                   </div>
                 </div>
 
-                {/* VERSO */}
                 <div 
                   className="absolute inset-0 w-full h-full bg-indigo-950/40 rounded-3xl border border-indigo-500/20 flex flex-col shadow-2xl"
                   style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
@@ -2541,23 +2637,23 @@ export default function App() {
                     <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
                     <div className="flex items-center gap-2">
                       <div className="relative" onClick={e => e.stopPropagation()}>
-                         <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu_verso' ? null : 'review_menu_verso')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-indigo-400/70 bg-indigo-900/40 hover:bg-indigo-800 hover:text-indigo-200 rounded-lg transition-colors border border-indigo-500/30" title="Opções do Cartão">
-                           <MoreVertical className="w-3.5 h-3.5" />
-                         </button>
-                         {activeMenuId === 'review_menu_verso' && (
-                            <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                              <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                              <div className="h-px bg-slate-700 w-full"></div>
-                              <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
-                            </div>
-                         )}
+                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu_verso' ? null : 'review_menu_verso')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-indigo-400/70 bg-indigo-900/40 hover:bg-indigo-800 hover:text-indigo-200 rounded-lg transition-colors border border-indigo-500/30" title="Opções do Cartão">
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+                        {activeMenuId === 'review_menu_verso' && (
+                          <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                            <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                            <div className="h-px bg-slate-700 w-full"></div>
+                            <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
+                          </div>
+                        )}
                       </div>
                       <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors border border-indigo-500/30" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }} title="Virar Novamente"><RefreshCcw className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="flex-grow overflow-y-auto custom-scrollbar relative">
                     <div className="min-h-full flex flex-col justify-center p-6 sm:p-8">
-                      <div className="w-full text-2xl sm:text-3xl text-indigo-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                      <div className="w-full text-2xl sm:text-3xl text-indigo-100 text-center anki-content" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
                     </div>
                   </div>
                 </div>
@@ -2568,21 +2664,21 @@ export default function App() {
           {type !== 'standard' && (
             <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] max-h-[80vh] animate-slide-right relative group overflow-hidden">
               <div className="absolute top-4 right-4 z-30" onClick={e => e.stopPropagation()}>
-                 <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition-colors shadow-md" title="Opções do Cartão">
-                    <MoreVertical className="w-4 h-4" />
-                 </button>
-                 {activeMenuId === 'review_menu' && (
-                    <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
-                       <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                       <div className="h-px bg-slate-700 w-full"></div>
-                       <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
-                    </div>
-                 )}
+                <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition-colors shadow-md" title="Opções do Cartão">
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+                {activeMenuId === 'review_menu' && (
+                  <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                    <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                    <div className="h-px bg-slate-700 w-full"></div>
+                    <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
+                  </div>
+                )}
               </div>
               
               <div className="overflow-y-auto custom-scrollbar flex-grow flex flex-col">
                 <div className="p-6 sm:p-8 border-b border-slate-800/50 shrink-0">
-                  <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                  <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center anki-content" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
                 </div>
                 <div className="flex-grow p-6 sm:px-10 bg-slate-950/50 flex flex-col justify-center gap-4">
                   {type === 'choice' && (
@@ -2605,23 +2701,23 @@ export default function App() {
 
                         return (
                           <div key={idx} className={`relative flex ${spanClass}`}>
-                             <button 
-                               disabled={isFlipped || isEliminated} 
-                               onClick={() => handleInteractiveSubmit(idx)} 
-                               className={`w-full p-4 pr-12 rounded-xl border-2 text-left font-medium transition-all flex justify-between items-center text-lg ${btnClass}`}
-                             >
-                               <span>{opt}</span> 
-                               <span className="text-xs opacity-30 font-mono hidden sm:block">{idx+1}</span>
-                             </button>
-                             {!isFlipped && (
-                               <button 
-                                 onClick={(e) => { e.stopPropagation(); toggleEliminateOption(idx); }}
-                                 className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${isEliminated ? 'text-indigo-400 hover:text-indigo-300' : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'}`}
-                                 title={isEliminated ? "Restaurar alternativa" : "Riscar alternativa (Eliminar)"}
-                               >
-                                 {isEliminated ? <RotateCcw className="w-4 h-4"/> : <X className="w-4 h-4"/>}
-                               </button>
-                             )}
+                            <button 
+                              disabled={isFlipped || isEliminated} 
+                              onClick={() => handleInteractiveSubmit(idx)} 
+                              className={`w-full p-4 pr-12 rounded-xl border-2 text-left font-medium transition-all flex justify-between items-center text-lg ${btnClass}`}
+                            >
+                              <span>{opt}</span> 
+                              <span className="text-xs opacity-30 font-mono hidden sm:block">{idx+1}</span>
+                            </button>
+                            {!isFlipped && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); toggleEliminateOption(idx); }}
+                                className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${isEliminated ? 'text-indigo-400 hover:text-indigo-300' : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'}`}
+                                title={isEliminated ? "Restaurar alternativa" : "Riscar alternativa (Eliminar)"}
+                              >
+                                {isEliminated ? <RotateCcw className="w-4 h-4"/> : <X className="w-4 h-4"/>}
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -2635,8 +2731,30 @@ export default function App() {
                   )}
                   {type === 'typing' && (
                     <div className="w-full flex flex-col items-center gap-4">
-                      <input type="text" autoFocus disabled={isFlipped} value={isFlipped ? reviewInteraction : typedInput} onChange={e => setTypedInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && typedInput && handleInteractiveSubmit(typedInput)} className={`w-full max-w-lg bg-transparent border-b-2 text-center text-3xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : ((reviewInteraction || '').toLowerCase() === (currentCard.typeAnswer || '').toLowerCase() ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`} placeholder="" />
-                      {isFlipped && (reviewInteraction || '').toLowerCase() !== (currentCard.typeAnswer || '').toLowerCase() && (
+                      <div className="w-full max-w-lg flex items-center gap-2">
+                        <input 
+                          type="text" 
+                          autoFocus 
+                          disabled={isFlipped} 
+                          value={isFlipped ? reviewInteraction : typedInput} 
+                          onChange={e => setTypedInput(e.target.value)} 
+                          onKeyDown={e => e.key === 'Enter' && typedInput.trim() && handleInteractiveSubmit(typedInput)} 
+                          className={`w-full bg-transparent border-b-2 text-center text-2xl sm:text-3xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : (isTypingCorrect ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`} 
+                          placeholder="Digite sua resposta..." 
+                        />
+                        {!isFlipped && (
+                          <button 
+                            type="button"
+                            onClick={() => typedInput.trim() && handleInteractiveSubmit(typedInput)}
+                            disabled={!typedInput.trim()}
+                            className={`p-4 rounded-xl font-bold transition-all shrink-0 ${typedInput.trim() ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+                            title="Confirmar Resposta"
+                          >
+                            <Send className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
+                      {isFlipped && !isTypingCorrect && (
                         <div className="text-emerald-400 font-mono text-2xl animate-pop"><span className="text-slate-500 text-sm block">Correta:</span>{currentCard.typeAnswer}</div>
                       )}
                     </div>
@@ -2645,7 +2763,7 @@ export default function App() {
               </div>
               {isFlipped && currentCard.back && (
                 <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 shrink-0 animate-in fade-in duration-300">
-                  <div dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                  <div className="anki-content" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
                 </div>
               )}
             </div>
@@ -2707,29 +2825,27 @@ export default function App() {
             </svg>
             Continuar com o Google
           </button>
-
-          {toast && (
-            <div className="fixed bottom-6 right-6 z-[90] animate-in slide-in-from-bottom-4 fade-in duration-300">
-              <div className="flex items-center gap-3 px-6 py-4 rounded-2xl shadow-xl shadow-black/50 border backdrop-blur-md bg-rose-950/80 border-rose-500/30 text-rose-200">
-                <Info className="w-5 h-5 text-rose-400" />
-                <p className="font-medium text-sm">{toast.message}</p>
-              </div>
-            </div>
-          )}
         </div>
       ) : (
         <>
-          {/* CABEÇALHO FLUTUANTE */}
           <header className="w-full px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-between z-40 relative">
-            {/* Título */}
             <h1 onClick={() => setCurrentView('dashboard')} className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight cursor-pointer hover:opacity-80 transition-opacity">
               Flash Cards
             </h1>
 
-            {/* Ações */}
             <div className="flex items-center gap-2 bg-slate-900/50 backdrop-blur-md p-1.5 rounded-full border border-slate-800/80 shadow-sm">
               <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
               
+              {user.isAnonymous && (
+                <button 
+                  onClick={signInWithGoogle}
+                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-white/10 hover:bg-white/20 text-slate-200 border border-white/10 transition-colors"
+                  title="Conectar conta Google"
+                >
+                  Entrar com Google
+                </button>
+              )}
+
               {(() => {
                 const streakCount = calculateStreak();
                 const hasDoneToday = getDailyCount(getTodayStr()) > 0 || streakRecoveries.includes(getTodayStr());
@@ -2742,9 +2858,9 @@ export default function App() {
               })()}
               
               {isImporting ? (
-                <div className="flex items-center justify-center w-8 h-8 rounded-full text-emerald-400 bg-emerald-500/10 border border-emerald-500/20"><Loader2 className="w-4 h-4 animate-spin" /></div>
+                <div className="flex items-center justify-center w-8 h-8 rounded-full text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" title={importProgress || "Importando..."}><Loader2 className="w-4 h-4 animate-spin" /></div>
               ) : (
-                <button onClick={() => fileInputRef.current.click()} className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar">
+                <button onClick={() => fileInputRef.current.click()} className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar (.apkg, .colpkg, .txt, .csv)">
                   <Upload className="w-4 h-4" />
                 </button>
               )}
@@ -2774,7 +2890,7 @@ export default function App() {
         </>
       )}
 
-      {/* MODAL CONFIGURAÇÕES */}
+      {}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsSettingsOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -2793,7 +2909,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL RECUPERAR OFENSIVA (Calendário) */}
       {streakRecoveryDate && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setStreakRecoveryDate(null)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -2808,58 +2923,55 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL MOVER PASTA/BARALHO ÚNICO */}
       {isMoveModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-bold text-slate-100 mb-6 flex items-center gap-2"><CornerUpRight className="w-6 h-6 text-indigo-400" /> Mover "{itemToMove?.name}"</h3>
             <div className="space-y-4">
-               <label className="block text-sm font-medium text-slate-400">Selecionar Destino</label>
-               <select
-                   value={moveTargetFolderId || ''}
-                   onChange={(e) => setMoveTargetFolderId(e.target.value === '' ? null : e.target.value)}
-                   className="w-full bg-slate-950 border border-slate-800 text-slate-300 py-3 px-4 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors"
-               >
-                   {getFolderPaths(itemToMove?.type === 'folder' ? itemToMove.id : null).map(path => (
-                       <option key={path.id || 'root'} value={path.id || ''}>{path.path}</option>
-                   ))}
-               </select>
+              <label className="block text-sm font-medium text-slate-400">Selecionar Destino</label>
+              <select
+                value={moveTargetFolderId || ''}
+                onChange={(e) => setMoveTargetFolderId(e.target.value === '' ? null : e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 text-slate-300 py-3 px-4 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors"
+              >
+                {getFolderPaths(itemToMove?.type === 'folder' ? itemToMove.id : null).map(path => (
+                  <option key={path.id || 'root'} value={path.id || ''}>{path.path}</option>
+                ))}
+              </select>
             </div>
             <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800/50">
-               <button onClick={() => setIsMoveModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-               <button onClick={handleMoveItem} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Mover</button>
+              <button onClick={() => setIsMoveModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+              <button onClick={handleMoveItem} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Mover</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL MOVER MÚLTIPLOS CARTÕES */}
       {isMoveCardsModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveCardsModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-bold text-slate-100 mb-6 flex items-center gap-2"><CornerUpRight className="w-6 h-6 text-indigo-400" /> Mover {selectedCardIds.size} cartões</h3>
             <div className="space-y-4">
-               <label className="block text-sm font-medium text-slate-400">Selecionar Baralho de Destino</label>
-               <select
-                   value={moveCardsTargetDeckId || ''}
-                   onChange={(e) => setMoveCardsTargetDeckId(e.target.value === '' ? null : e.target.value)}
-                   className="w-full bg-slate-950 border border-slate-800 text-slate-300 py-3 px-4 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors"
-               >
-                   <option value="" disabled>Escolha um baralho...</option>
-                   {validDecks.filter(d => d.id !== activeDeckId).map(deck => (
-                       <option key={deck.id} value={deck.id}>{deck.name}</option>
-                   ))}
-               </select>
+              <label className="block text-sm font-medium text-slate-400">Selecionar Baralho de Destino</label>
+              <select
+                value={moveCardsTargetDeckId || ''}
+                onChange={(e) => setMoveCardsTargetDeckId(e.target.value === '' ? null : e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 text-slate-300 py-3 px-4 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors"
+              >
+                <option value="" disabled>Escolha um baralho...</option>
+                {validDecks.filter(d => d.id !== activeDeckId).map(deck => (
+                  <option key={deck.id} value={deck.id}>{deck.name}</option>
+                ))}
+              </select>
             </div>
             <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800/50">
-               <button onClick={() => setIsMoveCardsModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-               <button onClick={handleMoveCards} disabled={!moveCardsTargetDeckId} className={`flex-1 font-medium py-3 rounded-xl transition-all shadow-lg active:scale-95 ${moveCardsTargetDeckId ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/25' : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'}`}>Confirmar</button>
+              <button onClick={() => setIsMoveCardsModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+              <button onClick={handleMoveCards} disabled={!moveCardsTargetDeckId} className={`flex-1 font-medium py-3 rounded-xl transition-all shadow-lg active:scale-95 ${moveCardsTargetDeckId ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/25' : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'}`}>Confirmar</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL ELIMINAR */}
       {itemToDelete && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setItemToDelete(null)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -2874,7 +2986,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL CRIAR/EDITAR PASTA/BARALHO */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={closeAndResetModal}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -2914,7 +3025,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL EDITAR CARTÃO NA REVISÃO */}
       {isCardEditModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsCardEditModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -2935,55 +3045,54 @@ export default function App() {
               </div>
 
               <form id="edit-card-form" onSubmit={(e) => { handleSaveCard(e); setIsCardEditModalOpen(false); }} className="space-y-4">
-                 <RichTextEditor label="Frente" placeholder="" value={newCardFront} onChange={setNewCardFront} />
+                <RichTextEditor label="Frente" placeholder="" value={newCardFront} onChange={setNewCardFront} />
 
-                 {cardType === 'choice' && (
-                   <div className="space-y-2 pt-2 border-t border-slate-800">
-                     <label className="block text-sm font-medium text-slate-400">Opções</label>
-                     {choiceOptions.map((opt, idx) => (
-                       <div key={idx} className="flex items-center gap-2">
-                         <button type="button" onClick={() => setCorrectOption(idx)} className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center border transition-all ${correctOption === idx ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-700 text-transparent hover:border-slate-500'}`}><Check className="w-3 h-3" /></button>
-                         <input type="text" value={opt} onChange={(e) => updateChoiceOption(idx, e.target.value)} className={`w-full bg-slate-950 border text-sm rounded-lg p-2 focus:outline-none transition-colors ${correctOption === idx ? 'border-emerald-500/50 text-emerald-100' : 'border-slate-800 text-slate-300 focus:border-indigo-500'}`} placeholder="" />
-                         {choiceOptions.length > 2 && (
-                           <button type="button" onClick={() => removeChoiceOption(idx)} className="p-2 text-slate-500 hover:text-rose-400 transition-colors rounded-lg"><X className="w-4 h-4" /></button>
-                         )}
-                       </div>
-                     ))}
-                     {choiceOptions.length < 6 && (
-                       <button type="button" onClick={addChoiceOption} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mt-2 p-1"><Plus className="w-4 h-4"/> Adicionar opção</button>
-                     )}
-                   </div>
-                 )}
-                 {cardType === 'tf' && (
-                   <div className="pt-2 border-t border-slate-800">
-                     <label className="block text-sm font-medium text-slate-400 mb-2">Qual a certa?</label>
-                     <div className="flex gap-2">
-                       <button type="button" onClick={() => setTfCorrect(true)} className={`flex-1 py-2 rounded-lg font-bold border transition-all ${tfCorrect ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Verdadeiro</button>
-                       <button type="button" onClick={() => setTfCorrect(false)} className={`flex-1 py-2 rounded-lg font-bold border transition-all ${!tfCorrect ? 'bg-rose-500/20 border-rose-500 text-rose-400' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Falso</button>
-                     </div>
-                   </div>
-                 )}
-                 {cardType === 'typing' && (
-                   <div className="pt-2 border-t border-slate-800">
-                     <label className="block text-sm font-medium text-slate-400 mb-1">Gabarito</label>
-                     <input type="text" value={typeAnswer} onChange={(e) => setTypeAnswer(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-indigo-300 font-mono rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="" />
-                   </div>
-                 )}
-                 <div className="pt-2 border-t border-slate-800">
-                   <RichTextEditor label="Verso" placeholder="" value={newCardBack} onChange={setNewCardBack} />
-                 </div>
+                {cardType === 'choice' && (
+                  <div className="space-y-2 pt-2 border-t border-slate-800">
+                    <label className="block text-sm font-medium text-slate-400">Opções</label>
+                    {choiceOptions.map((opt, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <button type="button" onClick={() => setCorrectOption(idx)} className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center border transition-all ${correctOption === idx ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-700 text-transparent hover:border-slate-500'}`}><Check className="w-3 h-3" /></button>
+                        <input type="text" value={opt} onChange={(e) => updateChoiceOption(idx, e.target.value)} className={`w-full bg-slate-950 border text-sm rounded-lg p-2 focus:outline-none transition-colors ${correctOption === idx ? 'border-emerald-500/50 text-emerald-100' : 'border-slate-800 text-slate-300 focus:border-indigo-500'}`} placeholder="" />
+                        {choiceOptions.length > 2 && (
+                          <button type="button" onClick={() => removeChoiceOption(idx)} className="p-2 text-slate-500 hover:text-rose-400 transition-colors rounded-lg"><X className="w-4 h-4" /></button>
+                        )}
+                      </div>
+                    ))}
+                    {choiceOptions.length < 6 && (
+                      <button type="button" onClick={addChoiceOption} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mt-2 p-1"><Plus className="w-4 h-4"/> Adicionar opção</button>
+                    )}
+                  </div>
+                )}
+                {cardType === 'tf' && (
+                  <div className="pt-2 border-t border-slate-800">
+                    <label className="block text-sm font-medium text-slate-400 mb-2">Qual a certa?</label>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setTfCorrect(true)} className={`flex-1 py-2 rounded-lg font-bold border transition-all ${tfCorrect ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Verdadeiro</button>
+                      <button type="button" onClick={() => setTfCorrect(false)} className={`flex-1 py-2 rounded-lg font-bold border transition-all ${!tfCorrect ? 'bg-rose-500/20 border-rose-500 text-rose-400' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Falso</button>
+                    </div>
+                  </div>
+                )}
+                {cardType === 'typing' && (
+                  <div className="pt-2 border-t border-slate-800">
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Gabarito</label>
+                    <input type="text" value={typeAnswer} onChange={(e) => setTypeAnswer(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-indigo-300 font-mono rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="" />
+                  </div>
+                )}
+                <div className="pt-2 border-t border-slate-800">
+                  <RichTextEditor label="Verso" placeholder="" value={newCardBack} onChange={setNewCardBack} />
+                </div>
               </form>
             </div>
             
             <div className="flex gap-3 mt-6 pt-4 border-t border-slate-800 shrink-0">
-               <button type="button" onClick={() => setIsCardEditModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-               <button type="submit" form="edit-card-form" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar Alterações</button>
+              <button type="button" onClick={() => setIsCardEditModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
+              <button type="submit" form="edit-card-form" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar Alterações</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* TOASTS */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-[90] animate-in slide-in-from-bottom-4 fade-in duration-300">
           <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-xl shadow-black/50 border backdrop-blur-md ${toast.type === 'error' ? 'bg-rose-950/80 border-rose-500/30 text-rose-200' : 'bg-slate-800/90 border-slate-700 text-slate-100'}`}>
