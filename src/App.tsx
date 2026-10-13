@@ -1858,22 +1858,28 @@ export default function App() {
         </div>
 
         <div className="flex items-end justify-between flex-grow min-h-[200px] gap-1.5 sm:gap-2 relative z-10 mt-auto chart-scroll-container overflow-x-auto pb-2 pt-16">
-          <div className={`flex items-end justify-between h-full w-full gap-1.5 sm:gap-2 ${forecastPeriod === 'month' ? 'min-w-[600px]' : 'min-w-min'}`}>
+          <div className={`flex items-end justify-between h-full w-full gap-1.5 sm:gap-2 px-3 ${forecastPeriod === 'month' ? 'min-w-[600px]' : 'min-w-full'}`}>
             {buckets.map((b, i) => {
               const height = Math.max((b.count / max) * 100, 4);
               const showLabel = forecastPeriod === 'week' || forecastPeriod === 'year' || (forecastPeriod === 'month' && i % 3 === 0);
               return (
-                <div key={i} className="relative flex flex-col items-center flex-1 h-full justify-end group/bar">
+                <div key={i} className="relative flex flex-col items-center flex-1 min-w-0 h-full justify-end group/bar">
                   <div className="absolute bottom-full mb-2 opacity-0 group-hover/bar:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700 flex flex-col items-center origin-bottom">
                     <span className="text-indigo-300 text-sm">{b.count} <span className="text-xs text-slate-400 font-medium">cartões</span></span>
                     <span className="text-[9px] text-slate-500 uppercase tracking-wider mt-0.5">{b.label}</span>
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-800"></div>
                   </div>
 
-                  <div className="w-full max-w-[40px] relative flex items-end justify-center h-full bg-slate-950 rounded-t-sm sm:rounded-t-xl border border-b-0 border-slate-800/80 hover:border-indigo-500/50 transition-colors">
-                    <div className="w-full bg-gradient-to-t from-indigo-600/80 to-purple-400/80 rounded-t-sm sm:rounded-t-xl transition-all duration-500 group-hover/bar:from-indigo-500 group-hover/bar:to-purple-300" style={{ height: `${height}%` }}></div>
+                  <div className="w-full max-w-[40px] relative flex items-end justify-center flex-grow bg-slate-950 rounded-t-md sm:rounded-t-xl border border-b-0 border-slate-800/80 hover:border-indigo-500/50 transition-colors overflow-hidden">
+                    <div className="w-full bg-gradient-to-t from-indigo-600/80 to-purple-400/80 rounded-t-md sm:rounded-t-xl transition-all duration-500 group-hover/bar:from-indigo-500 group-hover/bar:to-purple-300" style={{ height: `${height}%` }}></div>
                   </div>
-                  <span className="text-[9px] sm:text-xs font-bold text-slate-500 uppercase tracking-widest mt-2 h-4 text-center w-full truncate">{showLabel ? b.label : ''}</span>
+                  <div className="relative w-full h-4 mt-2 flex items-center justify-center">
+                    {showLabel && (
+                      <span className="absolute text-[9px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap pointer-events-none">
+                        {b.label}
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}
