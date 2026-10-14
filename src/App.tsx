@@ -35,7 +35,8 @@ import {
   PieChart, RotateCcw, Settings, Home, Flame, BarChart2, LogOut,
   Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight, X,
   Eye, EyeOff, History, Timer, Send, Volume2, VolumeX, Search, AlertTriangle,
-  Download, PauseCircle, PlayCircle, SkipForward
+  Download, PauseCircle, PlayCircle, SkipForward, Bold, Italic, Underline,
+  Highlighter, ImagePlus, Tag, SlidersHorizontal, Trophy, Gauge
 } from 'lucide-react';
 
 const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
@@ -248,8 +249,9 @@ function forgetting_curve(elapsed_days, stability) {
   return roundTo(Math.pow(1 + (FACTOR * elapsed_days) / safeS, DECAY), 8);
 }
 
-function next_interval(stability, fuzz_factor) {
-  const raw_interval = clamp(Math.round(stability * INTERVAL_MODIFIER), 1, maximumInterval);
+function next_interval(stability, fuzz_factor, reqRetention = requestRetention) {
+  const modifier = reqRetention === requestRetention ? INTERVAL_MODIFIER : calculate_interval_modifier(clamp(reqRetention, 0.75, 0.97));
+  const raw_interval = clamp(Math.round(stability * modifier), 1, maximumInterval);
   return clamp(apply_fuzz(raw_interval, fuzz_factor), 1, maximumInterval);
 }
 
@@ -312,7 +314,7 @@ function next_short_term_stability(s, ratingStr) {
   return roundTo(clamp(s * maskedSinc, S_MIN, 36500.0), 8);
 }
 
-const calculateNextReview = (card, qualityUI) => {
+const calculateNextReview = (card, qualityUI, reqRetention = requestRetention) => {
   const RATING_STRINGS = ["again", "hard", "good", "easy"];
   const ratingStr = RATING_STRINGS[qualityUI];
   const now = Date.now();
@@ -345,8 +347,8 @@ const calculateNextReview = (card, qualityUI) => {
       state = 1; stepIndex = 1; interval = LEARNING_STEPS[1]; isMinutes = true;
     } else if (ratingStr === "easy") {
       state = 2;
-      const good_ivl = next_interval(init_stability("good"), fuzz_factor);
-      interval = Math.max(next_interval(stability, fuzz_factor), good_ivl + 1);
+      const good_ivl = next_interval(init_stability("good"), fuzz_factor, reqRetention);
+      interval = Math.max(next_interval(stability, fuzz_factor, reqRetention), good_ivl + 1);
     }
   } else if (state === 1 || state === 3) {
     const last_s = stability;
@@ -365,13 +367,13 @@ const calculateNextReview = (card, qualityUI) => {
         interval = LEARNING_STEPS[stepIndex]; isMinutes = true;
       } else {
         state = 2;
-        interval = next_interval(stability, fuzz_factor);
+        interval = next_interval(stability, fuzz_factor, reqRetention);
       }
     } else if (ratingStr === "easy") {
       state = 2;
       const good_s = next_short_term_stability(last_s, "good");
-      const good_ivl = next_interval(good_s, fuzz_factor);
-      interval = Math.max(next_interval(stability, fuzz_factor), good_ivl + 1);
+      const good_ivl = next_interval(good_s, fuzz_factor, reqRetention);
+      interval = Math.max(next_interval(stability, fuzz_factor, reqRetention), good_ivl + 1);
     }
   } else if (state === 2) {
     const retrievability = forgetting_curve(elapsed_days, stability);
@@ -386,9 +388,9 @@ const calculateNextReview = (card, qualityUI) => {
       difficulty = next_difficulty(last_d, ratingStr);
       stability = next_recall_stability(last_d, last_s, retrievability, ratingStr);
 
-      let hard_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "hard"), fuzz_factor);
-      let good_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "good"), fuzz_factor);
-      let easy_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "easy"), fuzz_factor);
+      let hard_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "hard"), fuzz_factor, reqRetention);
+      let good_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "good"), fuzz_factor, reqRetention);
+      let easy_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "easy"), fuzz_factor, reqRetention);
 
       hard_ivl = Math.min(hard_ivl, good_ivl);
       good_ivl = Math.max(good_ivl, hard_ivl + 1);
@@ -404,6 +406,17 @@ const calculateNextReview = (card, qualityUI) => {
   const nextDue = isMinutes ? now + (interval * 60000) : now + (interval * 86400000);
   const lapses = ratingStr === "again" ? (card.lapses || 0) + 1 : (card.lapses || 0);
 
+  const prevCounts = card.ratingCounts || {
+    again: card.lapses || 0,
+    hard: 0,
+    good: Math.max(0, (card.reviews || 0) - (card.lapses || 0)),
+    easy: 0
+  };
+  const ratingCounts = {
+    ...prevCounts,
+    [ratingStr]: (prevCounts[ratingStr] || 0) + 1
+  };
+
   return {
     ...card,
     state,
@@ -411,6 +424,7 @@ const calculateNextReview = (card, qualityUI) => {
     stability,
     stepIndex,
     lapses,
+    ratingCounts,
     buriedUntil: null,
     interval: intervalInDays,
     last_review: now,
@@ -462,8 +476,17 @@ const loadScript = (src) => new Promise((resolve, reject) => {
   s.src = src; s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
 });
 
+const HIGHLIGHT_COLORS = [
+  { id: 'yellow', label: 'Amarelo', color: 'rgba(250, 204, 21, 0.35)', dot: 'bg-yellow-400' },
+  { id: 'emerald', label: 'Verde', color: 'rgba(52, 211, 153, 0.35)', dot: 'bg-emerald-400' },
+  { id: 'cyan', label: 'Azul', color: 'rgba(56, 189, 248, 0.35)', dot: 'bg-sky-400' },
+  { id: 'rose', label: 'Rosa', color: 'rgba(244, 63, 94, 0.35)', dot: 'bg-rose-400' },
+];
+
 const RichTextEditor = ({ value, onChange, placeholder, label }) => {
   const editorRef = useRef(null);
+  const galleryInputRef = useRef(null);
+  const [showHighlightPalette, setShowHighlightPalette] = useState(false);
   
   useEffect(() => {
     if (editorRef.current && value !== editorRef.current.innerHTML && document.activeElement !== editorRef.current) {
@@ -473,7 +496,15 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
   
   const handleInput = (e) => onChange(e.currentTarget.innerHTML);
 
+  const applyFormat = (command, arg = null) => {
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+    document.execCommand(command, false, arg);
+    onChange(editorRef.current.innerHTML);
+  };
+
   const processImageFile = (file) => {
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
@@ -622,16 +653,113 @@ const RichTextEditor = ({ value, onChange, placeholder, label }) => {
   return (
     <div>
       {label && <label className="block text-sm font-medium text-slate-400 mb-1.5">{label}</label>}
-      <div 
-        ref={editorRef} 
-        contentEditable 
-        onInput={handleInput} 
-        onPaste={handlePaste} 
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 overflow-y-auto min-h-[5rem] max-h-[15rem] cursor-text relative empty:before:content-[attr(data-placeholder)] empty:before:text-slate-700 custom-scrollbar anki-content transition-colors" 
-        data-placeholder={placeholder} 
-      />
+      <div className="border border-slate-800 rounded-xl bg-slate-950 focus-within:ring-2 focus-within:ring-indigo-500 transition-all overflow-hidden">
+        <div className="flex items-center justify-between gap-1 px-2 py-1.5 bg-slate-900/90 border-b border-slate-800/80 flex-wrap">
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); applyFormat('bold'); }}
+              className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg transition-colors"
+              title="Negrito (Ctrl+B)"
+            >
+              <Bold className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); applyFormat('italic'); }}
+              className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg transition-colors"
+              title="Itálico (Ctrl+I)"
+            >
+              <Italic className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); applyFormat('underline'); }}
+              className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg transition-colors"
+              title="Sublinhado (Ctrl+U)"
+            >
+              <Underline className="w-3.5 h-3.5" />
+            </button>
+
+            <div className="w-px h-4 bg-slate-800 mx-1"></div>
+
+            <div className="relative flex items-center">
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); setShowHighlightPalette(prev => !prev); }}
+                className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${showHighlightPalette ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'}`}
+                title="Marca-texto colorido"
+              >
+                <Highlighter className="w-3.5 h-3.5" />
+              </button>
+              {showHighlightPalette && (
+                <div className="flex items-center gap-1 ml-1 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 animate-in fade-in duration-150">
+                  {HIGHLIGHT_COLORS.map(h => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyFormat('hiliteColor', h.color);
+                        setShowHighlightPalette(false);
+                      }}
+                      className={`w-4 h-4 rounded-full ${h.dot} hover:scale-125 transition-transform border border-white/20`}
+                      title={`Destacar em ${h.label}`}
+                    />
+                  ))}
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyFormat('hiliteColor', 'transparent');
+                      applyFormat('removeFormat');
+                      setShowHighlightPalette(false);
+                    }}
+                    className="text-[10px] text-slate-400 hover:text-rose-400 px-1 font-bold"
+                    title="Limpar marcação"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <input
+              type="file"
+              accept="image/*"
+              ref={galleryInputRef}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) processImageFile(file);
+                e.target.value = null;
+              }}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => galleryInputRef.current?.click()}
+              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-colors"
+              title="Anexar imagem da galeria ou computador"
+            >
+              <ImagePlus className="w-3.5 h-3.5" />
+              <span className="text-[11px]">Imagem</span>
+            </button>
+          </div>
+        </div>
+
+        <div 
+          ref={editorRef} 
+          contentEditable 
+          onInput={handleInput} 
+          onPaste={handlePaste} 
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          className="w-full text-slate-100 p-3 focus:outline-none overflow-y-auto min-h-[5rem] max-h-[15rem] cursor-text relative empty:before:content-[attr(data-placeholder)] empty:before:text-slate-700 custom-scrollbar anki-content transition-colors" 
+          data-placeholder={placeholder} 
+        />
+      </div>
     </div>
   );
 };
@@ -665,6 +793,14 @@ export default function App() {
 
   const [dailyGoal, setDailyGoal] = useState(() => {
     try { const saved = localStorage.getItem('lumina_dailyGoal'); if (saved) return parseInt(saved); } catch(e){} return 50;
+  });
+
+  const [desiredRetention, setDesiredRetention] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lumina_desiredRetention');
+      if (saved) return clamp(parseFloat(saved), 0.75, 0.97);
+    } catch (e) {}
+    return 0.90;
   });
 
   const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -714,6 +850,7 @@ export default function App() {
   const [correctOption, setCorrectOption] = useState(0);
   const [tfCorrect, setTfCorrect] = useState(true);
   const [typeAnswer, setTypeAnswer] = useState('');
+  const [cardTagsInput, setCardTagsInput] = useState('');
   const [editingCardId, setEditingCardId] = useState(null); 
   const [isCardEditModalOpen, setIsCardEditModalOpen] = useState(false);
   
@@ -725,7 +862,18 @@ export default function App() {
   const [deckSearchQuery, setDeckSearchQuery] = useState('');
   const [deckStatusFilter, setDeckStatusFilter] = useState('all');
   const [deckTypeFilter, setDeckTypeFilter] = useState('all');
+  const [deckTagFilter, setDeckTagFilter] = useState('all');
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const [isCustomStudyModalOpen, setIsCustomStudyModalOpen] = useState(false);
+  const [customStudyConfig, setCustomStudyConfig] = useState({
+    sourceType: 'all', // 'all' | 'folder' | 'deck'
+    sourceId: null,
+    preset: 'cram', // 'cram' | 'leeches' | 'new_only' | 'interactive' | 'due_only'
+    cardType: 'all',
+    tag: 'all',
+    limit: 20
+  });
 
   const fileInputRef = useRef(null);
   const backupInputRef = useRef(null);
@@ -766,6 +914,7 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); } catch(e){} }, [activityMap]);
   useEffect(() => { try { localStorage.setItem('lumina_streakRecoveries', JSON.stringify(streakRecoveries)); } catch(e){} }, [streakRecoveries]);
   useEffect(() => { try { localStorage.setItem('lumina_dailyGoal', dailyGoal); } catch(e){} }, [dailyGoal]);
+  useEffect(() => { try { localStorage.setItem('lumina_desiredRetention', desiredRetention); } catch(e){} }, [desiredRetention]);
 
   useEffect(() => {
     if (!hasCleanedUpPhantoms.current && Object.keys(activityMap).length > 0) {
@@ -858,12 +1007,13 @@ export default function App() {
         }
 
         if (data.dailyGoal) setDailyGoal(data.dailyGoal);
+        if (data.desiredRetention) setDesiredRetention(clamp(parseFloat(data.desiredRetention), 0.75, 0.97));
       } else {
         const localActivity = localStorage.getItem('lumina_activity');
         const activityToSync = localActivity ? JSON.parse(localActivity) : {};
         const localRecs = localStorage.getItem('lumina_streakRecoveries');
         const recsToSync = localRecs ? JSON.parse(localRecs) : [];
-        setDoc(profileRef, { activityMap: activityToSync, streakRecoveries: recsToSync, dailyGoal: 50 }).catch(console.error);
+        setDoc(profileRef, { activityMap: activityToSync, streakRecoveries: recsToSync, dailyGoal: 50, desiredRetention: 0.90 }).catch(console.error);
       }
     }, console.error);
 
@@ -1048,6 +1198,54 @@ export default function App() {
     return streak;
   };
 
+  const calculateLongestStreak = () => {
+    const activeDatesSet = new Set([
+      ...Object.keys(activityMap).filter(k => getDailyCount(k) > 0),
+      ...(streakRecoveries || [])
+    ]);
+    if (activeDatesSet.size === 0) return 0;
+
+    const sortedDates = Array.from(activeDatesSet).sort();
+    let maxStreak = 1;
+    let currentRun = 1;
+
+    for (let i = 1; i < sortedDates.length; i++) {
+      const prevDate = new Date(sortedDates[i - 1] + 'T12:00:00');
+      const currDate = new Date(sortedDates[i] + 'T12:00:00');
+      const diffDays = Math.round((currDate - prevDate) / 86400000);
+      if (diffDays === 1) {
+        currentRun++;
+        if (currentRun > maxStreak) maxStreak = currentRun;
+      } else if (diffDays > 1) {
+        currentRun = 1;
+      }
+    }
+    return Math.max(maxStreak, calculateStreak());
+  };
+
+  const parseTagsString = (str) => {
+    if (!str || typeof str !== 'string') return [];
+    return Array.from(
+      new Set(
+        str
+          .split(/[\s,;]+/)
+          .map(t => t.replace(/^#+/, '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+    );
+  };
+
+  const getAllGlobalTags = (sourceDecks = validDecks) => {
+    const tagSet = new Set();
+    sourceDecks.forEach(d => {
+      if (d.isIgnored) return;
+      (d.cards || []).forEach(c => {
+        (c.tags || []).forEach(t => tagSet.add(t));
+      });
+    });
+    return Array.from(tagSet).sort();
+  };
+
   const getRecoveriesCountForMonth = (yearMonthStr) => {
     return streakRecoveries.filter(d => d.startsWith(yearMonthStr)).length;
   };
@@ -1194,11 +1392,109 @@ export default function App() {
     setCurrentView('review');
   };
 
+  const openCustomStudyModal = (sourceType = 'all', sourceId = null) => {
+    setCustomStudyConfig({
+      sourceType,
+      sourceId,
+      preset: 'cram',
+      cardType: 'all',
+      tag: 'all',
+      limit: 20
+    });
+    setIsCustomStudyModalOpen(true);
+  };
+
+  const getFilteredCustomStudyCards = (config = customStudyConfig) => {
+    let sourceDecks = [];
+    if (config.sourceType === 'deck' && config.sourceId) {
+      const d = validDecks.find(x => x.id === config.sourceId);
+      if (d) sourceDecks = [d];
+    } else if (config.sourceType === 'folder' && config.sourceId) {
+      sourceDecks = getDecksInFolder(config.sourceId).filter(d => !d.isIgnored);
+    } else {
+      sourceDecks = validDecks.filter(d => !d.isIgnored);
+    }
+
+    let pool = [];
+    sourceDecks.forEach(deck => {
+      (deck.cards || []).forEach(c => {
+        if (c.isSuspended) return;
+        pool.push({ ...c, _deckId: deck.id });
+      });
+    });
+
+    if (config.preset === 'leeches') {
+      pool = pool.filter(c => isCardLeech(c));
+    } else if (config.preset === 'new_only') {
+      pool = pool.filter(c => (c.state === 0 || !c.reviews));
+    } else if (config.preset === 'interactive') {
+      pool = pool.filter(c => ['choice', 'tf', 'typing'].includes(c.type || 'standard'));
+    } else if (config.preset === 'due_only') {
+      pool = pool.filter(c => checkCardDue(c));
+    }
+
+    if (config.cardType !== 'all') {
+      if (config.cardType === 'choice_tf') {
+        pool = pool.filter(c => c.type === 'choice' || c.type === 'tf');
+      } else {
+        pool = pool.filter(c => (c.type || 'standard') === config.cardType);
+      }
+    }
+
+    if (config.tag !== 'all') {
+      pool = pool.filter(c => Array.isArray(c.tags) && c.tags.includes(config.tag));
+    }
+
+    return pool;
+  };
+
+  const handleStartCustomStudy = (e) => {
+    if (e) e.preventDefault();
+    const matched = getFilteredCustomStudyCards(customStudyConfig);
+    if (matched.length === 0) {
+      showToast("Nenhum cartão encontrado com esses filtros.", "info");
+      return;
+    }
+
+    const shuffled = [...matched].sort(() => Math.random() - 0.5);
+    const finalQueue = customStudyConfig.limit > 0 ? shuffled.slice(0, customStudyConfig.limit) : shuffled;
+
+    if (customStudyConfig.sourceType === 'deck' && customStudyConfig.sourceId) {
+      setActiveDeckId(customStudyConfig.sourceId);
+    } else {
+      setActiveDeckId(null);
+    }
+
+    setReviewQueue(finalQueue);
+    setCurrentCardIndex(0);
+    setIsFlipped(false);
+    setSessionStats({ reviewed: 0, correct: 0 });
+    setReviewHistory([]);
+    setIsCustomStudyModalOpen(false);
+    setCurrentView('review');
+    showToast(`Treino personalizado iniciado (${finalQueue.length} cartões)!`);
+  };
+
   const handleAnswer = (quality) => {
     const currentCard = reviewQueue[currentCardIndex];
     setReviewHistory(prev => [...prev, { card: currentCard, index: currentCardIndex, queue: [...reviewQueue], quality, sessionStats: { ...sessionStats } }]);
 
-    const updatedCard = calculateNextReview(currentCard, quality);
+    const updatedCard = calculateNextReview(currentCard, quality, desiredRetention);
+    const cType = currentCard.type || 'standard';
+    if (cType !== 'standard' && reviewInteraction !== null) {
+      let wasCorrect = false;
+      if (cType === 'choice') wasCorrect = reviewInteraction === currentCard.correctOption;
+      else if (cType === 'tf') wasCorrect = reviewInteraction === (currentCard.isTrue !== false);
+      else if (cType === 'typing') {
+        wasCorrect = String(reviewInteraction).trim().toLowerCase() === String(currentCard.typeAnswer || '').trim().toLowerCase();
+      }
+      const prevInteractive = currentCard.interactiveStats || { attempts: 0, correct: 0 };
+      updatedCard.interactiveStats = {
+        attempts: (prevInteractive.attempts || 0) + 1,
+        correct: (prevInteractive.correct || 0) + (wasCorrect ? 1 : 0)
+      };
+    }
+
     const targetDeckId = currentCard._deckId || activeDeckId;
     const targetDeck = validDecks.find(d => d.id === targetDeckId);
 
@@ -1352,9 +1648,10 @@ export default function App() {
   const handleExportJSON = () => {
     try {
       const backupData = {
-        version: 1,
+        version: 2,
         exportedAt: new Date().toISOString(),
         dailyGoal,
+        desiredRetention,
         folders,
         decks,
         activityMap,
@@ -1383,7 +1680,7 @@ export default function App() {
         return (tmp.textContent || tmp.innerText || '').replace(/"/g, '""').replace(/\r?\n/g, ' ');
       };
       const rows = [
-        ['Baralho', 'Tipo', 'Frente', 'Verso / Detalhes', 'Gabarito', 'Estado FSRS', 'Dificuldade', 'Estabilidade', 'Intervalo (dias)', 'Revisoes', 'Erros (Lapses)', 'Suspenso']
+        ['Baralho', 'Tipo', 'Tags', 'Frente', 'Verso / Detalhes', 'Gabarito', 'Estado FSRS', 'Dificuldade', 'Estabilidade', 'Intervalo (dias)', 'Revisoes', 'Erros (Lapses)', 'Suspenso']
       ];
       validDecks.forEach(d => {
         (d.cards || []).forEach(c => {
@@ -1393,10 +1690,12 @@ export default function App() {
           if (c.type === 'choice') answerInfo = (c.options || [])[c.correctOption || 0] || '';
           else if (c.type === 'tf') answerInfo = c.isTrue ? 'Verdadeiro' : 'Falso';
           else if (c.type === 'typing') answerInfo = c.typeAnswer || '';
+          const tagsFormatted = (c.tags || []).map(t => `#${t}`).join(' ');
 
           rows.push([
             `"${(d.name || '').replace(/"/g, '""')}"`,
             `"${c.type || 'standard'}"`,
+            `"${tagsFormatted.replace(/"/g, '""')}"`,
             `"${stripHtml(c.front)}"`,
             `"${stripHtml(c.back)}"`,
             `"${String(answerInfo).replace(/"/g, '""')}"`,
@@ -1441,12 +1740,14 @@ export default function App() {
         const restoredActivity = parsed.activityMap && typeof parsed.activityMap === 'object' ? parsed.activityMap : activityMap;
         const restoredRecoveries = Array.isArray(parsed.streakRecoveries) ? parsed.streakRecoveries : streakRecoveries;
         const restoredGoal = parsed.dailyGoal ? parseInt(parsed.dailyGoal) : dailyGoal;
+        const restoredRetention = parsed.desiredRetention ? clamp(parseFloat(parsed.desiredRetention), 0.75, 0.97) : desiredRetention;
 
         setFolders(restoredFolders);
         setDecks(restoredDecks);
         setActivityMap(restoredActivity);
         setStreakRecoveries(restoredRecoveries);
         setDailyGoal(restoredGoal);
+        setDesiredRetention(restoredRetention);
 
         if (user && db) {
           restoredFolders.forEach(f => updateFolderInCloud(f));
@@ -1454,7 +1755,8 @@ export default function App() {
           setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), {
             activityMap: restoredActivity,
             streakRecoveries: restoredRecoveries,
-            dailyGoal: restoredGoal
+            dailyGoal: restoredGoal,
+            desiredRetention: restoredRetention
           }, { merge: true }).catch(console.error);
         }
         setIsSettingsOpen(false);
@@ -1507,8 +1809,16 @@ export default function App() {
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     const finalGoal = dailyGoal || 50;
-    setDailyGoal(finalGoal); setIsSettingsOpen(false);
-    if (user && db) setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), { dailyGoal: finalGoal }, { merge: true }).catch(console.error);
+    const finalRetention = clamp(Number(desiredRetention) || 0.90, 0.75, 0.97);
+    setDailyGoal(finalGoal);
+    setDesiredRetention(finalRetention);
+    setIsSettingsOpen(false);
+    if (user && db) {
+      setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), {
+        dailyGoal: finalGoal,
+        desiredRetention: finalRetention
+      }, { merge: true }).catch(console.error);
+    }
     showToast("Configurações salvas!");
   };
 
@@ -1822,11 +2132,14 @@ export default function App() {
     e.preventDefault(); if (!newCardFront.trim() || !user || isProcessingRef.current) return;
     isProcessingRef.current = true;
 
+    const parsedTags = parseTagsString(cardTagsInput);
+
     let processedCard = { 
       id: editingCardId || `c-${Date.now()}`, 
       type: cardType, 
       front: newCardFront, 
       back: newCardBack, 
+      tags: parsedTags,
       state: 0,
       interval: 0, 
       dueDate: Date.now(), 
@@ -1839,12 +2152,12 @@ export default function App() {
     if (editingCardId && currentDeck) {
       const existing = currentDeck.cards.find(c => c.id === editingCardId);
       if (existing) {
-        // Preserva integralmente o histórico FSRS (state, stability, difficulty, stepIndex, last_review, dueDate, interval, reviews)
         processedCard = { 
           ...existing, 
           type: cardType, 
           front: newCardFront, 
-          back: newCardBack 
+          back: newCardBack,
+          tags: parsedTags
         };
       }
     }
@@ -1867,7 +2180,7 @@ export default function App() {
 
       showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
     }
-    setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setEditingCardId(null);
+    setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setCardTagsInput(''); setEditingCardId(null);
     setTimeout(() => { isProcessingRef.current = false; }, 300);
   };
 
@@ -1876,6 +2189,7 @@ export default function App() {
     if (card.type === 'choice') { setChoiceOptions(card.options || ['', '', '', '']); setCorrectOption(card.correctOption || 0); }
     if (card.type === 'tf') setTfCorrect(card.isTrue !== false);
     if (card.type === 'typing') setTypeAnswer(card.typeAnswer || '');
+    setCardTagsInput((card.tags || []).map(t => `#${t}`).join(' '));
     setEditingCardId(card.id); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -2180,7 +2494,6 @@ export default function App() {
           <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10 py-12">Nenhum dado de estudo ainda.</div>
         ) : (
           <div className="flex flex-col gap-5 flex-grow justify-between relative z-10 w-full">
-            {/* Resumo Superior: 3 Indicadores Rápidos + Barra Segmentada */}
             <div className="flex flex-col gap-3 bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80">
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800/70 flex flex-col">
@@ -2197,7 +2510,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Barra Multi-Segmentada de Proporção de Esforço */}
               <div className="w-full flex h-3 rounded-full overflow-hidden bg-slate-900 p-0.5 gap-1 border border-slate-800">
                 {dist.map((item, i) => {
                   const pct = Math.max((item.effort / totalEffort) * 100, 4);
@@ -2213,7 +2525,6 @@ export default function App() {
               </div>
             </div>
             
-            {/* Lista de Baralhos em Largura Total */}
             <div className="flex flex-col gap-3 w-full my-auto">
               {dist.map((item, i) => {
                 const pct = Math.round((item.effort / totalEffort) * 100);
@@ -2242,13 +2553,219 @@ export default function App() {
     );
   };
 
+  const renderAnnualHeatmap = () => {
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const totalDays = 365;
+    const startDay = new Date(today);
+    startDay.setDate(today.getDate() - (totalDays - 1));
+
+    const startDayOfWeek = startDay.getDay();
+    const cells = [];
+    for (let i = 0; i < startDayOfWeek; i++) {
+      cells.push({ empty: true, key: `pad-${i}` });
+    }
+
+    let studiedDaysYear = 0;
+    let totalYearRevisions = 0;
+    const weekdayTotals = [0, 0, 0, 0, 0, 0, 0];
+    const weekdayActiveCounts = [0, 0, 0, 0, 0, 0, 0];
+
+    for (let i = 0; i < totalDays; i++) {
+      const d = new Date(startDay);
+      d.setDate(startDay.getDate() + i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dy = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${dy}`;
+      const count = getDailyCount(dateStr);
+      const isRecovered = streakRecoveries.includes(dateStr);
+      const dow = d.getDay();
+
+      if (count > 0 || isRecovered) {
+        studiedDaysYear++;
+      }
+      if (count > 0) {
+        totalYearRevisions += count;
+        weekdayTotals[dow] += count;
+        weekdayActiveCounts[dow]++;
+      }
+
+      cells.push({
+        empty: false,
+        key: dateStr,
+        dateStr,
+        labelDate: `${dy}/${m}/${y}`,
+        count,
+        isRecovered,
+        month: d.getMonth(),
+        dayOfMonth: d.getDate()
+      });
+    }
+
+    const weeks = [];
+    for (let i = 0; i < cells.length; i += 7) {
+      weeks.push(cells.slice(i, i + 7));
+    }
+
+    const weekdayNamesFull = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+    let bestDowIndex = -1;
+    let bestDowTotal = 0;
+    for (let d = 0; d < 7; d++) {
+      if (weekdayTotals[d] > bestDowTotal) {
+        bestDowTotal = weekdayTotals[d];
+        bestDowIndex = d;
+      }
+    }
+    const bestDayName = bestDowIndex !== -1 ? weekdayNamesFull[bestDowIndex] : 'Sem dados ainda';
+    const bestDayAvg = bestDowIndex !== -1 && weekdayActiveCounts[bestDowIndex] > 0
+      ? Math.round(weekdayTotals[bestDowIndex] / weekdayActiveCounts[bestDowIndex])
+      : 0;
+
+    const currentStreak = calculateStreak();
+    const longestStreak = calculateLongestStreak();
+    const annualConsistencyPct = Math.round((studiedDaysYear / totalDays) * 100);
+    const shortMonths = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+    return (
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col gap-6 relative overflow-hidden animate-pop delay-300">
+        <div className="absolute -top-20 right-1/4 p-36 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 relative z-10">
+          <div>
+            <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-amber-400" /> Mapa de Calor Anual & Recordes
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-400 mt-0.5">Consistência nos últimos 365 dias ({totalYearRevisions} revisões no período)</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative z-10">
+          <div className="bg-slate-950/70 border border-amber-500/20 rounded-2xl p-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+              <Flame className="w-6 h-6 fill-current" />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Ofensiva Atual vs. Recorde</span>
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <span className="text-2xl font-black text-amber-400">{currentStreak}d</span>
+                <span className="text-xs text-slate-400 font-semibold">/ Recorde: <strong className="text-slate-200">{longestStreak} dias</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-950/70 border border-indigo-500/20 rounded-2xl p-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+              <Award className="w-6 h-6" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Dia Mais Produtivo</span>
+              <div className="text-base sm:text-lg font-black text-indigo-300 truncate mt-0.5">{bestDayName}</div>
+              <span className="text-[11px] text-slate-400">
+                {bestDowIndex !== -1 ? `Média de ${bestDayAvg} rev/dia ativo (${bestDowTotal} total)` : 'Estude para desbloquear'}
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-slate-950/70 border border-emerald-500/20 rounded-2xl p-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+              <CalendarDays className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Consistência Anual (365d)</span>
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <span className="text-2xl font-black text-emerald-400">{studiedDaysYear}</span>
+                <span className="text-xs text-slate-400 font-semibold">dias ativos (<strong className="text-emerald-300">{annualConsistencyPct}%</strong> do ano)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full overflow-x-auto custom-scrollbar pb-2 pt-6 relative z-10">
+          <div className="min-w-[740px] flex flex-col gap-1.5">
+            <div className="flex items-center gap-1 pl-8 mb-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+              {weeks.map((week, wIdx) => {
+                const firstOfMonth = week.find(c => !c.empty && c.dayOfMonth <= 7 && (wIdx === 0 || weeks[wIdx - 1].every(prev => prev.empty || prev.month !== c.month)));
+                return (
+                  <div key={wIdx} className="w-3 shrink-0 relative h-3">
+                    {firstOfMonth && (
+                      <span className="absolute left-0 top-0 whitespace-nowrap">{shortMonths[firstOfMonth.month]}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-start gap-1">
+              <div className="flex flex-col gap-1 pr-2 text-[9px] font-bold text-slate-500 uppercase leading-3 select-none">
+                <span className="h-3 flex items-center">Dom</span>
+                <span className="h-3 flex items-center opacity-0">Seg</span>
+                <span className="h-3 flex items-center">Ter</span>
+                <span className="h-3 flex items-center opacity-0">Qua</span>
+                <span className="h-3 flex items-center">Qui</span>
+                <span className="h-3 flex items-center opacity-0">Sex</span>
+                <span className="h-3 flex items-center">Sáb</span>
+              </div>
+
+              <div className="flex items-center gap-1">
+                {weeks.map((week, wIdx) => (
+                  <div key={wIdx} className="flex flex-col gap-1">
+                    {Array.from({ length: 7 }).map((_, dIdx) => {
+                      const cell = week[dIdx];
+                      if (!cell || cell.empty) {
+                        return <div key={`empty-${wIdx}-${dIdx}`} className="w-3 h-3 rounded-[3px] bg-transparent" />;
+                      }
+                      let cellColor = 'bg-slate-950 border border-slate-800/80';
+                      if (cell.count === 0 && cell.isRecovered) {
+                        cellColor = 'bg-indigo-600/70 border border-indigo-400/50';
+                      } else if (cell.count > 0 && cell.count < 5) {
+                        cellColor = 'bg-emerald-900/80 border border-emerald-800';
+                      } else if (cell.count >= 5 && cell.count < 15) {
+                        cellColor = 'bg-emerald-700 border border-emerald-600';
+                      } else if (cell.count >= 15 && cell.count < 30) {
+                        cellColor = 'bg-emerald-500 border border-emerald-400';
+                      } else if (cell.count >= 30) {
+                        cellColor = 'bg-emerald-300 border border-emerald-200 shadow-[0_0_6px_rgba(52,211,153,0.5)]';
+                      }
+
+                      return (
+                        <div
+                          key={cell.key}
+                          className={`w-3 h-3 rounded-[3px] transition-transform hover:scale-150 hover:z-30 relative group/hcell cursor-default ${cellColor}`}
+                        >
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 opacity-0 group-hover/hcell:opacity-100 pointer-events-none transition-opacity bg-slate-800 text-slate-100 text-[10px] font-semibold px-2 py-1 rounded-lg whitespace-nowrap shadow-xl border border-slate-700 z-50">
+                            <span className="text-emerald-400 font-bold">{cell.count} rev</span> em {cell.labelDate}
+                            {cell.isRecovered && cell.count === 0 && <span className="text-indigo-300 ml-1">(Recuperada)</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 mt-2 text-[10px] text-slate-500 font-semibold">
+              <span>Menos</span>
+              <span className="w-3 h-3 rounded-[3px] bg-slate-950 border border-slate-800"></span>
+              <span className="w-3 h-3 rounded-[3px] bg-emerald-900/80 border border-emerald-800"></span>
+              <span className="w-3 h-3 rounded-[3px] bg-emerald-700 border border-emerald-600"></span>
+              <span className="w-3 h-3 rounded-[3px] bg-emerald-500 border border-emerald-400"></span>
+              <span className="w-3 h-3 rounded-[3px] bg-emerald-300 border border-emerald-200"></span>
+              <span>Mais</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderReports = () => {
     let daysCount = 7; let days = []; const today = new Date();
 
     if (reportPeriod === 'all') {
       const dates = Object.keys(activityMap).sort();
       if (dates.length > 0) {
-        // Usa T12:00:00 para evitar deslocamento de fuso horário UTC-3
         const firstDate = new Date(dates[0] + 'T12:00:00'); 
         const diffTime = Math.abs(today - firstDate);
         daysCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
@@ -2273,17 +2790,101 @@ export default function App() {
     let totalR = 0; let revCardsCount = 0; const retentionBuckets = { exc: 0, good: 0, fair: 0, poor: 0 };
     let matureCount = 0; const now = Date.now();
 
+    let totalStabilitySum = 0;
+    let maxStabilityDays = 0;
+    let stabilityCardsCount = 0;
+
+    let totalDifficultySum = 0;
+    const difficultyBuckets = { easy: 0, mod: 0, hard: 0, extreme: 0 };
+    let difficultyCardsCount = 0;
+
+    const periodStartMs = reportPeriod === 'all' ? 0 : now - (daysCount * 86400000);
+    const periodRatedCards = targetCards.filter(c => (c.reviews || 0) > 0 && (!c.last_review || c.last_review >= periodStartMs));
+    const cardsForRatings = periodRatedCards.length > 0 ? periodRatedCards : targetCards.filter(c => (c.reviews || 0) > 0);
+
+    const buttonTotals = { again: 0, hard: 0, good: 0, easy: 0 };
+    let interactiveAttemptsTotal = 0;
+    let interactiveCorrectTotal = 0;
+
+    cardsForRatings.forEach(c => {
+      if (c.ratingCounts) {
+        buttonTotals.again += c.ratingCounts.again || 0;
+        buttonTotals.hard += c.ratingCounts.hard || 0;
+        buttonTotals.good += c.ratingCounts.good || 0;
+        buttonTotals.easy += c.ratingCounts.easy || 0;
+      } else {
+        const lapses = c.lapses || 0;
+        const revs = c.reviews || 0;
+        buttonTotals.again += lapses;
+        buttonTotals.good += Math.max(0, revs - lapses);
+      }
+
+      if (c.interactiveStats) {
+        interactiveAttemptsTotal += c.interactiveStats.attempts || 0;
+        interactiveCorrectTotal += c.interactiveStats.correct || 0;
+      }
+    });
+
     targetCards.forEach(c => {
+      if (c.isSuspended) return;
       const state = c.state !== undefined ? c.state : (c.reviews > 0 ? 2 : 0);
+
+      if (c.stability && (c.reviews || 0) > 0) {
+        const sVal = Number(c.stability);
+        totalStabilitySum += sVal;
+        if (sVal > maxStabilityDays) maxStabilityDays = sVal;
+        stabilityCardsCount++;
+      }
+
+      if (c.difficulty !== undefined && (c.reviews || 0) > 0) {
+        difficultyCardsCount++;
+        const d = Number(c.difficulty);
+        totalDifficultySum += d;
+        if (d < 3.5) difficultyBuckets.easy++;
+        else if (d < 6.5) difficultyBuckets.mod++;
+        else if (d < 8.5) difficultyBuckets.hard++;
+        else difficultyBuckets.extreme++;
+      }
+
       if (state === 2 && c.stability) { 
-        revCardsCount++; const elapsed = Math.max((now - (c.last_review || now)) / 86400000, 0); const r = forgetting_curve(elapsed, c.stability); totalR += r;
-        if (r >= 0.9) retentionBuckets.exc++; else if (r >= 0.8) retentionBuckets.good++; else if (r >= 0.7) retentionBuckets.fair++; else retentionBuckets.poor++;
+        revCardsCount++;
+        const elapsed = Math.max((now - (c.last_review || now)) / 86400000, 0);
+        const r = forgetting_curve(elapsed, c.stability);
+        totalR += r;
+        if (r >= 0.9) retentionBuckets.exc++;
+        else if (r >= 0.8) retentionBuckets.good++;
+        else if (r >= 0.7) retentionBuckets.fair++;
+        else retentionBuckets.poor++;
         if (c.interval >= 21) matureCount++; 
       }
     });
 
     const avgRetention = revCardsCount > 0 ? ((totalR / revCardsCount) * 100).toFixed(1) : 'N/A';
+    const totalButtonPresses = buttonTotals.again + buttonTotals.hard + buttonTotals.good + buttonTotals.easy;
+    const totalPassPresses = buttonTotals.hard + buttonTotals.good + buttonTotals.easy;
+    const trueRetention = totalButtonPresses > 0 ? ((totalPassPresses / totalButtonPresses) * 100).toFixed(1) : 'N/A';
+    const avgStabilityDays = stabilityCardsCount > 0 ? Math.round(totalStabilitySum / stabilityCardsCount) : 0;
+    const avgStabilityExact = stabilityCardsCount > 0 ? (totalStabilitySum / stabilityCardsCount).toFixed(1) : '0.0';
+    const avgDifficulty = difficultyCardsCount > 0 ? (totalDifficultySum / difficultyCardsCount).toFixed(1) : 'N/A';
+    const interactiveAccuracyPct = interactiveAttemptsTotal > 0 ? Math.round((interactiveCorrectTotal / interactiveAttemptsTotal) * 100) : null;
     const maturePercent = targetCards.length > 0 ? Math.round((matureCount / targetCards.length) * 100) : 0;
+
+    let calibrationDiff = null;
+    let calibrationLabel = 'Estude cartões para calibrar';
+    let calibrationColor = 'text-slate-400 bg-slate-800/80 border-slate-700';
+    if (trueRetention !== 'N/A' && avgRetention !== 'N/A') {
+      calibrationDiff = parseFloat(trueRetention) - parseFloat(avgRetention);
+      if (Math.abs(calibrationDiff) <= 3.0) {
+        calibrationLabel = 'FSRS Bem Calibrado';
+        calibrationColor = 'text-emerald-300 bg-emerald-500/15 border-emerald-500/30';
+      } else if (calibrationDiff > 3.0) {
+        calibrationLabel = `Memória +${calibrationDiff.toFixed(1)}% acima da curva`;
+        calibrationColor = 'text-cyan-300 bg-cyan-500/15 border-cyan-500/30';
+      } else {
+        calibrationLabel = `Rigoroso (${calibrationDiff.toFixed(1)}% vs. curva)`;
+        calibrationColor = 'text-amber-300 bg-amber-500/15 border-amber-500/30';
+      }
+    }
 
     const maxActivity = Math.max(...activityData.map(a => a.count), 5);
     const n = activityData.length;
@@ -2324,29 +2925,183 @@ export default function App() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-100">
             <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Activity className="w-32 h-32" /></div>
-            <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Revisões {reportPeriod === 'all' ? '(Total)' : `(${daysCount}d)`}</span>
+            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2 relative z-10">Revisões {reportPeriod === 'all' ? '(Total)' : `(${daysCount}d)`}</span>
             <div className="text-4xl sm:text-5xl font-black text-indigo-400 relative z-10">{totalReviewsPeriod}</div>
             <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Cartões processados no período</div>
           </div>
           
+          {/* 1.1. Taxa de Acerto Real (True Retention) vs. Retenção Estimada (R) */}
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-200">
             <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><BrainCircuit className="w-32 h-32" /></div>
-            <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Retenção Estimada</span>
-            <div className="text-4xl sm:text-5xl font-black text-emerald-400 relative z-10">{avgRetention === 'N/A' ? '--' : `${avgRetention}%`}</div>
-            <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Estimativa Algorítmica da FSRS (R)</div>
+            <div className="flex items-center justify-between gap-2 mb-2 relative z-10">
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Retenção Real vs. Teórica (R)</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${calibrationColor}`}>{calibrationLabel}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 my-1 relative z-10 bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80">
+              <div>
+                <div className="text-2xl sm:text-3xl font-black text-emerald-400">{trueRetention === 'N/A' ? '--' : `${trueRetention}%`}</div>
+                <span className="text-[10px] font-bold uppercase text-emerald-500/90 block mt-0.5">Acerto Real</span>
+                <span className="text-[10px] text-slate-500">{totalPassPresses}/{totalButtonPresses} lembranças</span>
+              </div>
+              <div className="border-l border-slate-800 pl-3">
+                <div className="text-2xl sm:text-3xl font-black text-cyan-400">{avgRetention === 'N/A' ? '--' : `${avgRetention}%`}</div>
+                <span className="text-[10px] font-bold uppercase text-cyan-500/90 block mt-0.5">Curva FSRS (R)</span>
+                <span className="text-[10px] text-slate-500">Meta: {Math.round(desiredRetention * 100)}%</span>
+              </div>
+            </div>
+            <div className="mt-2 text-[11px] text-slate-500 font-medium relative z-10">
+              Compara respostas (Difícil/Bom/Fácil) com a curva teórica $R(t,S)$
+            </div>
+          </div>
+
+          {/* 1.2 (Parte 2). Vida Útil da Memória (Estabilidade Média S̄) */}
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-200">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Gauge className="w-32 h-32" /></div>
+            <div className="flex items-center justify-between gap-2 mb-2 relative z-10">
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Vida Útil da Memória (S̄)</span>
+              {maxStabilityDays > 0 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                  Máx: {Math.round(maxStabilityDays)}d
+                </span>
+              )}
+            </div>
+            <div className="relative z-10">
+              <div className="text-xs font-semibold text-purple-300/90 mb-0.5">Estabilidade Média:</div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl sm:text-5xl font-black text-purple-400">{avgStabilityDays}</span>
+                <span className="text-base font-bold text-slate-300">dias</span>
+                <span className="text-xs text-slate-500 font-semibold">({avgStabilityExact}d)</span>
+              </div>
+            </div>
+            <div className="mt-3 text-[11px] text-slate-400 font-medium relative z-10 leading-snug">
+              Tempo médio que seus cartões estudados levam para cair de <strong className="text-slate-200">100% para 90%</strong> de chance de lembrança.
+            </div>
           </div>
 
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-300">
             <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Award className="w-32 h-32" /></div>
-            <span className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2 relative z-10">Cartões Maduros</span>
+            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2 relative z-10">Cartões Maduros</span>
             <div className="flex items-end gap-2 relative z-10">
               <div className="text-4xl sm:text-5xl font-black text-amber-400">{maturePercent}%</div>
               <div className="text-slate-500 font-bold mb-1.5 text-sm sm:text-base">/ {matureCount}</div>
             </div>
-            <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Cartões com intervalo {'>'} 21 dias</div>
+            <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Cartões consolidados com intervalo {'>'} 21 dias</div>
+          </div>
+        </div>
+
+        {/* 1.2 (Parte 1). Histograma de Dificuldade (D) + Distribuição de Respostas */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between animate-pop delay-300">
+            <div>
+              <div className="flex flex-wrap justify-between items-center gap-2 mb-1">
+                <h3 className="text-slate-200 font-bold flex items-center gap-2">
+                  <BarChart2 className="w-5 h-5 text-purple-400" /> Distribuição de Dificuldade ($D \in [1, 10]$)
+                </h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                    D̄ Médio: {avgDifficulty}
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">{difficultyCardsCount} cartões</span>
+                </div>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-500 mb-6">
+                Classificação dos cartões estudados entre Fáceis (1–3), Moderados (4–6), Difíceis (7–8) e Extremos (9–10)
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-4 my-auto">
+              {[
+                { label: 'Fáceis (1–3)', desc: 'D entre 1.0 e 3.4', count: difficultyBuckets.easy, color: 'bg-emerald-400', text: 'text-emerald-400', badge: 'bg-emerald-500/10 border-emerald-500/20' },
+                { label: 'Moderados (4–6)', desc: 'D entre 3.5 e 6.4', count: difficultyBuckets.mod, color: 'bg-blue-400', text: 'text-blue-400', badge: 'bg-blue-500/10 border-blue-500/20' },
+                { label: 'Difíceis (7–8)', desc: 'D entre 6.5 e 8.4', count: difficultyBuckets.hard, color: 'bg-amber-400', text: 'text-amber-400', badge: 'bg-amber-500/10 border-amber-500/20' },
+                { label: 'Extremos (9–10)', desc: 'D entre 8.5 e 10.0 (Sanguessugas)', count: difficultyBuckets.extreme, color: 'bg-rose-500', text: 'text-rose-400', badge: 'bg-rose-500/10 border-rose-500/20' },
+              ].map((b, idx) => {
+                const pct = difficultyCardsCount > 0 ? Math.round((b.count / difficultyCardsCount) * 100) : 0;
+                return (
+                  <div key={idx} className="flex flex-col gap-1.5">
+                    <div className="flex justify-between items-center text-xs font-semibold">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-200 font-bold">{b.label}</span>
+                        <span className="text-[11px] text-slate-500 hidden sm:inline">• {b.desc}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded border text-xs font-bold ${b.badge} ${b.text}`}>
+                        {b.count} cartões ({pct}%)
+                      </span>
+                    </div>
+                    <div className="w-full h-3.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                      <div className={`h-full ${b.color} rounded-full transition-all duration-700`} style={{ width: `${Math.max(pct, b.count > 0 ? 4 : 0)}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between animate-pop delay-300">
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <h3 className="text-slate-200 font-bold flex items-center gap-2">
+                  <Target className="w-5 h-5 text-rose-400" /> Calibragem & Respostas Reais (1–4)
+                </h3>
+                <span className="text-xs font-bold text-slate-500">{totalButtonPresses} avaliações</span>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-500 mb-5">
+                Proporção entre falhas (Errei) e lembranças (Difícil, Bom, Fácil) que compõem sua Taxa de Acerto Real
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-5 my-auto">
+              <div className="w-full flex h-4 rounded-full overflow-hidden bg-slate-950 p-0.5 gap-1 border border-slate-800">
+                {[
+                  { count: buttonTotals.again, color: 'bg-rose-500', label: 'Errei' },
+                  { count: buttonTotals.hard, color: 'bg-orange-400', label: 'Difícil' },
+                  { count: buttonTotals.good, color: 'bg-emerald-400', label: 'Bom' },
+                  { count: buttonTotals.easy, color: 'bg-blue-400', label: 'Fácil' },
+                ].map((btn, i) => {
+                  const pct = totalButtonPresses > 0 ? (btn.count / totalButtonPresses) * 100 : 25;
+                  if (pct <= 0) return null;
+                  return (
+                    <div
+                      key={i}
+                      title={`${btn.label}: ${btn.count} (${Math.round(pct)}%)`}
+                      className={`h-full ${btn.color} rounded-full transition-all duration-700`}
+                      style={{ width: `${Math.max(pct, 3)}%` }}
+                    />
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {[
+                  { label: '1 • Errei', count: buttonTotals.again, text: 'text-rose-400', border: 'border-rose-500/20' },
+                  { label: '2 • Difícil', count: buttonTotals.hard, text: 'text-orange-400', border: 'border-orange-500/20' },
+                  { label: '3 • Bom', count: buttonTotals.good, text: 'text-emerald-400', border: 'border-emerald-500/20' },
+                  { label: '4 • Fácil', count: buttonTotals.easy, text: 'text-blue-400', border: 'border-blue-500/20' },
+                ].map((item, idx) => {
+                  const pct = totalButtonPresses > 0 ? Math.round((item.count / totalButtonPresses) * 100) : 0;
+                  return (
+                    <div key={idx} className={`bg-slate-950/70 border ${item.border} rounded-2xl p-3 flex flex-col items-center text-center`}>
+                      <span className="text-[10px] font-bold uppercase text-slate-500">{item.label}</span>
+                      <span className={`text-xl font-black mt-1 ${item.text}`}>{pct}%</span>
+                      <span className="text-[10px] text-slate-500">{item.count} rev</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <CheckSquare className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-300">Precisão nos Cartões Interativos (Escolha, V/F, Digitação)</span>
+                </div>
+                <span className="text-sm font-black text-indigo-400 shrink-0 ml-2">
+                  {interactiveAccuracyPct !== null ? `${interactiveAccuracyPct}% (${interactiveCorrectTotal}/${interactiveAttemptsTotal})` : 'Sem dados'}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2355,7 +3110,6 @@ export default function App() {
             <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
             <p className="text-sm text-slate-500 mb-4">Cartões revistos ao longo do tempo</p>
             
-            {}
             <div className="flex-grow w-full chart-scroll-container overflow-x-auto relative pb-2 px-4 sm:px-6">
               <div 
                 className="relative h-full min-h-[240px]" 
@@ -2414,8 +3168,8 @@ export default function App() {
           </div>
 
           <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
-            <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><PieChart className="w-5 h-5 text-emerald-400" /> Saúde da Memória</h3>
-            <p className="text-sm text-slate-500 mb-8">Probabilidade de lembrança com base no FSRS</p>
+            <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><PieChart className="w-5 h-5 text-emerald-400" /> Saúde da Memória ($R$)</h3>
+            <p className="text-sm text-slate-500 mb-8">Probabilidade instantânea de lembrança segundo a curva de esquecimento do FSRS</p>
             <div className="flex-grow flex flex-col justify-center gap-5 sm:gap-6">
               {[
                 { label: 'Excelente (90-100%)', count: retentionBuckets.exc, color: 'bg-emerald-400' },
@@ -2491,6 +3245,15 @@ export default function App() {
                       </span>
                     )}
                   </div>
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      onClick={() => openCustomStudyModal('all', null)}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-indigo-300 border border-indigo-500/30 text-xs sm:text-sm font-bold transition-all active:scale-95 shadow-md"
+                    >
+                      <SlidersHorizontal className="w-4 h-4 text-indigo-400" /> Estudo Personalizado / Simulado
+                    </button>
+                  </div>
                 </div>
                 <div className="relative z-10 w-full md:w-1/2 bg-slate-950/60 p-5 rounded-2xl border border-slate-800/80 backdrop-blur-sm">
                   <div className="flex justify-between text-sm font-medium mb-3">
@@ -2527,12 +3290,15 @@ export default function App() {
                     <strong className="text-indigo-400">{calculateTotalDue(getFolderStats(currentFolderId))}</strong> cartões pendentes em sub-baralhos.
                   </p>
                 </div>
-                <div className="flex gap-2 w-full sm:w-auto">
+                <div className="flex gap-2 w-full sm:w-auto flex-wrap">
                   <button onClick={() => startReview(null, false, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${calculateTotalDue(getFolderStats(currentFolderId)) > 0 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
                     <Play className="w-4 h-4" fill="currentColor" /> Estudar Tudo
                   </button>
                   <button onClick={() => startReview(null, true, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0 && getFolderStats(currentFolderId).learned === 0} className={`flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95`} title="Rever ignorando agendamento">
                     <FastForward className="w-4 h-4" fill="currentColor" /> Modo Livre
+                  </button>
+                  <button onClick={() => openCustomStudyModal('folder', currentFolderId)} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Filtrar ou criar simulado desta pasta">
+                    <SlidersHorizontal className="w-4 h-4" /> Personalizar
                   </button>
                 </div>
               </div>
@@ -2590,7 +3356,7 @@ export default function App() {
                   const playDisabled = due === 0 || deck.isIgnored;
 
                   return (
-                    <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); setCurrentView('deck-detail'); }} className={`bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 50}ms`}}>
+                    <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); setDeckTagFilter('all'); setCurrentView('deck-detail'); }} className={`bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 50}ms`}}>
                       <div className="flex items-start justify-between mb-4 w-full">
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
                         <div className="relative" onClick={e => e.stopPropagation()}>
@@ -2645,6 +3411,7 @@ export default function App() {
             <div className="lg:col-span-1 xl:col-span-1">{renderMastery()}</div>
             <div className="lg:col-span-1 xl:col-span-1">{renderDeckDistribution()}</div>
             <div className="lg:col-span-2 xl:col-span-2">{renderForecast()}</div>
+            <div className="lg:col-span-2 xl:col-span-3">{renderAnnualHeatmap()}</div>
           </div>
         )}
         
@@ -2669,9 +3436,11 @@ export default function App() {
 
     const allDeckCards = (activeDeck.cards || []).slice().reverse();
     const leechCount = allDeckCards.filter(c => isCardLeech(c)).length;
+    const deckTags = Array.from(new Set(allDeckCards.flatMap(c => c.tags || []))).sort();
 
     const filteredDeckCards = allDeckCards.filter(card => {
       if (deckTypeFilter !== 'all' && (card.type || 'standard') !== deckTypeFilter) return false;
+      if (deckTagFilter !== 'all' && !(card.tags || []).includes(deckTagFilter)) return false;
       if (deckStatusFilter !== 'all') {
         if (deckStatusFilter === 'leech') {
           if (!isCardLeech(card)) return false;
@@ -2680,12 +3449,13 @@ export default function App() {
         }
       }
       if (deckSearchQuery.trim() !== '') {
-        const q = deckSearchQuery.toLowerCase().trim();
+        const q = deckSearchQuery.toLowerCase().trim().replace(/^#/, '');
         const frontText = (card.front || '').replace(/<[^>]*>/g, ' ').toLowerCase();
         const backText = (card.back || '').replace(/<[^>]*>/g, ' ').toLowerCase();
         const typeAns = (card.typeAnswer || '').toLowerCase();
         const optsText = (card.options || []).join(' ').toLowerCase();
-        if (!frontText.includes(q) && !backText.includes(q) && !typeAns.includes(q) && !optsText.includes(q)) {
+        const tagsText = (card.tags || []).join(' ').toLowerCase();
+        if (!frontText.includes(q) && !backText.includes(q) && !typeAns.includes(q) && !optsText.includes(q) && !tagsText.includes(q)) {
           return false;
         }
       }
@@ -2697,9 +3467,9 @@ export default function App() {
         <button onClick={() => {
           setCurrentView('dashboard');
           setEditingCardId(null);
-          setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer('');
+          setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setCardTagsInput('');
           setIsSelectMode(false); setSelectedCardIds(new Set());
-          setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all');
+          setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); setDeckTagFilter('all');
         }} className="flex items-center gap-2 text-slate-400 hover:text-slate-200 mb-6 transition-colors"><ArrowLeft className="w-4 h-4" /> Voltar</button>
 
         <div className="bg-slate-900/80 backdrop-blur-sm rounded-3xl p-6 sm:p-8 border border-slate-800 mb-8 flex flex-col gap-6 relative group">
@@ -2714,12 +3484,15 @@ export default function App() {
                 <p className="text-slate-400">Gerir e adicionar cartões de estudo</p>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto flex-wrap">
               <button onClick={() => startReview(activeDeck.id)} disabled={due === 0 || activeDeck.isIgnored} className={`px-6 sm:px-8 py-3 sm:py-4 rounded-2xl font-bold text-base sm:text-lg flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 ${due > 0 && !activeDeck.isIgnored ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 border border-indigo-400/20' : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}`}>
                 <Play className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> Revisar <span className="bg-indigo-500/30 text-indigo-100 px-2 py-0.5 rounded-full text-sm ml-1">{activeDeck.isIgnored ? '0' : due}</span>
               </button>
               <button onClick={() => startReview(activeDeck.id, true)} disabled={!activeDeck.cards || activeDeck.cards.length === 0} className={`px-4 sm:px-6 py-3 sm:py-4 rounded-2xl font-bold text-base sm:text-lg flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 ${activeDeck.cards?.length > 0 ? 'bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 shadow-lg' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-800'}`} title="Adiantar">
                 <FastForward className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> Estudo Livre
+              </button>
+              <button onClick={() => openCustomStudyModal('deck', activeDeck.id)} disabled={!activeDeck.cards || activeDeck.cards.length === 0} className={`px-4 sm:px-5 py-3 sm:py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 ${activeDeck.cards?.length > 0 ? 'bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 shadow-lg' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-800'}`} title="Estudo Personalizado / Simulado">
+                <SlidersHorizontal className="w-5 h-5" /> Personalizar
               </button>
             </div>
           </div>
@@ -2787,10 +3560,47 @@ export default function App() {
                 <div className="pt-2 border-t border-slate-800">
                   <RichTextEditor label="Verso" placeholder="" value={newCardBack} onChange={setNewCardBack} />
                 </div>
+                <div className="pt-2 border-t border-slate-800">
+                  <label className="block text-sm font-medium text-slate-400 mb-1.5 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-indigo-400" /> Etiquetas (#tags)
+                  </label>
+                  <input
+                    type="text"
+                    value={cardTagsInput}
+                    onChange={(e) => setCardTagsInput(e.target.value)}
+                    placeholder="Ex: #importante #formula #edital"
+                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {deckTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {deckTags.slice(0, 8).map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => {
+                            const current = parseTagsString(cardTagsInput);
+                            if (current.includes(t)) {
+                              setCardTagsInput(current.filter(x => x !== t).map(x => `#${x}`).join(' '));
+                            } else {
+                              setCardTagsInput([...current, t].map(x => `#${x}`).join(' '));
+                            }
+                          }}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors ${
+                            parseTagsString(cardTagsInput).includes(t)
+                              ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                          }`}
+                        >
+                          #{t}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="flex gap-2 mt-4">
                   {editingCardId && <button type="button" onClick={() => {
                     setEditingCardId(null);
-                    setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer('');
+                    setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setCardTagsInput('');
                   }} className="w-1/3 bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 rounded-xl transition-colors">Cancelar</button>}
                   <button type="submit" className={`bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-colors border border-indigo-500/50 ${editingCardId ? 'w-2/3' : 'w-full'}`}>{editingCardId ? 'Guardar' : 'Adicionar'}</button>
                 </div>
@@ -2838,7 +3648,6 @@ export default function App() {
               )}
             </div>
 
-            {/* BARRA DE BUSCA E FILTROS DO BARALHO */}
             {allDeckCards.length > 0 && (
               <div className="bg-slate-900/60 p-3.5 rounded-2xl border border-slate-800/90 flex flex-col gap-3">
                 <div className="flex flex-col sm:flex-row gap-2.5">
@@ -2872,6 +3681,18 @@ export default function App() {
                     <option value="tf">Verdadeiro / Falso</option>
                     <option value="typing">Digitação</option>
                   </select>
+                  {deckTags.length > 0 && (
+                    <select
+                      value={deckTagFilter}
+                      onChange={(e) => setDeckTagFilter(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 text-indigo-300 text-xs sm:text-sm font-medium rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-indigo-500 transition-colors"
+                    >
+                      <option value="all">Todas as #tags</option>
+                      {deckTags.map(t => (
+                        <option key={t} value={t}>#{t}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
@@ -2942,6 +3763,16 @@ export default function App() {
                             <AlertTriangle className="w-3 h-3" /> Sanguessuga {card.difficulty ? `(D: ${card.difficulty.toFixed(1)})` : ''}
                           </span>
                         )}
+                        {(card.tags || []).map(t => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setDeckTagFilter(deckTagFilter === t ? 'all' : t); }}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors"
+                          >
+                            #{t}
+                          </button>
+                        ))}
                       </div>
                       <div className="text-slate-200 font-medium text-sm sm:text-base break-words" dangerouslySetInnerHTML={{ __html: card.front }} />
                     </div>
@@ -2969,7 +3800,7 @@ export default function App() {
                 <span>Nenhum cartão corresponde aos filtros aplicados.</span>
                 <button
                   type="button"
-                  onClick={() => { setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); }}
+                  onClick={() => { setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); setDeckTagFilter('all'); }}
                   className="text-xs font-bold text-indigo-400 hover:text-indigo-300 underline"
                 >
                   Limpar filtros
@@ -2996,24 +3827,32 @@ export default function App() {
     if (!reviewQueue.length) return null;
     const currentCard = reviewQueue[currentCardIndex];
     const progress = (currentCardIndex / reviewQueue.length) * 100;
-    const intervalLabels = [0,1,2,3].map(q => formatInterval(calculateNextReview(currentCard, q).interval));
+    const intervalLabels = [0,1,2,3].map(q => formatInterval(calculateNextReview(currentCard, q, desiredRetention).interval));
     const type = currentCard.type || 'standard';
     const leech = isCardLeech(currentCard);
 
     const normalizedUserTyped = (reviewInteraction || '').trim().toLowerCase();
-    const normalizedExpectedAnswer = (currentCard.typeAnswer || '').trim().toLowerCase();
-    const isTypingCorrect = normalizedUserTyped === normalizedExpectedAnswer;
+    const normalizedExpectedTyped = (currentCard.typeAnswer || '').trim().toLowerCase();
+    const isTypedCorrect = normalizedUserTyped === normalizedExpectedTyped;
 
-    const getInteractiveSpeechText = () => {
-      let text = currentCard.front || '';
-      if (type === 'choice' && Array.isArray(currentCard.options)) {
-        text += '. Opções: ' + currentCard.options.map((o, i) => `${i + 1}: ${o}`).join('. ');
-      }
-      if (isFlipped && currentCard.back) {
-        text += '. ' + currentCard.back;
-      }
-      return text;
-    };
+    let interactiveSuggestedGrade = null;
+    if (isFlipped && type !== 'standard' && reviewInteraction !== null) {
+      if (type === 'choice') interactiveSuggestedGrade = reviewInteraction === currentCard.correctOption ? 2 : 0;
+      else if (type === 'tf') interactiveSuggestedGrade = reviewInteraction === (currentCard.isTrue !== false) ? 2 : 0;
+      else if (type === 'typing') interactiveSuggestedGrade = isTypedCorrect ? 2 : 0;
+    }
+
+    const renderReviewDropdownMenu = (menuKey) => (
+      activeMenuId === menuKey && (
+        <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+          <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar Cartão</button>
+          <button onClick={() => { handleBuryReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-indigo-300 hover:bg-slate-700 flex items-center gap-2"><SkipForward className="w-4 h-4" /> Enterrar até amanhã</button>
+          <button onClick={() => { handleSuspendReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-amber-300 hover:bg-slate-700 flex items-center gap-2"><PauseCircle className="w-4 h-4" /> Suspender Cartão</button>
+          <div className="h-px bg-slate-700 w-full"></div>
+          <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir Cartão</button>
+        </div>
+      )
+    );
 
     return (
       <div className="w-full px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col pb-24" onClick={() => setActiveMenuId(null)}>
@@ -3025,7 +3864,7 @@ export default function App() {
             </button>
           </div>
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
-          <span className="text-xs font-mono text-slate-500 shrink-0">{currentCardIndex + 1}/{reviewQueue.length}</span>
+          <span className="text-xs font-bold text-slate-500 shrink-0">{currentCardIndex + 1} / {reviewQueue.length}</span>
         </div>
 
         <div className="flex-grow flex flex-col justify-center items-center w-full max-w-5xl mx-auto" style={{ perspective: '1000px' }}>
@@ -3036,94 +3875,76 @@ export default function App() {
                 style={{ transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }} 
                 onClick={() => setIsFlipped(prev => !prev)} 
               >
+                {/* FRENTE */}
                 <div 
                   className="absolute inset-0 w-full h-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl"
                   style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
                 >
                   <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center group">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
                       {leech && (
-                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30" title="Cartão Sanguessuga (Difícil)">
+                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
                           <AlertTriangle className="w-3 h-3" /> Sanguessuga
                         </span>
                       )}
+                      {(currentCard.tags || []).map(t => (
+                        <span key={t} className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">#{t}</span>
+                      ))}
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={(e) => speakCardText(currentCard.front, e)}
-                        className={`p-2 rounded-lg transition-colors border ${isSpeaking ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 animate-pulse' : 'bg-slate-800/60 text-slate-400 hover:bg-slate-700 hover:text-indigo-300 border-slate-700/50'}`}
-                        title="Ouvir pronúncia (Text-to-Speech)"
+                        className={`p-1.5 rounded-lg border transition-colors ${isSpeaking ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' : 'bg-slate-800/60 text-slate-400 hover:text-indigo-300 border-slate-700/50'}`}
+                        title="Ouvir pronúncia / Ler em voz alta"
                       >
-                        {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                        {isSpeaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                       </button>
                       <div className="relative" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-700 hover:text-indigo-300 rounded-lg transition-colors border border-slate-700/50" title="Opções do Cartão">
-                          <MoreVertical className="w-4 h-4" />
+                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-700 hover:text-indigo-300 rounded-lg transition-colors border border-slate-700/50" title="Opções do Cartão">
+                          <MoreVertical className="w-3.5 h-3.5" />
                         </button>
-                        {activeMenuId === 'review_menu' && (
-                          <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                            <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                            <button onClick={() => { handleBuryReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-indigo-300 hover:bg-slate-700 flex items-center gap-2"><SkipForward className="w-4 h-4" /> Enterrar até amanhã</button>
-                            <button onClick={() => { handleSuspendReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-amber-300 hover:bg-slate-700 flex items-center gap-2"><PauseCircle className="w-4 h-4" /> Suspender cartão</button>
-                            <div className="h-px bg-slate-700 w-full"></div>
-                            <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
-                          </div>
-                        )}
+                        {renderReviewDropdownMenu('review_menu')}
                       </div>
                       <span className="text-xs text-slate-600 bg-slate-950 px-2 py-1 rounded hidden sm:block">Clique (ou Espaço) para virar</span>
                     </div>
                   </div>
                   <div className="flex-grow overflow-y-auto custom-scrollbar relative">
                     <div className="min-h-full flex flex-col justify-center p-6 sm:p-8">
-                      <div className="w-full text-2xl sm:text-3xl text-slate-100 text-center anki-content" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                      <div className="w-full text-2xl sm:text-3xl text-slate-100 text-center anki-content break-words" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
                     </div>
                   </div>
                 </div>
 
+                {/* VERSO */}
                 <div 
                   className="absolute inset-0 w-full h-full bg-indigo-950/40 rounded-3xl border border-indigo-500/20 flex flex-col shadow-2xl"
                   style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
                 >
                   <div className="p-6 text-left border-b border-indigo-500/20 flex justify-between items-center group">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
-                      {leech && (
-                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                          <AlertTriangle className="w-3 h-3" /> Sanguessuga
-                        </span>
-                      )}
-                    </div>
+                    <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={(e) => speakCardText(currentCard.back, e)}
-                        className={`p-2 rounded-lg transition-colors border ${isSpeaking ? 'bg-indigo-500/30 text-indigo-200 border-indigo-400 animate-pulse' : 'bg-indigo-900/40 text-indigo-300/80 hover:bg-indigo-800 hover:text-indigo-100 border-indigo-500/30'}`}
-                        title="Ouvir resposta (Text-to-Speech)"
+                        className={`p-1.5 rounded-lg border transition-colors ${isSpeaking ? 'bg-indigo-500/30 text-indigo-200 border-indigo-400/50' : 'bg-indigo-900/40 text-indigo-300/70 hover:text-indigo-200 border-indigo-500/30'}`}
+                        title="Ouvir resposta em voz alta"
                       >
-                        {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                        {isSpeaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                       </button>
                       <div className="relative" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu_verso' ? null : 'review_menu_verso')} className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-indigo-400/70 bg-indigo-900/40 hover:bg-indigo-800 hover:text-indigo-200 rounded-lg transition-colors border border-indigo-500/30" title="Opções do Cartão">
-                          <MoreVertical className="w-4 h-4" />
+                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu_verso' ? null : 'review_menu_verso')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-indigo-400/70 bg-indigo-900/40 hover:bg-indigo-800 hover:text-indigo-200 rounded-lg transition-colors border border-indigo-500/30" title="Opções do Cartão">
+                          <MoreVertical className="w-3.5 h-3.5" />
                         </button>
-                        {activeMenuId === 'review_menu_verso' && (
-                          <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                            <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                            <button onClick={() => { handleBuryReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-indigo-300 hover:bg-slate-700 flex items-center gap-2"><SkipForward className="w-4 h-4" /> Enterrar até amanhã</button>
-                            <button onClick={() => { handleSuspendReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-amber-300 hover:bg-slate-700 flex items-center gap-2"><PauseCircle className="w-4 h-4" /> Suspender cartão</button>
-                            <div className="h-px bg-slate-700 w-full"></div>
-                            <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
-                          </div>
-                        )}
+                        {renderReviewDropdownMenu('review_menu_verso')}
                       </div>
                       <button className="p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-400 rounded-full transition-colors border border-indigo-500/30" onClick={(e) => { e.stopPropagation(); setIsFlipped(false); }} title="Virar Novamente"><RefreshCcw className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="flex-grow overflow-y-auto custom-scrollbar relative">
                     <div className="min-h-full flex flex-col justify-center p-6 sm:p-8">
-                      <div className="w-full text-2xl sm:text-3xl text-indigo-100 text-center anki-content" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                      <div className="w-full text-2xl sm:text-3xl text-indigo-100 text-center anki-content break-words" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
                     </div>
                   </div>
                 </div>
@@ -3133,39 +3954,41 @@ export default function App() {
 
           {type !== 'standard' && (
             <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] max-h-[80vh] animate-slide-right relative group overflow-hidden">
-              <div className="absolute top-4 right-4 z-30 flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                {leech && (
-                  <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                    <AlertTriangle className="w-3 h-3" /> Sanguessuga
+              <div className="flex items-center justify-between px-6 pt-4 pb-2 border-b border-slate-800/40" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    {type === 'choice' ? 'Múltipla Escolha' : type === 'tf' ? 'Verdadeiro ou Falso' : 'Digitação'}
                   </span>
-                )}
-                <button
-                  type="button"
-                  onClick={(e) => speakCardText(getInteractiveSpeechText(), e)}
-                  className={`p-2 rounded-lg transition-colors border shadow-md ${isSpeaking ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 animate-pulse' : 'bg-slate-950 text-slate-400 hover:bg-slate-800 hover:text-slate-200 border-slate-700'}`}
-                  title="Ouvir cartão (Text-to-Speech)"
-                >
-                  {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                </button>
-                <div className="relative">
-                  <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition-colors shadow-md" title="Opções do Cartão">
-                    <MoreVertical className="w-4 h-4" />
-                  </button>
-                  {activeMenuId === 'review_menu' && (
-                    <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
-                      <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                      <button onClick={() => { handleBuryReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-indigo-300 hover:bg-slate-700 flex items-center gap-2"><SkipForward className="w-4 h-4" /> Enterrar até amanhã</button>
-                      <button onClick={() => { handleSuspendReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-amber-300 hover:bg-slate-700 flex items-center gap-2"><PauseCircle className="w-4 h-4" /> Suspender cartão</button>
-                      <div className="h-px bg-slate-700 w-full"></div>
-                      <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
-                    </div>
+                  {leech && (
+                    <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                      <AlertTriangle className="w-3 h-3" /> Sanguessuga
+                    </span>
                   )}
+                  {(currentCard.tags || []).map(t => (
+                    <span key={t} className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">#{t}</span>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => speakCardText(`${currentCard.front} ${(currentCard.options || []).join('. ')}`, e)}
+                    className={`p-2 rounded-lg border transition-colors ${isSpeaking ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' : 'bg-slate-950 text-slate-400 hover:text-indigo-300 border-slate-700'}`}
+                    title="Ouvir pergunta em voz alta"
+                  >
+                    {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+                  <div className="relative">
+                    <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition-colors shadow-md" title="Opções do Cartão">
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                    {renderReviewDropdownMenu('review_menu')}
+                  </div>
                 </div>
               </div>
               
               <div className="overflow-y-auto custom-scrollbar flex-grow flex flex-col">
                 <div className="p-6 sm:p-8 border-b border-slate-800/50 shrink-0">
-                  <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center anki-content" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
+                  <div className="text-xl sm:text-3xl font-medium text-slate-100 text-center anki-content break-words" dangerouslySetInnerHTML={{ __html: currentCard.front }} />
                 </div>
                 <div className="flex-grow p-6 sm:px-10 bg-slate-950/50 flex flex-col justify-center gap-4">
                   {type === 'choice' && (
@@ -3219,38 +4042,43 @@ export default function App() {
                   {type === 'typing' && (
                     <div className="w-full flex flex-col items-center gap-4">
                       <div className="w-full max-w-lg flex items-center gap-2">
-                        <input 
-                          type="text" 
-                          autoFocus 
-                          disabled={isFlipped} 
-                          value={isFlipped ? reviewInteraction : typedInput} 
-                          onChange={e => setTypedInput(e.target.value)} 
-                          onKeyDown={e => e.key === 'Enter' && typedInput.trim() && handleInteractiveSubmit(typedInput)} 
-                          className={`w-full bg-transparent border-b-2 text-center text-2xl sm:text-3xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : (isTypingCorrect ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`} 
-                          placeholder="Digite sua resposta..." 
+                        <input
+                          type="text"
+                          autoFocus
+                          disabled={isFlipped}
+                          value={isFlipped ? reviewInteraction : typedInput}
+                          onChange={e => setTypedInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && typedInput.trim()) {
+                              e.preventDefault();
+                              handleInteractiveSubmit(typedInput);
+                            }
+                          }}
+                          className={`w-full bg-transparent border-b-2 text-center text-2xl sm:text-3xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : (isTypedCorrect ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`}
+                          placeholder="Digite sua resposta..."
                         />
                         {!isFlipped && (
-                          <button 
+                          <button
                             type="button"
                             onClick={() => typedInput.trim() && handleInteractiveSubmit(typedInput)}
                             disabled={!typedInput.trim()}
-                            className={`p-4 rounded-xl font-bold transition-all shrink-0 ${typedInput.trim() ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+                            className={`p-4 rounded-2xl font-bold transition-all shrink-0 ${typedInput.trim() ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
                             title="Confirmar Resposta"
                           >
                             <Send className="w-5 h-5" />
                           </button>
                         )}
                       </div>
-                      {isFlipped && !isTypingCorrect && (
-                        <div className="text-emerald-400 font-mono text-2xl animate-pop"><span className="text-slate-500 text-sm block">Correta:</span>{currentCard.typeAnswer}</div>
+                      {isFlipped && !isTypedCorrect && (
+                        <div className="text-emerald-400 font-mono text-2xl animate-pop"><span className="text-slate-500 text-sm block text-center">Correta:</span>{currentCard.typeAnswer}</div>
                       )}
                     </div>
                   )}
                 </div>
               </div>
               {isFlipped && currentCard.back && (
-                <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 shrink-0 animate-in fade-in duration-300">
-                  <div className="anki-content" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 shrink-0 animate-in fade-in duration-300 anki-content">
+                  <div dangerouslySetInnerHTML={{ __html: currentCard.back }} />
                 </div>
               )}
             </div>
@@ -3262,13 +4090,13 @@ export default function App() {
             <button onClick={() => setIsFlipped(true)} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xl py-6 rounded-2xl shadow-lg transition-all active:scale-95">Mostrar Resposta</button>
           ) : isFlipped ? (
             <div className="grid grid-cols-4 gap-2 sm:gap-4 animate-in slide-in-from-bottom-2 fade-in duration-200">
-              <button onClick={() => handleAnswer(0)} className="p-4 sm:py-6 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
+              <button onClick={() => handleAnswer(0)} className={`p-4 sm:py-6 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border rounded-2xl font-bold relative transition-all active:scale-95 text-lg sm:text-xl ${interactiveSuggestedGrade === 0 ? 'border-rose-400 ring-2 ring-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.3)] scale-[1.02]' : 'border-rose-500/20'}`}>
                 Errei <span className="text-sm opacity-50 block">{intervalLabels[0]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">1</span>
               </button>
               <button onClick={() => handleAnswer(1)} className="p-4 sm:py-6 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
                 Difícil <span className="text-sm opacity-50 block">{intervalLabels[1]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">2</span>
               </button>
-              <button onClick={() => handleAnswer(2)} className="p-4 sm:py-6 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
+              <button onClick={() => handleAnswer(2)} className={`p-4 sm:py-6 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border rounded-2xl font-bold relative transition-all active:scale-95 text-lg sm:text-xl ${interactiveSuggestedGrade === 2 ? 'border-emerald-400 ring-2 ring-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)] scale-[1.02]' : 'border-emerald-500/20'}`}>
                 Bom <span className="text-sm opacity-50 block">{intervalLabels[2]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">3</span>
               </button>
               <button onClick={() => handleAnswer(3)} className="p-4 sm:py-6 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
@@ -3276,7 +4104,7 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <div className="text-center text-slate-500">Responda para avançar</div>
+            <div className="text-center text-slate-500">Responda acima para revelar o gabarito</div>
           )}
         </div>
       </div>
@@ -3287,8 +4115,8 @@ export default function App() {
     <div className="max-w-md mx-auto p-6 min-h-[80vh] flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-500">
       <div className="w-24 h-24 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center justify-center mb-6 animate-pop"><Sparkles className="w-12 h-12" /></div>
       <h1 className="text-3xl font-bold text-slate-100 mb-2">Sessão Concluída!</h1>
-      <p className="text-slate-400 mb-8">Reviu <span className="font-bold text-slate-200">{sessionStats.reviewed}</span> cartões.</p>
-      <button onClick={() => setCurrentView('dashboard')} className="w-full mt-8 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95"><CheckCircle2 className="w-5 h-5" /> Concluir</button>
+      <p className="text-slate-400 mb-8">Reviu <span className="font-bold text-slate-200">{sessionStats.reviewed}</span> cartões ({sessionStats.reviewed > 0 ? Math.round((sessionStats.correct / sessionStats.reviewed) * 100) : 100}% de aproveitamento).</p>
+      <button onClick={() => setCurrentView('dashboard')} className="w-full mt-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95"><CheckCircle2 className="w-5 h-5" /> Concluir</button>
     </div>
   );
 
@@ -3315,6 +4143,7 @@ export default function App() {
         </div>
       ) : (
         <>
+          {/* CABEÇALHO FLUTUANTE */}
           <header className="w-full px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-between z-40 relative">
             <h1 onClick={() => setCurrentView('dashboard')} className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight cursor-pointer hover:opacity-80 transition-opacity">
               Flash Cards
@@ -3322,17 +4151,8 @@ export default function App() {
 
             <div className="flex items-center gap-2 bg-slate-900/50 backdrop-blur-md p-1.5 rounded-full border border-slate-800/80 shadow-sm">
               <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
+              <input type="file" accept=".json" ref={backupInputRef} onChange={handleRestoreBackup} className="hidden" />
               
-              {user.isAnonymous && (
-                <button 
-                  onClick={signInWithGoogle}
-                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-white/10 hover:bg-white/20 text-slate-200 border border-white/10 transition-colors"
-                  title="Conectar conta Google"
-                >
-                  Entrar com Google
-                </button>
-              )}
-
               {(() => {
                 const streakCount = calculateStreak();
                 const hasDoneToday = getDailyCount(getTodayStr()) > 0 || streakRecoveries.includes(getTodayStr());
@@ -3347,14 +4167,14 @@ export default function App() {
               {isImporting ? (
                 <div className="flex items-center justify-center w-8 h-8 rounded-full text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" title={importProgress || "Importando..."}><Loader2 className="w-4 h-4 animate-spin" /></div>
               ) : (
-                <button onClick={() => fileInputRef.current.click()} className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar (.apkg, .colpkg, .txt, .csv)">
+                <button onClick={() => fileInputRef.current.click()} className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar Anki (.apkg) ou Texto (.csv/.txt)">
                   <Upload className="w-4 h-4" />
                 </button>
               )}
               
               <div className="w-px h-5 bg-slate-800 mx-1"></div>
 
-              <button onClick={() => setIsSettingsOpen(true)} className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 rounded-full transition-colors" title="Configurações">
+              <button onClick={() => setIsSettingsOpen(true)} className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 rounded-full transition-colors" title="Configurações e Backup">
                 <Settings className="w-4 h-4" />
               </button>
               
@@ -3377,43 +4197,61 @@ export default function App() {
         </>
       )}
 
-      {}
+      {/* MODAL CONFIGURAÇÕES & BACKUP */}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsSettingsOpen(false)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
             <h3 className="text-2xl font-bold text-slate-100 mb-6 flex items-center gap-2"><Settings className="w-6 h-6 text-indigo-400" /> Configurações</h3>
             <form onSubmit={handleSaveSettings} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Meta Diária (cartões)</label>
+                <label className="block text-sm font-medium text-slate-400 mb-1.5">Meta Diária (cartões)</label>
                 <input type="number" min="1" max="1000" required value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
               </div>
 
-              <div className="pt-4 border-t border-slate-800 space-y-3">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">Backup e Exportação de Dados</label>
-                <input type="file" accept=".json" ref={backupInputRef} onChange={handleRestoreBackup} className="hidden" />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="pt-3 border-t border-slate-800/80">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="text-sm font-medium text-slate-300">Retenção Desejada FSRS</label>
+                  <span className="text-sm font-black text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded-lg border border-indigo-500/20">{Math.round(desiredRetention * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.75"
+                  max="0.97"
+                  step="0.01"
+                  value={desiredRetention}
+                  onChange={(e) => setDesiredRetention(parseFloat(e.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Valores maiores (ex: 95%) agendam revisões mais frequentes; valores menores (ex: 85%) espaçam mais os cartões. Padrão: 90%.
+                </p>
+              </div>
+
+              <div className="pt-4 border-t border-slate-800">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Backup e Exportação de Dados</h4>
+                <div className="grid grid-cols-1 gap-2.5">
                   <button
                     type="button"
                     onClick={handleExportJSON}
-                    className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-indigo-300 border border-slate-800 hover:border-indigo-500/40 font-semibold py-2.5 px-3 rounded-xl text-xs transition-all active:scale-95"
+                    className="w-full flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 font-semibold py-2.5 px-4 rounded-xl transition-colors text-sm"
                   >
-                    <Download className="w-4 h-4" /> Exportar Backup (.json)
+                    <Download className="w-4 h-4" /> Exportar Backup Completo (.json)
                   </button>
                   <button
                     type="button"
                     onClick={() => backupInputRef.current?.click()}
-                    className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-emerald-300 border border-slate-800 hover:border-emerald-500/40 font-semibold py-2.5 px-3 rounded-xl text-xs transition-all active:scale-95"
+                    className="w-full flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-emerald-400 border border-slate-800 font-semibold py-2.5 px-4 rounded-xl transition-colors text-sm"
                   >
                     <Upload className="w-4 h-4" /> Restaurar Backup (.json)
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleExportCSV}
+                    className="w-full flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 font-semibold py-2.5 px-4 rounded-xl transition-colors text-sm"
+                  >
+                    <Download className="w-4 h-4" /> Exportar Planilha de Cartões (.csv)
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleExportCSV}
-                  className="w-full flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 font-semibold py-2.5 px-3 rounded-xl text-xs transition-all active:scale-95"
-                >
-                  <Download className="w-4 h-4 text-amber-400" /> Exportar Cartões em Planilha (.csv)
-                </button>
               </div>
 
               <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800">
@@ -3425,6 +4263,114 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL ESTUDO PERSONALIZADO / SIMULADO */}
+      {isCustomStudyModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[85] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsCustomStudyModalOpen(false)}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <h3 className="text-2xl font-bold text-slate-100 mb-2 flex items-center gap-2">
+              <SlidersHorizontal className="w-6 h-6 text-indigo-400" /> Estudo Personalizado
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-400 mb-6">Monte uma sessão focada ou simulado filtrando seus cartões.</p>
+
+            <form onSubmit={handleStartCustomStudy} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Modo de Filtro</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    { id: 'cram', label: 'Simulado Geral (Sorteio)' },
+                    { id: 'leeches', label: 'Apenas Sanguessugas' },
+                    { id: 'new_only', label: 'Apenas Cartões Novos' },
+                    { id: 'interactive', label: 'Apenas Interativos' },
+                    { id: 'due_only', label: 'Apenas Pendentes Hoje' },
+                  ].map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setCustomStudyConfig(prev => ({ ...prev, preset: p.id }))}
+                      className={`px-3.5 py-2.5 rounded-xl text-xs font-bold text-left border transition-all ${
+                        customStudyConfig.preset === p.id
+                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Tipo de Cartão</label>
+                  <select
+                    value={customStudyConfig.cardType}
+                    onChange={(e) => setCustomStudyConfig(prev => ({ ...prev, cardType: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="all">Todos os Tipos</option>
+                    <option value="standard">Padrão</option>
+                    <option value="choice_tf">Múltipla Escolha + V/F</option>
+                    <option value="choice">Apenas Múltipla Escolha</option>
+                    <option value="tf">Apenas V/F</option>
+                    <option value="typing">Apenas Digitação</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Etiqueta (#tag)</label>
+                  <select
+                    value={customStudyConfig.tag}
+                    onChange={(e) => setCustomStudyConfig(prev => ({ ...prev, tag: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="all">Todas as #tags</option>
+                    {getAllGlobalTags().map(t => (
+                      <option key={t} value={t}>#{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Limite de Cartões na Sessão</label>
+                  <span className="text-xs font-bold text-indigo-400">{customStudyConfig.limit === 0 ? 'Sem limite' : `${customStudyConfig.limit} cartões`}</span>
+                </div>
+                <div className="flex gap-2">
+                  {[10, 20, 30, 50, 0].map(lim => (
+                    <button
+                      key={lim}
+                      type="button"
+                      onClick={() => setCustomStudyConfig(prev => ({ ...prev, limit: lim }))}
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${
+                        customStudyConfig.limit === lim
+                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      {lim === 0 ? 'Todos' : lim}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between">
+                <span className="text-xs text-slate-400">Cartões encontrados com esses filtros:</span>
+                <span className="text-base font-black text-emerald-400">{getFilteredCustomStudyCards(customStudyConfig).length}</span>
+              </div>
+
+              <div className="flex gap-3 pt-3 border-t border-slate-800">
+                <button type="button" onClick={() => setIsCustomStudyModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors">Cancelar</button>
+                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95 flex items-center justify-center gap-2">
+                  <Play className="w-4 h-4 fill-current" /> Iniciar Treino
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL RECUPERAR OFENSIVA (Calendário) */}
       {streakRecoveryDate && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setStreakRecoveryDate(null)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -3439,6 +4385,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL MOVER PASTA/BARALHO ÚNICO */}
       {isMoveModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -3463,6 +4410,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL MOVER MÚLTIPLOS CARTÕES */}
       {isMoveCardsModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveCardsModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -3488,6 +4436,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL ELIMINAR */}
       {itemToDelete && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setItemToDelete(null)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -3502,6 +4451,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL CRIAR/EDITAR PASTA/BARALHO */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={closeAndResetModal}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -3541,6 +4491,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL EDITAR CARTÃO NA REVISÃO */}
       {isCardEditModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsCardEditModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -3598,6 +4549,18 @@ export default function App() {
                 <div className="pt-2 border-t border-slate-800">
                   <RichTextEditor label="Verso" placeholder="" value={newCardBack} onChange={setNewCardBack} />
                 </div>
+                <div className="pt-2 border-t border-slate-800">
+                  <label className="block text-sm font-medium text-slate-400 mb-1.5 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-indigo-400" /> Etiquetas (#tags)
+                  </label>
+                  <input
+                    type="text"
+                    value={cardTagsInput}
+                    onChange={(e) => setCardTagsInput(e.target.value)}
+                    placeholder="Ex: #importante #formula #edital"
+                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
               </form>
             </div>
             
@@ -3609,6 +4572,7 @@ export default function App() {
         </div>
       )}
 
+      {/* TOASTS */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-[90] animate-in slide-in-from-bottom-4 fade-in duration-300">
           <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-xl shadow-black/50 border backdrop-blur-md ${toast.type === 'error' ? 'bg-rose-950/80 border-rose-500/30 text-rose-200' : 'bg-slate-800/90 border-slate-700 text-slate-100'}`}>
