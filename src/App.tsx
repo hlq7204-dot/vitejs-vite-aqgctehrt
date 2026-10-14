@@ -3263,25 +3263,17 @@ export default function App() {
         {mainTab === 'home' && (
           <div className="animate-in fade-in duration-300 pb-10 space-y-8">
             {currentFolderId === null && (
-              <div className="relative rounded-3xl p-6 sm:p-8 border border-slate-800/90 bg-gradient-to-br from-slate-900/90 via-indigo-950/25 to-slate-900/90 shadow-2xl overflow-hidden">
-                <div className="absolute -top-24 -right-24 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
-                <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
-
-                <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+              <div className="rounded-3xl p-6 sm:p-8 border border-slate-800/80 bg-slate-900/60 shadow-xl">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
                   <div className="lg:col-span-7 space-y-4">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold">
-                      <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>Repetição Espaçada Inteligente</span>
-                    </div>
-
-                    <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
-                      {getGreeting()}, pronto para evoluir?
+                    <h2 className="text-2xl sm:text-3xl font-bold text-slate-100 tracking-tight">
+                      {getGreeting()}
                     </h2>
 
                     <div className="flex flex-wrap items-center gap-2.5 text-sm text-slate-300">
-                      <div className="flex items-center gap-2 bg-slate-950/70 border border-slate-800 px-3.5 py-2 rounded-xl">
-                        <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
-                        <span><strong className="text-white font-black">{totalGlobalDue}</strong> pendentes hoje</span>
+                      <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-800 px-3.5 py-2 rounded-xl">
+                        <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
+                        <span><strong className="text-white font-bold">{totalGlobalDue}</strong> pendentes</span>
                       </div>
 
                       {totalUnlearnedGlobal > 0 && (
@@ -3298,16 +3290,15 @@ export default function App() {
                             });
                             setIsCustomStudyModalOpen(true);
                           }}
-                          className="flex items-center gap-2 bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/20 text-rose-300 px-3.5 py-2 rounded-xl transition-colors"
-                          title="Clique para treinar apenas os cartões não aprendidos"
+                          className="flex items-center gap-2 bg-slate-950/80 hover:bg-slate-800 border border-slate-800 text-slate-300 px-3.5 py-2 rounded-xl transition-colors"
                         >
                           <Layers className="w-4 h-4 text-rose-400" />
-                          <span><strong className="font-black text-rose-200">{totalUnlearnedGlobal}</strong> não aprendidos</span>
+                          <span><strong className="font-bold text-rose-400">{totalUnlearnedGlobal}</strong> não aprendidos</span>
                         </button>
                       )}
 
                       {totalGlobalDue > 0 && (
-                        <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-300 px-3.5 py-2 rounded-xl">
+                        <div className="flex items-center gap-1.5 bg-slate-950/80 border border-slate-800 text-slate-300 px-3.5 py-2 rounded-xl">
                           <Timer className="w-4 h-4 text-amber-400" />
                           <span>~<strong>{Math.max(1, Math.ceil(totalGlobalDue * 0.33))} min</strong></span>
                         </div>
@@ -3318,49 +3309,34 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => openCustomStudyModal('all', null)}
-                        className="inline-flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold transition-all shadow-lg shadow-indigo-600/25 active:scale-95"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-all active:scale-95"
                       >
                         <SlidersHorizontal className="w-4 h-4" /> Estudo Personalizado
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }}
-                        className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-slate-950/80 hover:bg-slate-800 text-slate-200 border border-slate-800 text-sm font-semibold transition-all active:scale-95"
-                      >
-                        <Plus className="w-4 h-4 text-indigo-400" /> Novo Baralho
                       </button>
                     </div>
                   </div>
 
-                  <div className="lg:col-span-5 bg-slate-950/75 border border-slate-800/90 p-5 sm:p-6 rounded-2xl backdrop-blur-md flex flex-col justify-between gap-4">
+                  <div className="lg:col-span-5 bg-slate-950/60 border border-slate-800/80 p-5 rounded-2xl flex flex-col justify-between gap-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
-                          <Target className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">Meta Diária</span>
-                          <span className="text-sm font-semibold text-slate-200">
-                            {todayDone >= dailyGoal ? 'Meta alcançada hoje!' : `Faltam ${Math.max(0, dailyGoal - todayDone)} revisões`}
-                          </span>
-                        </div>
+                        <Target className="w-5 h-5 text-indigo-400" />
+                        <span className="text-sm font-semibold text-slate-200">Meta Diária</span>
                       </div>
                       <div className="text-right">
-                        <span className="text-2xl font-black text-white">{todayDone}</span>
-                        <span className="text-sm font-bold text-slate-500"> / {dailyGoal}</span>
+                        <span className="text-xl font-bold text-white">{todayDone}</span>
+                        <span className="text-sm font-medium text-slate-500"> / {dailyGoal}</span>
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800 p-0.5">
+                    <div className="space-y-1.5">
+                      <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
                         <div
-                          className="bg-gradient-to-r from-indigo-500 via-purple-500 to-rose-500 h-full rounded-full transition-all duration-1000"
+                          className="bg-indigo-500 h-full rounded-full transition-all duration-700"
                           style={{ width: `${goalPct}%` }}
                         ></div>
                       </div>
-                      <div className="flex justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                        <span>Progresso de Hoje</span>
-                        <span className="text-indigo-400">{goalPct}%</span>
+                      <div className="flex justify-end text-[11px] font-semibold text-slate-500">
+                        <span>{goalPct}%</span>
                       </div>
                     </div>
                   </div>
@@ -3381,28 +3357,28 @@ export default function App() {
             )}
 
             {currentFolderId !== null && (
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-gradient-to-r from-indigo-950/40 via-slate-900/90 to-slate-900 border border-indigo-500/25 p-5 sm:p-6 rounded-3xl shadow-xl gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-slate-900/70 border border-slate-800 p-5 sm:p-6 rounded-2xl shadow-lg gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
-                    <Folder className="w-6 h-6" />
+                  <div className="w-11 h-11 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-indigo-400 shrink-0">
+                    <Folder className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-xl sm:text-2xl font-bold text-white">
+                    <h2 className="text-xl font-bold text-white">
                       {folders.find(f => f.id === currentFolderId)?.name}
                     </h2>
-                    <p className="text-sm text-slate-400 mt-0.5">
-                      <strong className="text-indigo-400">{calculateTotalDue(getFolderStats(currentFolderId))}</strong> cartões pendentes nesta coleção
+                    <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+                      <strong className="text-indigo-400">{calculateTotalDue(getFolderStats(currentFolderId))}</strong> pendentes
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-2.5 w-full sm:w-auto flex-wrap">
-                  <button onClick={() => startReview(null, false, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${calculateTotalDue(getFolderStats(currentFolderId)) > 0 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
+                  <button onClick={() => startReview(null, false, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0} className={`flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${calculateTotalDue(getFolderStats(currentFolderId)) > 0 ? 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
                     <Play className="w-4 h-4" fill="currentColor" /> Estudar Tudo
                   </button>
-                  <button onClick={() => startReview(null, true, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0 && getFolderStats(currentFolderId).learned === 0} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Rever ignorando agendamento">
+                  <button onClick={() => startReview(null, true, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0 && getFolderStats(currentFolderId).learned === 0} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95">
                     <FastForward className="w-4 h-4" fill="currentColor" /> Modo Livre
                   </button>
-                  <button onClick={() => openCustomStudyModal('folder', currentFolderId)} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-amber-300 border border-amber-500/30 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Filtrar ou criar simulado desta pasta">
+                  <button onClick={() => openCustomStudyModal('folder', currentFolderId)} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95">
                     <SlidersHorizontal className="w-4 h-4" /> Personalizar
                   </button>
                 </div>
@@ -3412,20 +3388,11 @@ export default function App() {
             {/* SEÇÃO DE COLEÇÕES */}
             <div>
               <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-                    <Folder className="w-4 h-4" />
-                  </div>
-                  <h2 className="text-lg font-bold text-slate-100">Coleções</h2>
-                  <span className="text-xs font-bold text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">{currentFolders.length}</span>
+                <div className="flex items-center gap-2">
+                  <Folder className="w-4 h-4 text-indigo-400" />
+                  <h2 className="text-base font-bold text-slate-200">Coleções</h2>
+                  <span className="text-xs font-semibold text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">{currentFolders.length}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }}
-                  className="text-xs font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/15 border border-indigo-500/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors"
-                >
-                  <FolderPlus className="w-3.5 h-3.5" /> Nova Coleção
-                </button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5">
@@ -3434,13 +3401,13 @@ export default function App() {
                   const colorClass = folder.color || FOLDER_THEMES[0].color;
                   const folderDecksCount = getDecksInFolder(folder.id).length;
                   return (
-                    <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/65 backdrop-blur-sm rounded-2xl p-4 sm:p-5 border border-slate-800/90 hover:border-indigo-500/40 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1 transition-all duration-300 hover:shadow-xl hover:shadow-black/40" style={{animationDelay: `${index * 40}ms`}}>
+                    <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/60 rounded-2xl p-4 sm:p-5 border border-slate-800/90 hover:border-slate-700 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-0.5 transition-all duration-200" style={{animationDelay: `${index * 40}ms`}}>
                       <div className="flex items-center gap-3.5 flex-grow min-w-0 pr-2">
                         <div className={`relative p-3 rounded-xl shrink-0 ${colorClass}`}>
                           <Folder className="w-5 h-5 relative z-10" />
                         </div>
                         <div className="min-w-0">
-                          <span className="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors text-base line-clamp-1 break-words block" title={folder.name}>{folder.name}</span>
+                          <span className="font-semibold text-slate-100 group-hover:text-indigo-300 transition-colors text-base line-clamp-1 break-words block" title={folder.name}>{folder.name}</span>
                           <span className="text-xs text-slate-500 font-medium">{folderDecksCount} {folderDecksCount === 1 ? 'baralho' : 'baralhos'}</span>
                         </div>
                       </div>
@@ -3463,109 +3430,105 @@ export default function App() {
                     </div>
                   );
                 })}
-                <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/25 rounded-2xl p-4 sm:p-5 border border-dashed border-slate-800 hover:border-indigo-500/40 cursor-pointer flex items-center gap-3.5 text-slate-500 hover:text-indigo-400 animate-pop hover:-translate-y-0.5 transition-all duration-300">
+                <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-4 sm:p-5 border border-dashed border-slate-800 hover:border-slate-700 cursor-pointer flex items-center gap-3.5 text-slate-500 hover:text-slate-300 animate-pop transition-colors">
                   <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80"><FolderPlus className="w-5 h-5" /></div>
-                  <span className="font-semibold text-sm">Criar Coleção</span>
+                  <span className="font-semibold text-sm">Nova Coleção</span>
                 </div>
               </div>
             </div>
 
-            {/* SEÇÃO DE BARALHOS */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-                    <BookOpen className="w-4 h-4" />
+            {/* SEÇÃO DE BARALHOS (APENAS DENTRO DE UMA COLEÇÃO) */}
+            {currentFolderId !== null && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-indigo-400" />
+                    <h2 className="text-base font-bold text-slate-200">Baralhos</h2>
+                    <span className="text-xs font-semibold text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">{currentDecks.length}</span>
                   </div>
-                  <h2 className="text-lg font-bold text-slate-100">Baralhos</h2>
-                  <span className="text-xs font-bold text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">{currentDecks.length}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }}
-                  className="text-xs font-bold text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/15 border border-purple-500/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Novo Baralho
-                </button>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
-                {currentDecks.map((deck, index) => {
-                  const stats = getCardStats(deck.cards);
-                  const due = calculateTotalDue(stats);
-                  const isMenuOpen = activeMenuId === deck.id;
-                  const colorClass = deck.color || DECK_THEMES[0].color;
-                  const playDisabled = due === 0 || deck.isIgnored;
-                  const totalDeckCards = deck.cards?.length || 0;
-                  const masteryPct = totalDeckCards > 0 ? Math.round((stats.learned / totalDeckCards) * 100) : 0;
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
+                  {currentDecks.map((deck, index) => {
+                    const stats = getCardStats(deck.cards);
+                    const due = calculateTotalDue(stats);
+                    const isMenuOpen = activeMenuId === deck.id;
+                    const colorClass = deck.color || DECK_THEMES[0].color;
+                    const playDisabled = due === 0 || deck.isIgnored;
+                    const totalDeckCards = deck.cards?.length || 0;
+                    const masteryPct = totalDeckCards > 0 ? Math.round((stats.learned / totalDeckCards) * 100) : 0;
 
-                  return (
-                    <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); setDeckTagFilter('all'); setCurrentView('deck-detail'); }} className={`bg-slate-900/65 backdrop-blur-sm rounded-2xl p-5 sm:p-6 border border-slate-800/90 hover:border-indigo-500/40 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 40}ms`}}>
-                      <div className="flex items-start justify-between mb-4 w-full">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
-                        <div className="flex items-center gap-1.5">
-                          {deck.isIgnored ? (
-                            <span className="bg-slate-800 text-slate-400 text-[11px] font-bold px-2 py-0.5 rounded-lg border border-slate-700 flex items-center gap-1"><EyeOff className="w-3 h-3"/> Ignorado</span>
-                          ) : (
-                            renderStatBadges(stats)
-                          )}
-                          <div className="relative" onClick={e => e.stopPropagation()}>
-                            <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : deck.id); }} className={`p-1.5 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
-                              <MoreVertical className="w-4 h-4" />
-                            </button>
-                            {isMenuOpen && (
-                              <div className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                                <button onClick={(e) => { toggleIgnoreDeck(deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2">
-                                  {deck.isIgnored ? <Eye className="w-4 h-4 text-emerald-400" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
-                                  {deck.isIgnored ? 'Ativar Baralho' : 'Ignorar Baralho'}
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); openCustomStudyModal('deck', deck.id); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2">
-                                  <SlidersHorizontal className="w-4 h-4 text-amber-400" /> Estudo Personalizado
-                                </button>
-                                <div className="h-px bg-slate-800 w-full"></div>
-                                <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><Pencil className="w-4 h-4 text-indigo-400" /> Editar</button>
-                                <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><CornerUpRight className="w-4 h-4 text-slate-400" /> Mover</button>
-                                <div className="h-px bg-slate-800 w-full"></div>
-                                <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
-                              </div>
+                    return (
+                      <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); setDeckTagFilter('all'); setCurrentView('deck-detail'); }} className={`bg-slate-900/60 rounded-2xl p-5 border border-slate-800/90 hover:border-slate-700 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-0.5 transition-all duration-200 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 40}ms`}}>
+                        <div className="flex items-start justify-between mb-4 w-full">
+                          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-5 h-5" /></div>
+                          <div className="flex items-center gap-1.5">
+                            {deck.isIgnored ? (
+                              <span className="bg-slate-800 text-slate-400 text-[11px] font-bold px-2 py-0.5 rounded-lg border border-slate-700 flex items-center gap-1"><EyeOff className="w-3 h-3"/> Ignorado</span>
+                            ) : (
+                              renderStatBadges(stats)
                             )}
+                            <div className="relative" onClick={e => e.stopPropagation()}>
+                              <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : deck.id); }} className={`p-1.5 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
+                                <MoreVertical className="w-4 h-4" />
+                              </button>
+                              {isMenuOpen && (
+                                <div className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                                  <button onClick={(e) => { toggleIgnoreDeck(deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2">
+                                    {deck.isIgnored ? <Eye className="w-4 h-4 text-emerald-400" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
+                                    {deck.isIgnored ? 'Ativar Baralho' : 'Ignorar Baralho'}
+                                  </button>
+                                  <button onClick={(e) => { e.stopPropagation(); openCustomStudyModal('deck', deck.id); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2">
+                                    <SlidersHorizontal className="w-4 h-4 text-amber-400" /> Estudo Personalizado
+                                  </button>
+                                  <div className="h-px bg-slate-800 w-full"></div>
+                                  <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><Pencil className="w-4 h-4 text-indigo-400" /> Editar</button>
+                                  <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><CornerUpRight className="w-4 h-4 text-slate-400" /> Mover</button>
+                                  <div className="h-px bg-slate-800 w-full"></div>
+                                  <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <h3 className="text-lg font-bold text-slate-100 mb-1.5 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words w-full" title={deck.name}>{deck.name}</h3>
-                      <p className="text-slate-400 text-xs sm:text-sm flex-grow line-clamp-2 w-full mb-4" title={deck.description}>{deck.description || 'Clique para gerenciar ou estudar os cartões.'}</p>
+                        <h3 className="text-base font-bold text-slate-100 mb-1.5 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words w-full" title={deck.name}>{deck.name}</h3>
+                        {deck.description ? (
+                          <p className="text-slate-400 text-xs flex-grow line-clamp-2 w-full mb-4" title={deck.description}>{deck.description}</p>
+                        ) : (
+                          <div className="flex-grow mb-2" />
+                        )}
 
-                      {totalDeckCards > 0 && (
-                        <div className="w-full mb-3">
-                          <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
-                            <span>Domínio</span>
-                            <span className="text-slate-400">{masteryPct}%</span>
+                        {totalDeckCards > 0 && (
+                          <div className="w-full mb-3">
+                            <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-1">
+                              <span>Domínio</span>
+                              <span className="text-slate-400">{masteryPct}%</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80">
+                              <div className="h-full bg-indigo-500 rounded-full transition-all duration-700" style={{ width: `${masteryPct}%` }} />
+                            </div>
                           </div>
-                          <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80">
-                            <div className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 rounded-full transition-all duration-700" style={{ width: `${masteryPct}%` }} />
-                          </div>
+                        )}
+
+                        <div className="pt-3 border-t border-slate-800/60 flex justify-between items-center text-xs font-semibold text-slate-400 w-full mt-auto">
+                          <span>{totalDeckCards} {totalDeckCards === 1 ? 'cartão' : 'cartões'}</span>
+                          <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={playDisabled} className={`px-3.5 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 transition-all ${!playDisabled ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-800/60 text-slate-600 cursor-not-allowed'}`}>
+                            <Play className="w-3.5 h-3.5" fill="currentColor" /> Estudar
+                          </button>
                         </div>
-                      )}
-
-                      <div className="pt-3 border-t border-slate-800/60 flex justify-between items-center text-xs font-semibold text-slate-400 w-full mt-auto">
-                        <span>{totalDeckCards} {totalDeckCards === 1 ? 'cartão' : 'cartões'}</span>
-                        <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={playDisabled} className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all ${!playDisabled ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 hover:scale-105' : 'bg-slate-800/60 text-slate-600 cursor-not-allowed'}`}>
-                          <Play className="w-3.5 h-3.5" fill="currentColor" /> Estudar
-                        </button>
                       </div>
+                    );
+                  })}
+                  <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-6 border border-dashed border-slate-800 flex flex-col items-center justify-center text-slate-500 hover:text-slate-300 hover:border-slate-700 transition-colors cursor-pointer min-h-[190px] animate-pop">
+                    <div className="w-11 h-11 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center mb-2.5">
+                      <Plus className="w-5 h-5" />
                     </div>
-                  );
-                })}
-                <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/25 rounded-2xl p-6 border border-dashed border-slate-800 flex flex-col items-center justify-center text-slate-500 hover:text-indigo-400 hover:border-indigo-500/40 hover:bg-indigo-950/10 transition-all duration-300 cursor-pointer min-h-[210px] animate-pop hover:-translate-y-1">
-                  <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center mb-3">
-                    <Plus className="w-6 h-6" />
+                    <span className="font-semibold text-sm">Novo Baralho</span>
                   </div>
-                  <span className="font-bold text-sm">Criar Novo Baralho</span>
-                  <span className="text-xs text-slate-600 mt-1">Adicione cartões manualmente ou importe</span>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -3641,29 +3604,29 @@ export default function App() {
 
         <div className="bg-slate-900/80 backdrop-blur-sm rounded-3xl p-6 sm:p-8 border border-slate-800 mb-8 flex flex-col gap-6 relative group">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="flex items-center gap-6">
-              <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center shrink-0 ${activeDeck.color || DECK_THEMES[0].color}`}><BookOpen className="w-8 h-8 sm:w-10 sm:h-10" /></div>
+            <div className="flex items-center gap-5">
+              <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center shrink-0 ${activeDeck.color || DECK_THEMES[0].color}`}><BookOpen className="w-7 h-7 sm:w-8 sm:h-8" /></div>
               <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2 flex items-center gap-3">
+                <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 flex items-center gap-3">
                   {activeDeck.name}
                   {activeDeck.isIgnored && <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-1 rounded border border-slate-700 flex items-center gap-1 uppercase tracking-wider"><EyeOff className="w-3 h-3"/> Ignorado</span>}
                 </h1>
-                <p className="text-slate-400">Gerir e adicionar cartões de estudo</p>
               </div>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto flex-wrap">
-              <button onClick={() => startReview(activeDeck.id)} disabled={due === 0 || activeDeck.isIgnored} className={`px-6 sm:px-8 py-3 sm:py-4 rounded-2xl font-bold text-base sm:text-lg flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 ${due > 0 && !activeDeck.isIgnored ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 border border-indigo-400/20' : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}`}>
-                <Play className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> Revisar <span className="bg-indigo-500/30 text-indigo-100 px-2 py-0.5 rounded-full text-sm ml-1">{activeDeck.isIgnored ? '0' : due}</span>
+              <button onClick={() => startReview(activeDeck.id)} disabled={due === 0 || activeDeck.isIgnored} className={`px-6 py-3 rounded-xl font-semibold text-sm sm:text-base flex items-center justify-center gap-2 transition-all active:scale-95 ${due > 0 && !activeDeck.isIgnored ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}`}>
+                <Play className="w-4 h-4" fill="currentColor" /> Revisar <span className="bg-black/20 text-indigo-100 px-2 py-0.5 rounded-full text-xs ml-1">{activeDeck.isIgnored ? '0' : due}</span>
               </button>
-              <button onClick={() => startReview(activeDeck.id, true)} disabled={!activeDeck.cards || activeDeck.cards.length === 0} className={`px-4 sm:px-6 py-3 sm:py-4 rounded-2xl font-bold text-base sm:text-lg flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 ${activeDeck.cards?.length > 0 ? 'bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 shadow-lg' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-800'}`} title="Adiantar">
-                <FastForward className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> Estudo Livre
+              <button onClick={() => startReview(activeDeck.id, true)} disabled={!activeDeck.cards || activeDeck.cards.length === 0} className={`px-5 py-3 rounded-xl font-semibold text-sm sm:text-base flex items-center justify-center gap-2 transition-all active:scale-95 ${activeDeck.cards?.length > 0 ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-800'}`} title="Adiantar">
+                <FastForward className="w-4 h-4" fill="currentColor" /> Estudo Livre
               </button>
-              <button onClick={() => openCustomStudyModal('deck', activeDeck.id)} disabled={!activeDeck.cards || activeDeck.cards.length === 0} className={`px-4 sm:px-5 py-3 sm:py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 ${activeDeck.cards?.length > 0 ? 'bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 shadow-lg' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-800'}`} title="Estudo Personalizado / Simulado">
-                <SlidersHorizontal className="w-5 h-5" /> Personalizar
+              <button onClick={() => openCustomStudyModal('deck', activeDeck.id)} disabled={!activeDeck.cards || activeDeck.cards.length === 0} className={`px-5 py-3 rounded-xl font-semibold text-sm sm:text-base flex items-center justify-center gap-2 transition-all active:scale-95 ${activeDeck.cards?.length > 0 ? 'bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-800'}`} title="Estudo Personalizado / Simulado">
+                <SlidersHorizontal className="w-4 h-4" /> Personalizar
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-6 border-t border-slate-800/50">
+          {}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2 pt-6 border-t border-slate-800/50">
             <div className="bg-slate-950/50 rounded-xl p-4 border border-blue-500/20 flex flex-col items-center justify-center"><span className="text-3xl font-black text-blue-400 mb-1">{stats.new}</span><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Novos</span></div>
             <div className="bg-slate-950/50 rounded-xl p-4 border border-rose-500/20 flex flex-col items-center justify-center"><span className="text-3xl font-black text-rose-400 mb-1">{stats.learning}</span><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Aprender</span></div>
             <div className="bg-slate-950/50 rounded-xl p-4 border border-emerald-500/20 flex flex-col items-center justify-center"><span className="text-3xl font-black text-emerald-400 mb-1">{stats.review}</span><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Revisar</span></div>
@@ -4289,27 +4252,10 @@ export default function App() {
   const renderBrandLogo = (size = 'normal') => {
     const isLarge = size === 'large';
     return (
-      <div className="inline-flex items-center gap-3 select-none group/logo">
-        <div className={`relative flex items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-600 via-violet-500 to-fuchsia-500 p-[1px] shadow-[0_0_25px_rgba(99,102,241,0.35)] group-hover/logo:shadow-[0_0_32px_rgba(139,92,246,0.55)] transition-all duration-300 ${isLarge ? 'w-14 h-14 rounded-3xl' : 'w-10 h-10'}`}>
-          <div className={`w-full h-full bg-slate-950/90 backdrop-blur-md flex items-center justify-center relative overflow-hidden ${isLarge ? 'rounded-[23px]' : 'rounded-[15px]'}`}>
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/25 via-purple-500/15 to-transparent"></div>
-            <Layers className={`${isLarge ? 'w-7 h-7' : 'w-5 h-5'} text-indigo-400 relative z-10 transform -rotate-6 group-hover/logo:rotate-0 transition-transform duration-300`} />
-            <Sparkles className={`${isLarge ? 'w-3.5 h-3.5 top-2 right-2' : 'w-2.5 h-2.5 top-1.5 right-1.5'} text-fuchsia-400 absolute z-20 animate-pulse`} />
-          </div>
-        </div>
-        <div className="flex flex-col text-left">
-          <div className="flex items-center gap-1.5 leading-none">
-            <span className={`font-black tracking-tight text-white ${isLarge ? 'text-3xl sm:text-4xl' : 'text-lg sm:text-xl'}`}>
-              Flash<span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-violet-400 to-fuchsia-400">Cards</span>
-            </span>
-            <span className={`font-extrabold uppercase tracking-widest rounded-md bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 ${isLarge ? 'text-[10px] px-2 py-0.5' : 'text-[9px] px-1.5 py-0.5'}`}>
-              FSRS
-            </span>
-          </div>
-          <span className={`text-slate-500 font-semibold tracking-wide ${isLarge ? 'text-xs mt-1' : 'text-[10px] hidden sm:block mt-0.5'}`}>
-            Memória de Longo Prazo
-          </span>
-        </div>
+      <div className="inline-flex items-center select-none">
+        <span className={`font-extrabold tracking-tight text-slate-100 ${isLarge ? 'text-4xl sm:text-5xl' : 'text-xl sm:text-2xl'}`}>
+          Flash<span className="text-indigo-400">Cards</span>
+        </span>
       </div>
     );
   };
@@ -4319,18 +4265,14 @@ export default function App() {
       <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
       
       {!user ? (
-        <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 flex-grow relative overflow-hidden">
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none"></div>
-          <div className="bg-slate-900/70 backdrop-blur-xl border border-slate-800/90 rounded-3xl p-8 sm:p-10 max-w-md w-full flex flex-col items-center text-center shadow-2xl relative z-10">
-            <div className="mb-6 animate-float">
+        <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 flex-grow">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-8 sm:p-10 max-w-sm w-full flex flex-col items-center text-center shadow-2xl">
+            <div className="mb-8">
               {renderBrandLogo('large')}
             </div>
-            <p className="text-slate-400 text-sm mb-8 leading-relaxed">
-              Organize seus baralhos, estude com o algoritmo científico FSRS-5 e acompanhe sua retenção real em tempo real.
-            </p>
             <button 
               onClick={signInWithGoogle}
-              className="w-full flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-100 px-6 py-4 rounded-2xl font-bold transition-all transform hover:scale-[1.02] active:scale-95 shadow-xl shadow-white/10"
+              className="w-full flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-100 px-6 py-3.5 rounded-xl font-bold transition-all active:scale-95"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -4344,21 +4286,21 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* CABEÇALHO SUPERIOR INTEGRADO E MODERNO */}
-          <header className="sticky top-0 z-40 w-full bg-slate-950/80 backdrop-blur-xl border-b border-slate-800/70">
-            <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-4">
-              {/* LOGO HARMONIOSA */}
+          {/* CABEÇALHO SÓBRIO E INTEGRADO */}
+          <header className="sticky top-0 z-40 w-full bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80">
+            <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+              {/* LOGO TIPOGRAFIA LIMPA */}
               <button
                 type="button"
                 onClick={() => { setCurrentView('dashboard'); setMainTab('home'); setCurrentFolderId(null); }}
-                className="focus:outline-none"
+                className="focus:outline-none hover:opacity-85 transition-opacity"
               >
                 {renderBrandLogo('normal')}
               </button>
 
-              {/* NAVEGAÇÃO CENTRAL INTEGRADA (DESKTOP) */}
+              {/* NAVEGAÇÃO CENTRAL */}
               {currentView === 'dashboard' && (
-                <nav className="hidden sm:flex items-center bg-slate-900/80 p-1 rounded-2xl border border-slate-800/90 shadow-inner">
+                <nav className="hidden sm:flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800">
                   {[
                     { id: 'home', label: 'Início', Icon: Home },
                     { id: 'stats', label: 'Estatísticas', Icon: PieChart },
@@ -4370,10 +4312,10 @@ export default function App() {
                       <button
                         key={tab.id}
                         onClick={() => { setMainTab(tab.id); setCurrentFolderId(null); }}
-                        className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
+                        className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
                           active
-                            ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-600/20'
-                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                            ? 'bg-slate-800 text-indigo-400 border border-slate-700/80'
+                            : 'text-slate-400 hover:text-slate-200 border border-transparent'
                         }`}
                       >
                         <IconComp className="w-4 h-4" />
@@ -4513,15 +4455,12 @@ export default function App() {
       {isCustomStudyModalOpen && (
         <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[85] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsCustomStudyModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl p-6 sm:p-7 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-4 mb-6">
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
-                  <SlidersHorizontal className="w-6 h-6" />
+            <div className="flex items-center justify-between gap-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-indigo-400 shrink-0">
+                  <SlidersHorizontal className="w-5 h-5" />
                 </div>
-                <div>
-                  <h3 className="text-xl sm:text-2xl font-bold text-white">Estudo Personalizado</h3>
-                  <p className="text-xs sm:text-sm text-slate-400 mt-0.5">Monte uma sessão focada ou simulado filtrando seus cartões.</p>
-                </div>
+                <h3 className="text-xl font-bold text-white">Estudo Personalizado</h3>
               </div>
               <button
                 type="button"
@@ -4537,12 +4476,12 @@ export default function App() {
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Modo de Filtro</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {[
-                    { id: 'cram', label: 'Simulado Geral (Sorteio)', desc: 'Todos os cartões ativos', Icon: Sparkles },
-                    { id: 'unlearned', label: 'Apenas Não Aprendidos', desc: 'Novos + em aprendizagem', Icon: Layers },
-                    { id: 'due_only', label: 'Apenas Pendentes Hoje', desc: 'Agendados para agora', Icon: CalendarDays },
-                    { id: 'new_only', label: 'Apenas Cartões Novos', desc: 'Nunca revisados antes', Icon: Plus },
-                    { id: 'leeches', label: 'Apenas Sanguessugas', desc: 'Cartões com mais erros', Icon: AlertTriangle },
-                    { id: 'interactive', label: 'Apenas Interativos', desc: 'Escolha, V/F e Digitação', Icon: CheckSquare },
+                    { id: 'cram', label: 'Simulado Geral (Sorteio)', Icon: Sparkles },
+                    { id: 'unlearned', label: 'Apenas Não Aprendidos', Icon: Layers },
+                    { id: 'due_only', label: 'Apenas Pendentes Hoje', Icon: CalendarDays },
+                    { id: 'new_only', label: 'Apenas Cartões Novos', Icon: Plus },
+                    { id: 'leeches', label: 'Apenas Sanguessugas', Icon: AlertTriangle },
+                    { id: 'interactive', label: 'Apenas Interativos', Icon: CheckSquare },
                   ].map(p => {
                     const PresetIcon = p.Icon;
                     const isSelected = customStudyConfig.preset === p.id;
@@ -4551,19 +4490,14 @@ export default function App() {
                         key={p.id}
                         type="button"
                         onClick={() => setCustomStudyConfig(prev => ({ ...prev, preset: p.id }))}
-                        className={`p-3.5 rounded-2xl text-left border transition-all flex items-start gap-3 ${
+                        className={`p-3.5 rounded-xl text-left border transition-all flex items-center gap-3 ${
                           isSelected
-                            ? 'bg-indigo-500/15 text-white border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.15)]'
+                            ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/40'
                             : 'bg-slate-950/80 text-slate-300 border-slate-800/90 hover:border-slate-700 hover:bg-slate-950'
                         }`}
                       >
-                        <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${isSelected ? 'bg-indigo-500 text-white' : 'bg-slate-900 text-slate-400'}`}>
-                          <PresetIcon className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className={`text-xs sm:text-sm font-bold truncate ${isSelected ? 'text-indigo-200' : 'text-slate-200'}`}>{p.label}</div>
-                          <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5">{p.desc}</div>
-                        </div>
+                        <PresetIcon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-indigo-400' : 'text-slate-500'}`} />
+                        <span className="text-xs sm:text-sm font-semibold truncate">{p.label}</span>
                       </button>
                     );
                   })}
