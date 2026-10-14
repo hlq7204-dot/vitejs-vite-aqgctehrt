@@ -34,7 +34,8 @@ import {
   CheckSquare, Keyboard, Check, FastForward, CalendarDays, Target, 
   PieChart, RotateCcw, Settings, Home, Flame, BarChart2, LogOut,
   Maximize, Minimize, Activity, TrendingUp, Filter, Award, CornerUpRight, X,
-  Eye, EyeOff, History, Timer, Send
+  Eye, EyeOff, History, Timer, Send, Volume2, VolumeX, Search, AlertTriangle,
+  Download, PauseCircle, PlayCircle, SkipForward
 } from 'lucide-react';
 
 const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
@@ -401,6 +402,7 @@ const calculateNextReview = (card, qualityUI) => {
 
   const intervalInDays = isMinutes ? interval / 1440 : interval;
   const nextDue = isMinutes ? now + (interval * 60000) : now + (interval * 86400000);
+  const lapses = ratingStr === "again" ? (card.lapses || 0) + 1 : (card.lapses || 0);
 
   return {
     ...card,
@@ -408,6 +410,8 @@ const calculateNextReview = (card, qualityUI) => {
     difficulty,
     stability,
     stepIndex,
+    lapses,
+    buriedUntil: null,
     interval: intervalInDays,
     last_review: now,
     dueDate: nextDue,
@@ -415,7 +419,18 @@ const calculateNextReview = (card, qualityUI) => {
   };
 };
 
+const isCardBuried = (card) => {
+  return Boolean(card?.buriedUntil && Date.now() < card.buriedUntil);
+};
+
+const isCardLeech = (card) => {
+  if (!card) return false;
+  return (card.difficulty !== undefined && card.difficulty >= 8.5) || (card.lapses !== undefined && card.lapses >= 4);
+};
+
 const checkCardDue = (card) => {
+  if (!card || card.isIgnored || card.isSuspended) return false;
+  if (isCardBuried(card)) return false;
   if (!card.dueDate) return true;
   const now = Date.now();
   
@@ -707,7 +722,13 @@ export default function App() {
   const [isMoveCardsModalOpen, setIsMoveCardsModalOpen] = useState(false);
   const [moveCardsTargetDeckId, setMoveCardsTargetDeckId] = useState(null);
 
+  const [deckSearchQuery, setDeckSearchQuery] = useState('');
+  const [deckStatusFilter, setDeckStatusFilter] = useState('all');
+  const [deckTypeFilter, setDeckTypeFilter] = useState('all');
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
   const fileInputRef = useRef(null);
+  const backupInputRef = useRef(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create'); 
   const [editingItemId, setEditingItemId] = useState(null); 
@@ -883,7 +904,37 @@ export default function App() {
     setReviewInteraction(null); 
     setTypedInput(''); 
     setEliminatedOptions(new Set()); 
-  }, [currentCardIndex]);
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+  }, [currentCardIndex, isFlipped, currentView]);
+
+  const speakCardText = (htmlContent, e) => {
+    if (e) e.stopPropagation();
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      showToast("Seu navegador não suporta leitura em voz alta.", "error");
+      return;
+    }
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = htmlContent || '';
+    const plainText = (tempDiv.textContent || tempDiv.innerText || '').replace(/\s+/g, ' ').trim();
+    if (!plainText) {
+      showToast("Nenhum texto disponível para leitura neste lado.", "info");
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(plainText);
+    utterance.lang = 'pt-BR';
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1018,6 +1069,10 @@ export default function App() {
 
   const getCardStats = (cards) => {
     return (cards || []).reduce((acc, card) => {
+      if (card.isSuspended) {
+        acc.suspended = (acc.suspended || 0) + 1;
+        return acc;
+      }
       const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
       const r = card.reviews || 0;
       const isDue = checkCardDue(card);
@@ -1034,7 +1089,7 @@ export default function App() {
         else acc.learned++;
       }
       return acc;
-    }, { new: 0, learning: 0, review: 0, learned: 0 });
+    }, { new: 0, learning: 0, review: 0, learned: 0, suspended: 0 });
   };
 
   const calculateTotalDue = (stats) => stats.new + stats.learning + stats.review;
@@ -1225,6 +1280,191 @@ export default function App() {
       setReviewHistory([]);
       showToast("Cartão excluído com sucesso!");
     }
+  };
+
+  const handleBuryReviewCard = () => {
+    const currentCard = reviewQueue[currentCardIndex];
+    const targetDeckId = currentCard._deckId || activeDeckId;
+    const currentDeck = validDecks.find(d => d.id === targetDeckId);
+    if (!currentDeck || !currentCard) return;
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    const buriedUntil = tomorrow.getTime();
+
+    const updatedDeck = {
+      ...currentDeck,
+      cards: currentDeck.cards.map(c => c.id === currentCard.id ? { ...c, buriedUntil } : c)
+    };
+    setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
+    updateDeckInCloud(updatedDeck);
+
+    const newQueue = reviewQueue.filter((_, idx) => idx !== currentCardIndex);
+    if (newQueue.length === 0 || currentCardIndex >= newQueue.length) {
+      if (newQueue.length === 0) setCurrentView('finished');
+      else setCurrentCardIndex(newQueue.length - 1);
+    }
+    setReviewQueue(newQueue);
+    setIsFlipped(false); setReviewInteraction(null); setTypedInput(''); setEliminatedOptions(new Set());
+    showToast("Cartão enterrado até amanhã!");
+  };
+
+  const handleSuspendReviewCard = () => {
+    const currentCard = reviewQueue[currentCardIndex];
+    const targetDeckId = currentCard._deckId || activeDeckId;
+    const currentDeck = validDecks.find(d => d.id === targetDeckId);
+    if (!currentDeck || !currentCard) return;
+
+    const updatedDeck = {
+      ...currentDeck,
+      cards: currentDeck.cards.map(c => c.id === currentCard.id ? { ...c, isSuspended: true } : c)
+    };
+    setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
+    updateDeckInCloud(updatedDeck);
+
+    const newQueue = reviewQueue.filter((_, idx) => idx !== currentCardIndex);
+    if (newQueue.length === 0 || currentCardIndex >= newQueue.length) {
+      if (newQueue.length === 0) setCurrentView('finished');
+      else setCurrentCardIndex(newQueue.length - 1);
+    }
+    setReviewQueue(newQueue);
+    setIsFlipped(false); setReviewInteraction(null); setTypedInput(''); setEliminatedOptions(new Set());
+    showToast("Cartão suspenso! Você pode reativá-lo no baralho.");
+  };
+
+  const toggleSuspendCard = (cardId) => {
+    if (!activeDeck) return;
+    let newlySuspended = false;
+    const updatedCards = (activeDeck.cards || []).map(c => {
+      if (c.id === cardId) {
+        newlySuspended = !c.isSuspended;
+        return { ...c, isSuspended: newlySuspended, buriedUntil: null };
+      }
+      return c;
+    });
+    const updatedDeck = { ...activeDeck, cards: updatedCards };
+    setDecks(prev => prev.map(d => d.id === activeDeck.id ? updatedDeck : d));
+    updateDeckInCloud(updatedDeck);
+    showToast(newlySuspended ? "Cartão suspenso." : "Cartão reativado!");
+  };
+
+  const handleExportJSON = () => {
+    try {
+      const backupData = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        dailyGoal,
+        folders,
+        decks,
+        activityMap,
+        streakRecoveries
+      };
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `flashcards-backup-${getTodayStr()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("Backup (.json) exportado com sucesso!");
+    } catch (err) {
+      showToast("Erro ao exportar backup.", "error");
+    }
+  };
+
+  const handleExportCSV = () => {
+    try {
+      const stripHtml = (html) => {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html || '';
+        return (tmp.textContent || tmp.innerText || '').replace(/"/g, '""').replace(/\r?\n/g, ' ');
+      };
+      const rows = [
+        ['Baralho', 'Tipo', 'Frente', 'Verso / Detalhes', 'Gabarito', 'Estado FSRS', 'Dificuldade', 'Estabilidade', 'Intervalo (dias)', 'Revisoes', 'Erros (Lapses)', 'Suspenso']
+      ];
+      validDecks.forEach(d => {
+        (d.cards || []).forEach(c => {
+          const stateMap = { 0: 'Novo', 1: 'Aprender', 2: 'Revisao', 3: 'Reaprender' };
+          const st = c.state !== undefined ? stateMap[c.state] : (c.reviews > 0 ? 'Revisao' : 'Novo');
+          let answerInfo = '';
+          if (c.type === 'choice') answerInfo = (c.options || [])[c.correctOption || 0] || '';
+          else if (c.type === 'tf') answerInfo = c.isTrue ? 'Verdadeiro' : 'Falso';
+          else if (c.type === 'typing') answerInfo = c.typeAnswer || '';
+
+          rows.push([
+            `"${(d.name || '').replace(/"/g, '""')}"`,
+            `"${c.type || 'standard'}"`,
+            `"${stripHtml(c.front)}"`,
+            `"${stripHtml(c.back)}"`,
+            `"${String(answerInfo).replace(/"/g, '""')}"`,
+            `"${st}"`,
+            c.difficulty !== undefined ? Number(c.difficulty).toFixed(2) : '',
+            c.stability !== undefined ? Number(c.stability).toFixed(2) : '',
+            c.interval !== undefined ? Number(c.interval).toFixed(2) : '0',
+            c.reviews || 0,
+            c.lapses || 0,
+            c.isSuspended ? 'Sim' : 'Nao'
+          ]);
+        });
+      });
+      const csvContent = '\uFEFF' + rows.map(r => r.join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `flashcards-export-${getTodayStr()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("Planilha (.csv) exportada com sucesso!");
+    } catch (err) {
+      showToast("Erro ao exportar CSV.", "error");
+    }
+  };
+
+  const handleRestoreBackup = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const parsed = JSON.parse(evt.target.result);
+        if (!parsed || (!Array.isArray(parsed.decks) && !Array.isArray(parsed.folders))) {
+          throw new Error("Formato de backup inválido.");
+        }
+        const restoredFolders = Array.isArray(parsed.folders) ? parsed.folders : [];
+        const restoredDecks = Array.isArray(parsed.decks) ? parsed.decks : [];
+        const restoredActivity = parsed.activityMap && typeof parsed.activityMap === 'object' ? parsed.activityMap : activityMap;
+        const restoredRecoveries = Array.isArray(parsed.streakRecoveries) ? parsed.streakRecoveries : streakRecoveries;
+        const restoredGoal = parsed.dailyGoal ? parseInt(parsed.dailyGoal) : dailyGoal;
+
+        setFolders(restoredFolders);
+        setDecks(restoredDecks);
+        setActivityMap(restoredActivity);
+        setStreakRecoveries(restoredRecoveries);
+        setDailyGoal(restoredGoal);
+
+        if (user && db) {
+          restoredFolders.forEach(f => updateFolderInCloud(f));
+          restoredDecks.forEach(d => updateDeckInCloud(d));
+          setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), {
+            activityMap: restoredActivity,
+            streakRecoveries: restoredRecoveries,
+            dailyGoal: restoredGoal
+          }, { merge: true }).catch(console.error);
+        }
+        setIsSettingsOpen(false);
+        showToast(`Backup restaurado! (${restoredDecks.length} baralhos)`);
+      } catch (err) {
+        showToast("Arquivo de backup inválido ou corrompido.", "error");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = null;
   };
 
   const handleInteractiveSubmit = (val) => { 
@@ -1812,8 +2052,9 @@ export default function App() {
     }
 
     allCards.forEach(c => {
+      if (c.isSuspended) return;
       const isDueNow = checkCardDue(c);
-      const isDueToday = !c.dueDate || isDueNow || c.dueDate <= endOfToday.getTime();
+      const isDueToday = !isCardBuried(c) && (!c.dueDate || isDueNow || c.dueDate <= endOfToday.getTime());
 
       if (isDueToday) {
         if (forecastPeriod === 'week' || forecastPeriod === 'month') {
@@ -1925,14 +2166,13 @@ export default function App() {
     }
 
     const colors = ['#818cf8', '#34d399', '#fbbf24', '#f472b6', '#94a3b8'];
-    let cumulativePercent = 0;
 
     return (
       <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full justify-between relative group animate-pop delay-200">
         <div className="absolute bottom-0 left-0 p-32 bg-amber-500/5 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
         
-        <div className="flex justify-between items-center mb-5 relative z-10">
-          <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Intensidade</h3>
+        <div className="flex justify-between items-center mb-4 relative z-10">
+          <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><Flame className="w-5 h-5 text-amber-400" /> Intensidade</h3>
           <span className="text-[11px] font-bold text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg uppercase tracking-wider">Média de Esforço</span>
         </div>
         
@@ -1940,47 +2180,36 @@ export default function App() {
           <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10 py-12">Nenhum dado de estudo ainda.</div>
         ) : (
           <div className="flex flex-col gap-5 flex-grow justify-between relative z-10 w-full">
-            {/* Resumo Superior: Gráfico + Métricas Globais */}
-            <div className="flex items-center gap-4 bg-slate-950/50 p-3.5 rounded-2xl border border-slate-800/80">
-              <div className="relative w-20 h-20 shrink-0 drop-shadow-[0_0_12px_rgba(0,0,0,0.5)]">
-                <svg viewBox="-10 -10 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
-                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="#1e293b" strokeWidth="16" />
-                  {dist.map((item, i) => {
-                    const percent = (item.effort / totalEffort) * 100;
-                    const dashArray = (percent * 251.327) / 100;
-                    const dashOffset = (cumulativePercent * 251.327) / 100;
-                    cumulativePercent += percent;
-                    return (
-                      <circle
-                        key={i}
-                        cx="50" cy="50" r="40"
-                        fill="transparent"
-                        stroke={colors[i]}
-                        strokeWidth="16"
-                        strokeDasharray={`${dashArray} 251.327`}
-                        strokeDashoffset={-dashOffset}
-                        className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
-                      >
-                        <title>{item.name}: média de {item.effort.toFixed(1)} revisões por cartão</title>
-                      </circle>
-                    );
-                  })}
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-lg font-black text-slate-100 leading-none">{totalStudiedDecksCount}</span>
-                  <span className="text-[8px] text-slate-500 uppercase font-bold mt-0.5">Ativos</span>
+            {/* Resumo Superior: 3 Indicadores Rápidos + Barra Segmentada */}
+            <div className="flex flex-col gap-3 bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800/70 flex flex-col">
+                  <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Ativos</span>
+                  <div className="text-base sm:text-lg font-black text-slate-100 mt-0.5">{totalStudiedDecksCount}<span className="text-[10px] text-slate-500 font-semibold ml-1">baralhos</span></div>
+                </div>
+                <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800/70 flex flex-col">
+                  <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Média Geral</span>
+                  <div className="text-base sm:text-lg font-black text-amber-400 mt-0.5">{globalAvgEffort}<span className="text-[10px] text-slate-500 font-semibold ml-1">rev/c</span></div>
+                </div>
+                <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800/70 flex flex-col">
+                  <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Volume</span>
+                  <div className="text-base sm:text-lg font-black text-indigo-400 mt-0.5">{totalRawReviews}<span className="text-[10px] text-slate-500 font-semibold ml-1">rev</span></div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5 flex-grow">
-                <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-center">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Média Geral</span>
-                  <div className="text-base sm:text-lg font-black text-amber-400 mt-0.5">{globalAvgEffort}<span className="text-xs text-slate-500 font-semibold ml-1">rev/c</span></div>
-                </div>
-                <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-center">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Volume Total</span>
-                  <div className="text-base sm:text-lg font-black text-indigo-400 mt-0.5">{totalRawReviews}<span className="text-xs text-slate-500 font-semibold ml-1">rev</span></div>
-                </div>
+              {/* Barra Multi-Segmentada de Proporção de Esforço */}
+              <div className="w-full flex h-3 rounded-full overflow-hidden bg-slate-900 p-0.5 gap-1 border border-slate-800">
+                {dist.map((item, i) => {
+                  const pct = Math.max((item.effort / totalEffort) * 100, 4);
+                  return (
+                    <div
+                      key={i}
+                      title={`${item.name}: ${item.effort.toFixed(1)} rev/cartão (${Math.round((item.effort / totalEffort) * 100)}%)`}
+                      className="h-full rounded-full transition-all duration-700 hover:brightness-125"
+                      style={{ width: `${pct}%`, backgroundColor: colors[i] }}
+                    />
+                  );
+                })}
               </div>
             </div>
             
@@ -2361,7 +2590,7 @@ export default function App() {
                   const playDisabled = due === 0 || deck.isIgnored;
 
                   return (
-                    <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setCurrentView('deck-detail'); }} className={`bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 50}ms`}}>
+                    <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); setCurrentView('deck-detail'); }} className={`bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 50}ms`}}>
                       <div className="flex items-start justify-between mb-4 w-full">
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
                         <div className="relative" onClick={e => e.stopPropagation()}>
@@ -2428,6 +2657,41 @@ export default function App() {
   const renderDeckDetail = () => {
     if (!activeDeck) return null;
     const stats = getCardStats(activeDeck.cards); const due = calculateTotalDue(stats);
+
+    const getCardStatusCategory = (card) => {
+      if (card.isSuspended) return 'suspended';
+      const cardState = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
+      if (cardState === 0 || card.reviews === 0) return 'new';
+      if (cardState === 1 || cardState === 3 || card.interval < 1) return 'learning';
+      if (checkCardDue(card)) return 'review';
+      return 'learned';
+    };
+
+    const allDeckCards = (activeDeck.cards || []).slice().reverse();
+    const leechCount = allDeckCards.filter(c => isCardLeech(c)).length;
+
+    const filteredDeckCards = allDeckCards.filter(card => {
+      if (deckTypeFilter !== 'all' && (card.type || 'standard') !== deckTypeFilter) return false;
+      if (deckStatusFilter !== 'all') {
+        if (deckStatusFilter === 'leech') {
+          if (!isCardLeech(card)) return false;
+        } else if (getCardStatusCategory(card) !== deckStatusFilter) {
+          return false;
+        }
+      }
+      if (deckSearchQuery.trim() !== '') {
+        const q = deckSearchQuery.toLowerCase().trim();
+        const frontText = (card.front || '').replace(/<[^>]*>/g, ' ').toLowerCase();
+        const backText = (card.back || '').replace(/<[^>]*>/g, ' ').toLowerCase();
+        const typeAns = (card.typeAnswer || '').toLowerCase();
+        const optsText = (card.options || []).join(' ').toLowerCase();
+        if (!frontText.includes(q) && !backText.includes(q) && !typeAns.includes(q) && !optsText.includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
     return (
       <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 pb-20 animate-in slide-in-from-right-4 fade-in duration-300">
         <button onClick={() => {
@@ -2435,6 +2699,7 @@ export default function App() {
           setEditingCardId(null);
           setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer('');
           setIsSelectMode(false); setSelectedCardIds(new Set());
+          setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all');
         }} className="flex items-center gap-2 text-slate-400 hover:text-slate-200 mb-6 transition-colors"><ArrowLeft className="w-4 h-4" /> Voltar</button>
 
         <div className="bg-slate-900/80 backdrop-blur-sm rounded-3xl p-6 sm:p-8 border border-slate-800 mb-8 flex flex-col gap-6 relative group">
@@ -2534,19 +2799,36 @@ export default function App() {
           </div>
 
           <div className="lg:col-span-3 space-y-4 relative">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-slate-200 flex items-center gap-2">Cartões <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full text-xs">{activeDeck.cards?.length || 0}</span></h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+              <h3 className="font-bold text-slate-200 flex items-center gap-2">
+                Cartões
+                <span className="bg-slate-800 text-slate-400 px-2.5 py-0.5 rounded-full text-xs">
+                  {filteredDeckCards.length !== allDeckCards.length ? `${filteredDeckCards.length} de ${allDeckCards.length}` : allDeckCards.length}
+                </span>
+                {leechCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setDeckStatusFilter(deckStatusFilter === 'leech' ? 'all' : 'leech')}
+                    className={`flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full border transition-all ${deckStatusFilter === 'leech' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20'}`}
+                    title="Filtrar cartões difíceis (Sanguessugas)"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" /> {leechCount} {leechCount === 1 ? 'sanguessuga' : 'sanguessugas'}
+                  </button>
+                )}
+              </h3>
               {activeDeck.cards?.length > 0 && (
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   {isSelectMode && (
                     <button onClick={() => {
-                      if (selectedCardIds.size === activeDeck.cards?.length && activeDeck.cards?.length > 0) {
+                      const targetIds = filteredDeckCards.map(c => c.id);
+                      const allFilteredSelected = targetIds.length > 0 && targetIds.every(id => selectedCardIds.has(id));
+                      if (allFilteredSelected) {
                         setSelectedCardIds(new Set());
                       } else {
-                        setSelectedCardIds(new Set(activeDeck.cards?.map(c => c.id)));
+                        setSelectedCardIds(new Set(targetIds));
                       }
                     }} className="text-sm px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-slate-100 border border-slate-700 transition-colors flex-1 sm:flex-none">
-                      {selectedCardIds.size === activeDeck.cards?.length && activeDeck.cards?.length > 0 ? 'Desmarcar Todos' : 'Selecionar Todos'}
+                      {filteredDeckCards.length > 0 && filteredDeckCards.every(c => selectedCardIds.has(c.id)) ? 'Desmarcar Visíveis' : 'Selecionar Visíveis'}
                     </button>
                   )}
                   <button onClick={() => { setIsSelectMode(!isSelectMode); setSelectedCardIds(new Set()); }} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors flex-1 sm:flex-none ${isSelectMode ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'}`}>
@@ -2555,21 +2837,87 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {/* BARRA DE BUSCA E FILTROS DO BARALHO */}
+            {allDeckCards.length > 0 && (
+              <div className="bg-slate-900/60 p-3.5 rounded-2xl border border-slate-800/90 flex flex-col gap-3">
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <div className="relative flex-grow">
+                    <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={deckSearchQuery}
+                      onChange={(e) => setDeckSearchQuery(e.target.value)}
+                      placeholder="Buscar texto na frente, verso ou gabarito..."
+                      className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-xl py-2.5 pl-10 pr-9 focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                    {deckSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setDeckSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    value={deckTypeFilter}
+                    onChange={(e) => setDeckTypeFilter(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 text-slate-300 text-xs sm:text-sm font-medium rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-indigo-500 transition-colors"
+                  >
+                    <option value="all">Todos os Tipos</option>
+                    <option value="standard">Padrão</option>
+                    <option value="choice">Múltipla Escolha</option>
+                    <option value="tf">Verdadeiro / Falso</option>
+                    <option value="typing">Digitação</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+                  {[
+                    { id: 'all', label: 'Todos' },
+                    { id: 'new', label: 'Novos' },
+                    { id: 'learning', label: 'Aprender' },
+                    { id: 'review', label: 'Revisar' },
+                    { id: 'learned', label: 'Aprendidos' },
+                    { id: 'leech', label: 'Sanguessugas' },
+                    { id: 'suspended', label: 'Suspensos' },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setDeckStatusFilter(tab.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all border ${
+                        deckStatusFilter === tab.id
+                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-sm'
+                          : 'bg-slate-950/70 text-slate-400 border-slate-800/80 hover:text-slate-200 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             
-            {(activeDeck.cards || []).slice().reverse().map((card) => {
+            {filteredDeckCards.map((card) => {
               const cardState = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
               let statusLabel = ''; let statusColor = '';
-              if (cardState === 0 || card.reviews === 0) { statusLabel = 'Novo'; statusColor = 'text-blue-400 bg-blue-500/10 border-blue-500/20'; }
+              if (card.isSuspended) { statusLabel = 'Suspenso'; statusColor = 'text-slate-400 bg-slate-800/90 border-slate-600'; }
+              else if (isCardBuried(card)) { statusLabel = 'Enterrado até amanhã'; statusColor = 'text-indigo-300 bg-indigo-500/10 border-indigo-500/30'; }
+              else if (cardState === 0 || card.reviews === 0) { statusLabel = 'Novo'; statusColor = 'text-blue-400 bg-blue-500/10 border-blue-500/20'; }
               else if (cardState === 1 || cardState === 3 || card.interval < 1) { statusLabel = 'Aprender'; statusColor = 'text-rose-400 bg-rose-500/10 border-rose-500/20'; }
               else if (checkCardDue(card)) { statusLabel = 'Revisar'; statusColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'; }
               else { statusLabel = 'Aprendido'; statusColor = 'text-slate-400 bg-slate-800 border-slate-700'; }
 
+              const leech = isCardLeech(card);
               const typeObj = CARD_TYPES.find(t => t.id === (card.type || 'standard')) || CARD_TYPES[0];
               const TypeIconComp = typeObj.Icon;
 
               return (
                 <div key={card.id} 
-                  className={`bg-slate-900/80 p-5 rounded-2xl border flex items-start gap-3 sm:gap-4 group transition-all duration-300 anki-content ${isSelectMode && selectedCardIds.has(card.id) ? 'border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : (editingCardId === card.id ? 'border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'border-slate-800 hover:border-slate-700 hover:-translate-y-1')} ${isSelectMode ? 'cursor-pointer' : ''}`}
+                  className={`bg-slate-900/80 p-5 rounded-2xl border flex items-start gap-3 sm:gap-4 group transition-all duration-300 anki-content ${card.isSuspended ? 'opacity-60' : ''} ${isSelectMode && selectedCardIds.has(card.id) ? 'border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : (leech ? 'border-amber-500/40 hover:border-amber-500/60' : (editingCardId === card.id ? 'border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'border-slate-800 hover:border-slate-700 hover:-translate-y-1'))} ${isSelectMode ? 'cursor-pointer' : ''}`}
                   onClick={() => { if (isSelectMode) toggleCardSelection(card.id); }}
                 >
                   {isSelectMode && (
@@ -2581,11 +2929,19 @@ export default function App() {
                   )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow pr-2 sm:pr-4">
                     <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                      <div className="flex items-center gap-2 mb-2">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2">
                         <span className="flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">
                           <TypeIconComp className="w-3 h-3" /> {typeObj.label}
                         </span>
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${statusColor}`}>{statusLabel}</span>
+                        {leech && (
+                          <span
+                            className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                            title={`Cartão difícil (Dificuldade FSRS: ${card.difficulty ? card.difficulty.toFixed(1) : '--'} • Erros: ${card.lapses || 0}). Considere simplificar ou dividir este cartão.`}
+                          >
+                            <AlertTriangle className="w-3 h-3" /> Sanguessuga {card.difficulty ? `(D: ${card.difficulty.toFixed(1)})` : ''}
+                          </span>
+                        )}
                       </div>
                       <div className="text-slate-200 font-medium text-sm sm:text-base break-words" dangerouslySetInnerHTML={{ __html: card.front }} />
                     </div>
@@ -2597,14 +2953,29 @@ export default function App() {
                     </div>
                   </div>
                   {!isSelectMode && (
-                    <div className="flex flex-col gap-2 shrink-0">
-                      <button onClick={(e) => { e.stopPropagation(); editCard(card); }} className="text-slate-600 hover:text-indigo-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-indigo-500/10" title="Editar"><Pencil className="w-5 h-5" /></button>
-                      <button onClick={(e) => { e.stopPropagation(); deleteCard(card.id); }} className="text-slate-600 hover:text-red-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-red-500/10" title="Eliminar"><Trash2 className="w-5 h-5" /></button>
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <button onClick={(e) => { e.stopPropagation(); editCard(card); }} className="text-slate-600 hover:text-indigo-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-indigo-500/10" title="Editar"><Pencil className="w-4 h-4" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); toggleSuspendCard(card.id); }} className={`p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg ${card.isSuspended ? 'text-amber-400 hover:bg-amber-500/10 opacity-100' : 'text-slate-600 hover:text-amber-400 hover:bg-amber-500/10'}`} title={card.isSuspended ? "Reativar Cartão" : "Suspender Cartão"}>
+                        {card.isSuspended ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); deleteCard(card.id); }} className="text-slate-600 hover:text-red-400 p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-red-500/10" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   )}
                 </div>
               );
             })}
+            {allDeckCards.length > 0 && filteredDeckCards.length === 0 && (
+              <div className="text-center py-10 text-slate-500 border border-dashed border-slate-800 rounded-2xl flex flex-col items-center gap-2">
+                <span>Nenhum cartão corresponde aos filtros aplicados.</span>
+                <button
+                  type="button"
+                  onClick={() => { setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); }}
+                  className="text-xs font-bold text-indigo-400 hover:text-indigo-300 underline"
+                >
+                  Limpar filtros
+                </button>
+              </div>
+            )}
             {(!activeDeck.cards || activeDeck.cards.length === 0) && <div className="text-center py-10 text-slate-600 border border-dashed border-slate-800 rounded-2xl">Este baralho está vazio.</div>}
             
             {selectedCardIds.size > 0 && (
@@ -2627,10 +2998,22 @@ export default function App() {
     const progress = (currentCardIndex / reviewQueue.length) * 100;
     const intervalLabels = [0,1,2,3].map(q => formatInterval(calculateNextReview(currentCard, q).interval));
     const type = currentCard.type || 'standard';
+    const leech = isCardLeech(currentCard);
 
     const normalizedUserTyped = (reviewInteraction || '').trim().toLowerCase();
     const normalizedExpectedAnswer = (currentCard.typeAnswer || '').trim().toLowerCase();
     const isTypingCorrect = normalizedUserTyped === normalizedExpectedAnswer;
+
+    const getInteractiveSpeechText = () => {
+      let text = currentCard.front || '';
+      if (type === 'choice' && Array.isArray(currentCard.options)) {
+        text += '. Opções: ' + currentCard.options.map((o, i) => `${i + 1}: ${o}`).join('. ');
+      }
+      if (isFlipped && currentCard.back) {
+        text += '. ' + currentCard.back;
+      }
+      return text;
+    };
 
     return (
       <div className="w-full px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col pb-24" onClick={() => setActiveMenuId(null)}>
@@ -2642,6 +3025,7 @@ export default function App() {
             </button>
           </div>
           <div className="flex-grow"><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} /></div></div>
+          <span className="text-xs font-mono text-slate-500 shrink-0">{currentCardIndex + 1}/{reviewQueue.length}</span>
         </div>
 
         <div className="flex-grow flex flex-col justify-center items-center w-full max-w-5xl mx-auto" style={{ perspective: '1000px' }}>
@@ -2657,15 +3041,32 @@ export default function App() {
                   style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
                 >
                   <div className="p-6 text-left border-b border-slate-800/50 flex justify-between items-center group">
-                    <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
                     <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-600 uppercase">Pergunta</span>
+                      {leech && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30" title="Cartão Sanguessuga (Difícil)">
+                          <AlertTriangle className="w-3 h-3" /> Sanguessuga
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => speakCardText(currentCard.front, e)}
+                        className={`p-2 rounded-lg transition-colors border ${isSpeaking ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 animate-pulse' : 'bg-slate-800/60 text-slate-400 hover:bg-slate-700 hover:text-indigo-300 border-slate-700/50'}`}
+                        title="Ouvir pronúncia (Text-to-Speech)"
+                      >
+                        {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                      </button>
                       <div className="relative" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-700 hover:text-indigo-300 rounded-lg transition-colors border border-slate-700/50" title="Opções do Cartão">
-                          <MoreVertical className="w-3.5 h-3.5" />
+                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-slate-400 bg-slate-800/60 hover:bg-slate-700 hover:text-indigo-300 rounded-lg transition-colors border border-slate-700/50" title="Opções do Cartão">
+                          <MoreVertical className="w-4 h-4" />
                         </button>
                         {activeMenuId === 'review_menu' && (
-                          <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                          <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
                             <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                            <button onClick={() => { handleBuryReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-indigo-300 hover:bg-slate-700 flex items-center gap-2"><SkipForward className="w-4 h-4" /> Enterrar até amanhã</button>
+                            <button onClick={() => { handleSuspendReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-amber-300 hover:bg-slate-700 flex items-center gap-2"><PauseCircle className="w-4 h-4" /> Suspender cartão</button>
                             <div className="h-px bg-slate-700 w-full"></div>
                             <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
                           </div>
@@ -2686,15 +3087,32 @@ export default function App() {
                   style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
                 >
                   <div className="p-6 text-left border-b border-indigo-500/20 flex justify-between items-center group">
-                    <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
                     <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-indigo-400/50 uppercase">Resposta</span>
+                      {leech && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                          <AlertTriangle className="w-3 h-3" /> Sanguessuga
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => speakCardText(currentCard.back, e)}
+                        className={`p-2 rounded-lg transition-colors border ${isSpeaking ? 'bg-indigo-500/30 text-indigo-200 border-indigo-400 animate-pulse' : 'bg-indigo-900/40 text-indigo-300/80 hover:bg-indigo-800 hover:text-indigo-100 border-indigo-500/30'}`}
+                        title="Ouvir resposta (Text-to-Speech)"
+                      >
+                        {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                      </button>
                       <div className="relative" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu_verso' ? null : 'review_menu_verso')} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-indigo-400/70 bg-indigo-900/40 hover:bg-indigo-800 hover:text-indigo-200 rounded-lg transition-colors border border-indigo-500/30" title="Opções do Cartão">
-                          <MoreVertical className="w-3.5 h-3.5" />
+                        <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu_verso' ? null : 'review_menu_verso')} className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-indigo-400/70 bg-indigo-900/40 hover:bg-indigo-800 hover:text-indigo-200 rounded-lg transition-colors border border-indigo-500/30" title="Opções do Cartão">
+                          <MoreVertical className="w-4 h-4" />
                         </button>
                         {activeMenuId === 'review_menu_verso' && (
-                          <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                          <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
                             <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                            <button onClick={() => { handleBuryReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-indigo-300 hover:bg-slate-700 flex items-center gap-2"><SkipForward className="w-4 h-4" /> Enterrar até amanhã</button>
+                            <button onClick={() => { handleSuspendReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-amber-300 hover:bg-slate-700 flex items-center gap-2"><PauseCircle className="w-4 h-4" /> Suspender cartão</button>
                             <div className="h-px bg-slate-700 w-full"></div>
                             <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
                           </div>
@@ -2715,17 +3133,34 @@ export default function App() {
 
           {type !== 'standard' && (
             <div key={currentCard.id} className="w-full bg-slate-900 rounded-3xl border border-slate-800 flex flex-col shadow-2xl min-h-[400px] max-h-[80vh] animate-slide-right relative group overflow-hidden">
-              <div className="absolute top-4 right-4 z-30" onClick={e => e.stopPropagation()}>
-                <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition-colors shadow-md" title="Opções do Cartão">
-                  <MoreVertical className="w-4 h-4" />
-                </button>
-                {activeMenuId === 'review_menu' && (
-                  <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
-                    <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                    <div className="h-px bg-slate-700 w-full"></div>
-                    <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
-                  </div>
+              <div className="absolute top-4 right-4 z-30 flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                {leech && (
+                  <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    <AlertTriangle className="w-3 h-3" /> Sanguessuga
+                  </span>
                 )}
+                <button
+                  type="button"
+                  onClick={(e) => speakCardText(getInteractiveSpeechText(), e)}
+                  className={`p-2 rounded-lg transition-colors border shadow-md ${isSpeaking ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 animate-pulse' : 'bg-slate-950 text-slate-400 hover:bg-slate-800 hover:text-slate-200 border-slate-700'}`}
+                  title="Ouvir cartão (Text-to-Speech)"
+                >
+                  {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                </button>
+                <div className="relative">
+                  <button onClick={() => setActiveMenuId(activeMenuId === 'review_menu' ? null : 'review_menu')} className="p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition-colors shadow-md" title="Opções do Cartão">
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                  {activeMenuId === 'review_menu' && (
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                      <button onClick={() => { editCard(currentCard); setIsCardEditModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
+                      <button onClick={() => { handleBuryReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-indigo-300 hover:bg-slate-700 flex items-center gap-2"><SkipForward className="w-4 h-4" /> Enterrar até amanhã</button>
+                      <button onClick={() => { handleSuspendReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-amber-300 hover:bg-slate-700 flex items-center gap-2"><PauseCircle className="w-4 h-4" /> Suspender cartão</button>
+                      <div className="h-px bg-slate-700 w-full"></div>
+                      <button onClick={() => { handleDeleteReviewCard(); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Excluir</button>
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="overflow-y-auto custom-scrollbar flex-grow flex flex-col">
@@ -2945,13 +3380,42 @@ export default function App() {
       {}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsSettingsOpen(false)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <h3 className="text-2xl font-bold text-slate-100 mb-6 flex items-center gap-2"><Settings className="w-6 h-6 text-indigo-400" /> Configurações</h3>
-            <form onSubmit={handleSaveSettings} className="space-y-4">
+            <form onSubmit={handleSaveSettings} className="space-y-5">
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-1">Meta Diária (cartões)</label>
                 <input type="number" min="1" max="1000" required value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
               </div>
+
+              <div className="pt-4 border-t border-slate-800 space-y-3">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">Backup e Exportação de Dados</label>
+                <input type="file" accept=".json" ref={backupInputRef} onChange={handleRestoreBackup} className="hidden" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleExportJSON}
+                    className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-indigo-300 border border-slate-800 hover:border-indigo-500/40 font-semibold py-2.5 px-3 rounded-xl text-xs transition-all active:scale-95"
+                  >
+                    <Download className="w-4 h-4" /> Exportar Backup (.json)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => backupInputRef.current?.click()}
+                    className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-emerald-300 border border-slate-800 hover:border-emerald-500/40 font-semibold py-2.5 px-3 rounded-xl text-xs transition-all active:scale-95"
+                  >
+                    <Upload className="w-4 h-4" /> Restaurar Backup (.json)
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 font-semibold py-2.5 px-3 rounded-xl text-xs transition-all active:scale-95"
+                >
+                  <Download className="w-4 h-4 text-amber-400" /> Exportar Cartões em Planilha (.csv)
+                </button>
+              </div>
+
               <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800">
                 <button type="button" onClick={() => setIsSettingsOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
                 <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar</button>
