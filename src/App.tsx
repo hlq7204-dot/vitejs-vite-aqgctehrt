@@ -483,6 +483,12 @@ const isCardLeech = (card) => {
   return (card.difficulty !== undefined && card.difficulty >= 8.5) || (card.lapses !== undefined && card.lapses >= 4);
 };
 
+const isCardUnlearned = (card) => {
+  if (!card || card.isSuspended) return false;
+  const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
+  return state === 0 || state === 1 || state === 3 || !card.reviews || (card.interval || 0) < 1;
+};
+
 const checkCardDue = (card) => {
   if (!card || card.isIgnored || card.isSuspended) return false;
   if (isCardBuried(card)) return false;
@@ -1000,11 +1006,21 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  const toggleFullScreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(err => console.error(`Erro ecrã inteiro: ${err.message}`));
-    } else if (document.exitFullscreen) {
-      document.exitFullscreen();
+  const toggleFullScreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        if (document.fullscreenEnabled && document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        } else {
+          setIsFullscreen(prev => !prev);
+          showToast("Tela cheia nativa restrita na prévia. Abra em uma nova guia para usar.", "info");
+        }
+      } else if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      setIsFullscreen(prev => !prev);
+      showToast("Tela cheia nativa restrita neste ambiente de prévia.", "info");
     }
   };
 
@@ -1320,8 +1336,7 @@ export default function App() {
         if (isDue) acc.new++;
       }
       else if (state === 1 || state === 3 || card.interval < 1) {
-        if (isDue) acc.learning++;
-        else acc.learned++; 
+        acc.learning++;
       }
       else {
         if (isDue) acc.review++;
@@ -1466,6 +1481,8 @@ export default function App() {
 
     if (config.preset === 'leeches') {
       pool = pool.filter(c => isCardLeech(c));
+    } else if (config.preset === 'unlearned') {
+      pool = pool.filter(c => isCardUnlearned(c));
     } else if (config.preset === 'new_only') {
       pool = pool.filter(c => (c.state === 0 || !c.reviews));
     } else if (config.preset === 'interactive') {
@@ -3211,138 +3228,234 @@ export default function App() {
   const renderDashboard = () => {
     const currentFolders = folders.filter(f => f.parentId === currentFolderId);
     const currentDecks = validDecks.filter(d => d.parentId === currentFolderId);
+    const totalGlobalDue = calculateTotalDue(globalStats);
+    const totalUnlearnedGlobal = validDecks
+      .filter(d => !d.isIgnored)
+      .flatMap(d => d.cards || [])
+      .filter(c => isCardUnlearned(c)).length;
+    const todayDone = getDailyCount(getTodayStr());
+    const goalPct = Math.min(Math.round((todayDone / (dailyGoal || 1)) * 100), 100);
 
     return (
-      <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 pb-16 sm:pb-0 animate-in fade-in duration-300">
-        <div className="hidden sm:flex space-x-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-800 w-fit mb-6">
-          <button onClick={() => { setMainTab('home'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'home' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
-            <Home className="w-4 h-4" /> Início
-          </button>
-          <button onClick={() => { setMainTab('stats'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'stats' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
-            <PieChart className="w-4 h-4" /> Estatísticas
-          </button>
-          <button onClick={() => { setMainTab('reports'); setCurrentFolderId(null); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${mainTab === 'reports' ? 'bg-slate-800 text-indigo-400 shadow-md border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'}`}>
-            <Activity className="w-4 h-4" /> Relatórios
-          </button>
-        </div>
-
-        <div className="sm:hidden fixed bottom-0 left-0 right-0 z-[60] bg-slate-950/95 backdrop-blur-xl border-t border-slate-800 flex justify-around items-center px-2 py-3 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-          <button onClick={() => { setMainTab('home'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'home' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-            <Home className="w-5 h-5" />
-            <span className="text-[10px] font-bold">Início</span>
-          </button>
-          <button onClick={() => { setMainTab('stats'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'stats' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-            <PieChart className="w-5 h-5" />
-            <span className="text-[10px] font-bold">Estatísticas</span>
-          </button>
-          <button onClick={() => { setMainTab('reports'); setCurrentFolderId(null); }} className={`flex flex-col items-center justify-center w-full gap-1.5 transition-colors ${mainTab === 'reports' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-            <Activity className="w-5 h-5" />
-            <span className="text-[10px] font-bold">Relatórios</span>
-          </button>
+      <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-16 sm:pb-0 animate-in fade-in duration-300">
+        {/* NAVEGAÇÃO MOBILE FIXA NO RODAPÉ */}
+        <div className="sm:hidden fixed bottom-0 left-0 right-0 z-[60] bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/90 flex justify-around items-center px-3 py-2.5 shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
+          {[
+            { id: 'home', label: 'Início', Icon: Home },
+            { id: 'stats', label: 'Estatísticas', Icon: PieChart },
+            { id: 'reports', label: 'Relatórios', Icon: Activity }
+          ].map(tab => {
+            const IconComp = tab.Icon;
+            const active = mainTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => { setMainTab(tab.id); setCurrentFolderId(null); }}
+                className={`flex flex-col items-center justify-center w-full py-1 rounded-xl gap-1 transition-all ${active ? 'text-indigo-400 bg-indigo-500/10' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                <IconComp className="w-5 h-5" />
+                <span className="text-[10px] font-bold tracking-wide">{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         {mainTab === 'home' && (
-          <div className="animate-in fade-in duration-300 pb-10">
+          <div className="animate-in fade-in duration-300 pb-10 space-y-8">
             {currentFolderId === null && (
-              <div className="mb-8 bg-gradient-to-br from-indigo-900/40 to-purple-900/10 border border-indigo-500/20 p-6 sm:p-8 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden shadow-xl shadow-indigo-900/10">
-                <div className="absolute top-0 right-0 p-32 bg-indigo-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-                <div className="relative z-10 w-full md:w-1/2">
-                  <h2 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2">{getGreeting()}, pronto para focar?</h2>
-                  <div className="flex flex-wrap items-center gap-3 mt-3">
-                    <p className="text-slate-400">Você tem <strong className="text-indigo-400 text-lg">{calculateTotalDue(globalStats)}</strong> cartões pendentes hoje.</p>
-                    {calculateTotalDue(globalStats) > 0 && (
-                      <span className="flex items-center gap-1.5 text-sm bg-slate-900/80 text-amber-400 px-3 py-1.5 rounded-xl border border-amber-500/20 shadow-lg shadow-amber-500/5 animate-pop delay-100">
-                        <Timer className="w-4 h-4" />
-                        <strong>~{Math.max(1, Math.ceil(calculateTotalDue(globalStats) * 0.33))} min</strong> de foco
-                      </span>
-                    )}
+              <div className="relative rounded-3xl p-6 sm:p-8 border border-slate-800/90 bg-gradient-to-br from-slate-900/90 via-indigo-950/25 to-slate-900/90 shadow-2xl overflow-hidden">
+                <div className="absolute -top-24 -right-24 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                  <div className="lg:col-span-7 space-y-4">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Repetição Espaçada Inteligente</span>
+                    </div>
+
+                    <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
+                      {getGreeting()}, pronto para evoluir?
+                    </h2>
+
+                    <div className="flex flex-wrap items-center gap-2.5 text-sm text-slate-300">
+                      <div className="flex items-center gap-2 bg-slate-950/70 border border-slate-800 px-3.5 py-2 rounded-xl">
+                        <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                        <span><strong className="text-white font-black">{totalGlobalDue}</strong> pendentes hoje</span>
+                      </div>
+
+                      {totalUnlearnedGlobal > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomStudyConfig({
+                              sourceType: 'all',
+                              sourceId: null,
+                              preset: 'unlearned',
+                              cardType: 'all',
+                              tag: 'all',
+                              limit: 20
+                            });
+                            setIsCustomStudyModalOpen(true);
+                          }}
+                          className="flex items-center gap-2 bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/20 text-rose-300 px-3.5 py-2 rounded-xl transition-colors"
+                          title="Clique para treinar apenas os cartões não aprendidos"
+                        >
+                          <Layers className="w-4 h-4 text-rose-400" />
+                          <span><strong className="font-black text-rose-200">{totalUnlearnedGlobal}</strong> não aprendidos</span>
+                        </button>
+                      )}
+
+                      {totalGlobalDue > 0 && (
+                        <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-300 px-3.5 py-2 rounded-xl">
+                          <Timer className="w-4 h-4 text-amber-400" />
+                          <span>~<strong>{Math.max(1, Math.ceil(totalGlobalDue * 0.33))} min</strong></span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-1 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => openCustomStudyModal('all', null)}
+                        className="inline-flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold transition-all shadow-lg shadow-indigo-600/25 active:scale-95"
+                      >
+                        <SlidersHorizontal className="w-4 h-4" /> Estudo Personalizado
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }}
+                        className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-slate-950/80 hover:bg-slate-800 text-slate-200 border border-slate-800 text-sm font-semibold transition-all active:scale-95"
+                      >
+                        <Plus className="w-4 h-4 text-indigo-400" /> Novo Baralho
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-4">
-                    <button
-                      type="button"
-                      onClick={() => openCustomStudyModal('all', null)}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-indigo-300 border border-indigo-500/30 text-xs sm:text-sm font-bold transition-all active:scale-95 shadow-md"
-                    >
-                      <SlidersHorizontal className="w-4 h-4 text-indigo-400" /> Estudo Personalizado / Simulado
-                    </button>
-                  </div>
-                </div>
-                <div className="relative z-10 w-full md:w-1/2 bg-slate-950/60 p-5 rounded-2xl border border-slate-800/80 backdrop-blur-sm">
-                  <div className="flex justify-between text-sm font-medium mb-3">
-                    <span className="text-slate-300 flex items-center gap-1.5"><Target className="w-4 h-4 text-rose-400"/> Meta Diária</span>
-                    <span className="text-rose-400 font-bold">{getDailyCount(getTodayStr())} / {dailyGoal}</span>
-                  </div>
-                  <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
-                    <div className="bg-gradient-to-r from-orange-400 to-rose-500 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(244,63,94,0.5)]" style={{ width: `${Math.min((getDailyCount(getTodayStr()) / dailyGoal) * 100, 100)}%` }}></div>
+
+                  <div className="lg:col-span-5 bg-slate-950/75 border border-slate-800/90 p-5 sm:p-6 rounded-2xl backdrop-blur-md flex flex-col justify-between gap-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                          <Target className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">Meta Diária</span>
+                          <span className="text-sm font-semibold text-slate-200">
+                            {todayDone >= dailyGoal ? 'Meta alcançada hoje!' : `Faltam ${Math.max(0, dailyGoal - todayDone)} revisões`}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-2xl font-black text-white">{todayDone}</span>
+                        <span className="text-sm font-bold text-slate-500"> / {dailyGoal}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800 p-0.5">
+                        <div
+                          className="bg-gradient-to-r from-indigo-500 via-purple-500 to-rose-500 h-full rounded-full transition-all duration-1000"
+                          style={{ width: `${goalPct}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        <span>Progresso de Hoje</span>
+                        <span className="text-indigo-400">{goalPct}%</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             )}
 
             {currentFolderId !== null && (
-              <div className="flex items-center gap-2 mb-6 text-sm font-medium text-slate-400 bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-full overflow-x-auto custom-scrollbar">
-                <button onClick={() => setCurrentFolderId(null)} className="flex items-center gap-2 transition-colors whitespace-nowrap hover:text-slate-200"><Home className="w-4 h-4" /> Início</button>
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-400 bg-slate-900/60 px-4 py-3 rounded-2xl border border-slate-800/90 w-full overflow-x-auto custom-scrollbar">
+                <button onClick={() => setCurrentFolderId(null)} className="flex items-center gap-2 transition-colors whitespace-nowrap hover:text-white font-semibold"><Home className="w-4 h-4 text-indigo-400" /> Início</button>
                 {breadcrumbs.map(crumb => (
                   <React.Fragment key={crumb.id}>
                     <ChevronRight className="w-4 h-4 text-slate-600 flex-shrink-0" />
-                    <button onClick={() => setCurrentFolderId(crumb.id)} className={`transition-colors whitespace-nowrap ${currentFolderId === crumb.id ? 'text-indigo-400' : 'hover:text-slate-200'}`}>{crumb.name}</button>
+                    <button onClick={() => setCurrentFolderId(crumb.id)} className={`transition-colors whitespace-nowrap font-semibold ${currentFolderId === crumb.id ? 'text-indigo-400' : 'hover:text-white'}`}>{crumb.name}</button>
                   </React.Fragment>
                 ))}
               </div>
             )}
 
             {currentFolderId !== null && (
-              <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-gradient-to-r from-indigo-900/30 to-slate-900 border border-indigo-500/20 p-5 rounded-2xl shadow-lg gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-                    <Folder className="w-5 h-5 text-indigo-400" />
-                    {folders.find(f => f.id === currentFolderId)?.name}
-                  </h2>
-                  <p className="text-sm text-slate-400 mt-1">
-                    <strong className="text-indigo-400">{calculateTotalDue(getFolderStats(currentFolderId))}</strong> cartões pendentes em sub-baralhos.
-                  </p>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-gradient-to-r from-indigo-950/40 via-slate-900/90 to-slate-900 border border-indigo-500/25 p-5 sm:p-6 rounded-3xl shadow-xl gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                    <Folder className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-bold text-white">
+                      {folders.find(f => f.id === currentFolderId)?.name}
+                    </h2>
+                    <p className="text-sm text-slate-400 mt-0.5">
+                      <strong className="text-indigo-400">{calculateTotalDue(getFolderStats(currentFolderId))}</strong> cartões pendentes nesta coleção
+                    </p>
+                  </div>
                 </div>
-                <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+                <div className="flex gap-2.5 w-full sm:w-auto flex-wrap">
                   <button onClick={() => startReview(null, false, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${calculateTotalDue(getFolderStats(currentFolderId)) > 0 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>
                     <Play className="w-4 h-4" fill="currentColor" /> Estudar Tudo
                   </button>
-                  <button onClick={() => startReview(null, true, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0 && getFolderStats(currentFolderId).learned === 0} className={`flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95`} title="Rever ignorando agendamento">
+                  <button onClick={() => startReview(null, true, currentFolderId)} disabled={calculateTotalDue(getFolderStats(currentFolderId)) === 0 && getFolderStats(currentFolderId).learned === 0} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Rever ignorando agendamento">
                     <FastForward className="w-4 h-4" fill="currentColor" /> Modo Livre
                   </button>
-                  <button onClick={() => openCustomStudyModal('folder', currentFolderId)} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Filtrar ou criar simulado desta pasta">
+                  <button onClick={() => openCustomStudyModal('folder', currentFolderId)} className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-amber-300 border border-amber-500/30 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Filtrar ou criar simulado desta pasta">
                     <SlidersHorizontal className="w-4 h-4" /> Personalizar
                   </button>
                 </div>
               </div>
             )}
 
-            <div className="mb-10">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><Folder className="w-5 h-5 text-indigo-400" /> Coleções</h2>
+            {/* SEÇÃO DE COLEÇÕES */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                    <Folder className="w-4 h-4" />
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-100">Coleções</h2>
+                  <span className="text-xs font-bold text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">{currentFolders.length}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }}
+                  className="text-xs font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/15 border border-indigo-500/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors"
+                >
+                  <FolderPlus className="w-3.5 h-3.5" /> Nova Coleção
+                </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5">
                 {currentFolders.map((folder, index) => {
-                  const isMenuOpen = activeMenuId === folder.id; const colorClass = folder.color || FOLDER_THEMES[0].color;
+                  const isMenuOpen = activeMenuId === folder.id;
+                  const colorClass = folder.color || FOLDER_THEMES[0].color;
+                  const folderDecksCount = getDecksInFolder(folder.id).length;
                   return (
-                    <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/50 rounded-2xl p-5 border border-slate-800 hover:border-slate-600 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50" style={{animationDelay: `${index * 50}ms`}}>
-                      <div className="flex items-center gap-4 flex-grow min-w-0 pr-3">
+                    <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/65 backdrop-blur-sm rounded-2xl p-4 sm:p-5 border border-slate-800/90 hover:border-indigo-500/40 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-1 transition-all duration-300 hover:shadow-xl hover:shadow-black/40" style={{animationDelay: `${index * 40}ms`}}>
+                      <div className="flex items-center gap-3.5 flex-grow min-w-0 pr-2">
                         <div className={`relative p-3 rounded-xl shrink-0 ${colorClass}`}>
-                          <Folder className="w-6 h-6 absolute opacity-20" /><Folder className="w-6 h-6 relative z-10" />
+                          <Folder className="w-5 h-5 relative z-10" />
                         </div>
-                        <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors text-lg line-clamp-2 break-words" title={folder.name}>{folder.name}</span>
+                        <div className="min-w-0">
+                          <span className="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors text-base line-clamp-1 break-words block" title={folder.name}>{folder.name}</span>
+                          <span className="text-xs text-slate-500 font-medium">{folderDecksCount} {folderDecksCount === 1 ? 'baralho' : 'baralhos'}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0 ml-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         {renderStatBadges(getFolderStats(folder.id))}
                         <div className="relative" onClick={e => e.stopPropagation()}>
-                          <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : folder.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
-                            <MoreVertical className="w-5 h-5" />
+                          <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : folder.id); }} className={`p-1.5 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
+                            <MoreVertical className="w-4 h-4" />
                           </button>
                           {isMenuOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                              <button onClick={(e) => { openEditModal('folder', folder, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                              <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: folder.id, type: 'folder', name: folder.name, parentId: folder.parentId}); setMoveTargetFolderId(folder.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
-                              <div className="h-px bg-slate-700 w-full"></div>
-                              <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: folder.id, type: 'folder', name: folder.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                            <div className="absolute right-0 top-full mt-2 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                              <button onClick={(e) => { openEditModal('folder', folder, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><Pencil className="w-4 h-4 text-indigo-400" /> Editar</button>
+                              <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: folder.id, type: 'folder', name: folder.name, parentId: folder.parentId}); setMoveTargetFolderId(folder.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><CornerUpRight className="w-4 h-4 text-slate-400" /> Mover</button>
+                              <div className="h-px bg-slate-800 w-full"></div>
+                              <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: folder.id, type: 'folder', name: folder.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
                             </div>
                           )}
                         </div>
@@ -3350,67 +3463,106 @@ export default function App() {
                     </div>
                   );
                 })}
-                <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-5 border-2 border-dashed border-slate-800/60 hover:border-indigo-500/40 cursor-pointer flex items-center gap-4 text-slate-500 hover:text-indigo-400 animate-pop hover:-translate-y-1 transition-all duration-300">
-                  <div className="p-3 bg-slate-950/50 rounded-xl"><FolderPlus className="w-6 h-6" /></div>
-                  <span className="font-medium">Nova Coleção</span>
+                <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/25 rounded-2xl p-4 sm:p-5 border border-dashed border-slate-800 hover:border-indigo-500/40 cursor-pointer flex items-center gap-3.5 text-slate-500 hover:text-indigo-400 animate-pop hover:-translate-y-0.5 transition-all duration-300">
+                  <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80"><FolderPlus className="w-5 h-5" /></div>
+                  <span className="font-semibold text-sm">Criar Coleção</span>
                 </div>
               </div>
             </div>
 
+            {/* SEÇÃO DE BARALHOS */}
             <div>
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-lg font-semibold text-slate-300 flex items-center gap-2"><BookOpen className="w-5 h-5 text-indigo-400" /> Baralhos</h2>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                    <BookOpen className="w-4 h-4" />
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-100">Baralhos</h2>
+                  <span className="text-xs font-bold text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">{currentDecks.length}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }}
+                  className="text-xs font-bold text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/15 border border-purple-500/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Novo Baralho
+                </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
                 {currentDecks.map((deck, index) => {
-                  const stats = getCardStats(deck.cards); const due = calculateTotalDue(stats);
-                  const isMenuOpen = activeMenuId === deck.id; const colorClass = deck.color || DECK_THEMES[0].color;
+                  const stats = getCardStats(deck.cards);
+                  const due = calculateTotalDue(stats);
+                  const isMenuOpen = activeMenuId === deck.id;
+                  const colorClass = deck.color || DECK_THEMES[0].color;
                   const playDisabled = due === 0 || deck.isIgnored;
+                  const totalDeckCards = deck.cards?.length || 0;
+                  const masteryPct = totalDeckCards > 0 ? Math.round((stats.learned / totalDeckCards) * 100) : 0;
 
                   return (
-                    <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); setDeckTagFilter('all'); setCurrentView('deck-detail'); }} className={`bg-slate-900/50 rounded-2xl p-6 border border-slate-800 hover:border-slate-600 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 50}ms`}}>
+                    <div key={deck.id} onClick={() => { setActiveDeckId(deck.id); setDeckSearchQuery(''); setDeckStatusFilter('all'); setDeckTypeFilter('all'); setDeckTagFilter('all'); setCurrentView('deck-detail'); }} className={`bg-slate-900/65 backdrop-blur-sm rounded-2xl p-5 sm:p-6 border border-slate-800/90 hover:border-indigo-500/40 cursor-pointer flex flex-col h-full group relative animate-pop hover:-translate-y-1.5 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 ${deck.isIgnored ? 'opacity-60 grayscale-[0.3]' : ''}`} style={{animationDelay: `${index * 40}ms`}}>
                       <div className="flex items-start justify-between mb-4 w-full">
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
-                        <div className="relative" onClick={e => e.stopPropagation()}>
-                          <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : deck.id); }} className={`p-1 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
-                            <MoreVertical className="w-5 h-5" />
-                          </button>
-                          {isMenuOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                              <button onClick={(e) => { toggleIgnoreDeck(deck, e); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2">
-                                {deck.isIgnored ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                                {deck.isIgnored ? 'Ativar Baralho' : 'Ignorar Baralho'}
-                              </button>
-                              <div className="h-px bg-slate-700 w-full"></div>
-                              <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar</button>
-                              <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"><CornerUpRight className="w-4 h-4" /> Mover</button>
-                              <div className="h-px bg-slate-700 w-full"></div>
-                              <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-3 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
-                            </div>
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${colorClass}`}><BookOpen className="w-6 h-6" /></div>
+                        <div className="flex items-center gap-1.5">
+                          {deck.isIgnored ? (
+                            <span className="bg-slate-800 text-slate-400 text-[11px] font-bold px-2 py-0.5 rounded-lg border border-slate-700 flex items-center gap-1"><EyeOff className="w-3 h-3"/> Ignorado</span>
+                          ) : (
+                            renderStatBadges(stats)
                           )}
+                          <div className="relative" onClick={e => e.stopPropagation()}>
+                            <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : deck.id); }} className={`p-1.5 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                            {isMenuOpen && (
+                              <div className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                                <button onClick={(e) => { toggleIgnoreDeck(deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2">
+                                  {deck.isIgnored ? <Eye className="w-4 h-4 text-emerald-400" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
+                                  {deck.isIgnored ? 'Ativar Baralho' : 'Ignorar Baralho'}
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); openCustomStudyModal('deck', deck.id); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2">
+                                  <SlidersHorizontal className="w-4 h-4 text-amber-400" /> Estudo Personalizado
+                                </button>
+                                <div className="h-px bg-slate-800 w-full"></div>
+                                <button onClick={(e) => { openEditModal('deck', deck, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><Pencil className="w-4 h-4 text-indigo-400" /> Editar</button>
+                                <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: deck.id, type: 'deck', name: deck.name, parentId: deck.parentId}); setMoveTargetFolderId(deck.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><CornerUpRight className="w-4 h-4 text-slate-400" /> Mover</button>
+                                <div className="h-px bg-slate-800 w-full"></div>
+                                <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: deck.id, type: 'deck', name: deck.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <h3 className="text-xl font-bold text-slate-200 mb-2 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words w-full" title={deck.name}>{deck.name}</h3>
-                      <div className="mb-3 w-full flex flex-wrap gap-1.5 items-center">
-                        {deck.isIgnored ? (
-                          <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-0.5 rounded border border-slate-700 flex items-center gap-1"><EyeOff className="w-3 h-3"/> Ignorado</span>
-                        ) : (
-                          renderStatBadges(stats)
-                        )}
-                      </div>
-                      <p className="text-slate-400 text-sm flex-grow line-clamp-2 w-full" title={deck.description}>{deck.description}</p>
-                      <div className="mt-4 pt-4 border-t border-slate-800/50 flex justify-between items-center text-sm text-slate-500 w-full">
-                        <span>{deck.cards?.length || 0} cartões totais</span>
-                        <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={playDisabled} className={`p-2 rounded-full transition-all ${!playDisabled ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 hover:scale-110' : 'bg-slate-800/50 text-slate-600 cursor-not-allowed'}`}>
-                          <Play className="w-5 h-5" fill="currentColor" />
+
+                      <h3 className="text-lg font-bold text-slate-100 mb-1.5 group-hover:text-indigo-300 transition-colors line-clamp-2 break-words w-full" title={deck.name}>{deck.name}</h3>
+                      <p className="text-slate-400 text-xs sm:text-sm flex-grow line-clamp-2 w-full mb-4" title={deck.description}>{deck.description || 'Clique para gerenciar ou estudar os cartões.'}</p>
+
+                      {totalDeckCards > 0 && (
+                        <div className="w-full mb-3">
+                          <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
+                            <span>Domínio</span>
+                            <span className="text-slate-400">{masteryPct}%</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80">
+                            <div className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 rounded-full transition-all duration-700" style={{ width: `${masteryPct}%` }} />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="pt-3 border-t border-slate-800/60 flex justify-between items-center text-xs font-semibold text-slate-400 w-full mt-auto">
+                        <span>{totalDeckCards} {totalDeckCards === 1 ? 'cartão' : 'cartões'}</span>
+                        <button onClick={(e) => { e.stopPropagation(); startReview(deck.id); }} disabled={playDisabled} className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all ${!playDisabled ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 hover:scale-105' : 'bg-slate-800/60 text-slate-600 cursor-not-allowed'}`}>
+                          <Play className="w-3.5 h-3.5" fill="currentColor" /> Estudar
                         </button>
                       </div>
                     </div>
                   );
                 })}
-                <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/30 rounded-2xl p-6 border-2 border-dashed border-slate-800/80 flex flex-col items-center justify-center text-slate-500 hover:text-indigo-400 hover:border-indigo-500/40 hover:bg-indigo-950/10 transition-all duration-300 cursor-pointer min-h-[220px] animate-pop hover:-translate-y-1">
-                  <Plus className="w-10 h-10 mb-2" />
-                  <span className="font-medium">Novo Baralho</span>
+                <div onClick={() => { setModalMode('create'); setModalType('deck'); setNewItemColor(DECK_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/25 rounded-2xl p-6 border border-dashed border-slate-800 flex flex-col items-center justify-center text-slate-500 hover:text-indigo-400 hover:border-indigo-500/40 hover:bg-indigo-950/10 transition-all duration-300 cursor-pointer min-h-[210px] animate-pop hover:-translate-y-1">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center mb-3">
+                    <Plus className="w-6 h-6" />
+                  </div>
+                  <span className="font-bold text-sm">Criar Novo Baralho</span>
+                  <span className="text-xs text-slate-600 mt-1">Adicione cartões manualmente ou importe</span>
                 </div>
               </div>
             </div>
@@ -3448,6 +3600,7 @@ export default function App() {
 
     const allDeckCards = (activeDeck.cards || []).slice().reverse();
     const leechCount = allDeckCards.filter(c => isCardLeech(c)).length;
+    const unlearnedCount = allDeckCards.filter(c => isCardUnlearned(c)).length;
     const deckTags = Array.from(new Set(allDeckCards.flatMap(c => c.tags || []))).sort();
 
     const filteredDeckCards = allDeckCards.filter(card => {
@@ -3456,6 +3609,8 @@ export default function App() {
       if (deckStatusFilter !== 'all') {
         if (deckStatusFilter === 'leech') {
           if (!isCardLeech(card)) return false;
+        } else if (deckStatusFilter === 'unlearned') {
+          if (!isCardUnlearned(card)) return false;
         } else if (getCardStatusCategory(card) !== deckStatusFilter) {
           return false;
         }
@@ -3710,6 +3865,7 @@ export default function App() {
                 <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
                   {[
                     { id: 'all', label: 'Todos' },
+                    { id: 'unlearned', label: `Não Aprendidos (${unlearnedCount})` },
                     { id: 'new', label: 'Novos' },
                     { id: 'learning', label: 'Aprender' },
                     { id: 'review', label: 'Revisar' },
@@ -4060,13 +4216,8 @@ export default function App() {
                           disabled={isFlipped}
                           value={isFlipped ? reviewInteraction : typedInput}
                           onChange={e => setTypedInput(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && typedInput.trim()) {
-                              e.preventDefault();
-                              handleInteractiveSubmit(typedInput);
-                            }
-                          }}
-                          className={`w-full bg-transparent border-b-2 text-center text-2xl sm:text-3xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : (isTypedCorrect ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`}
+                          onKeyDown={e => e.key === 'Enter' && typedInput.trim() && handleInteractiveSubmit(typedInput)}
+                          className={`flex-grow bg-transparent border-b-2 text-center text-2xl sm:text-3xl font-mono p-4 outline-none transition-colors ${!isFlipped ? 'border-indigo-500 text-indigo-300' : (isTypedCorrect ? 'border-emerald-500 text-emerald-400' : 'border-rose-500 text-rose-400 line-through')}`}
                           placeholder="Digite sua resposta..."
                         />
                         {!isFlipped && (
@@ -4074,23 +4225,26 @@ export default function App() {
                             type="button"
                             onClick={() => typedInput.trim() && handleInteractiveSubmit(typedInput)}
                             disabled={!typedInput.trim()}
-                            className={`p-4 rounded-2xl font-bold transition-all shrink-0 ${typedInput.trim() ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
-                            title="Confirmar Resposta"
+                            className={`p-4 rounded-xl font-bold transition-all flex items-center justify-center shrink-0 ${typedInput.trim() ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+                            title="Confirmar resposta"
                           >
                             <Send className="w-5 h-5" />
                           </button>
                         )}
                       </div>
                       {isFlipped && !isTypedCorrect && (
-                        <div className="text-emerald-400 font-mono text-2xl animate-pop"><span className="text-slate-500 text-sm block text-center">Correta:</span>{currentCard.typeAnswer}</div>
+                        <div className="text-emerald-400 font-mono text-2xl animate-pop text-center">
+                          <span className="text-slate-500 text-sm block">Correta:</span>
+                          {currentCard.typeAnswer}
+                        </div>
                       )}
                     </div>
                   )}
                 </div>
               </div>
               {isFlipped && currentCard.back && (
-                <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 shrink-0 animate-in fade-in duration-300 anki-content">
-                  <div dangerouslySetInnerHTML={{ __html: currentCard.back }} />
+                <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 shrink-0 animate-in fade-in duration-300">
+                  <div className="anki-content break-words" dangerouslySetInnerHTML={{ __html: currentCard.back }} />
                 </div>
               )}
             </div>
@@ -4102,13 +4256,13 @@ export default function App() {
             <button onClick={() => setIsFlipped(true)} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xl py-6 rounded-2xl shadow-lg transition-all active:scale-95">Mostrar Resposta</button>
           ) : isFlipped ? (
             <div className="grid grid-cols-4 gap-2 sm:gap-4 animate-in slide-in-from-bottom-2 fade-in duration-200">
-              <button onClick={() => handleAnswer(0)} className={`p-4 sm:py-6 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border rounded-2xl font-bold relative transition-all active:scale-95 text-lg sm:text-xl ${interactiveSuggestedGrade === 0 ? 'border-rose-400 ring-2 ring-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.3)] scale-[1.02]' : 'border-rose-500/20'}`}>
+              <button onClick={() => handleAnswer(0)} className={`p-4 sm:py-6 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border rounded-2xl font-bold relative transition-all active:scale-95 text-lg sm:text-xl ${interactiveSuggestedGrade === 0 ? 'border-rose-400 ring-2 ring-rose-500/40 shadow-[0_0_20px_rgba(244,63,94,0.25)]' : 'border-rose-500/20'}`}>
                 Errei <span className="text-sm opacity-50 block">{intervalLabels[0]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">1</span>
               </button>
               <button onClick={() => handleAnswer(1)} className="p-4 sm:py-6 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
                 Difícil <span className="text-sm opacity-50 block">{intervalLabels[1]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">2</span>
               </button>
-              <button onClick={() => handleAnswer(2)} className={`p-4 sm:py-6 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border rounded-2xl font-bold relative transition-all active:scale-95 text-lg sm:text-xl ${interactiveSuggestedGrade === 2 ? 'border-emerald-400 ring-2 ring-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)] scale-[1.02]' : 'border-emerald-500/20'}`}>
+              <button onClick={() => handleAnswer(2)} className={`p-4 sm:py-6 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border rounded-2xl font-bold relative transition-all active:scale-95 text-lg sm:text-xl ${interactiveSuggestedGrade === 2 ? 'border-emerald-400 ring-2 ring-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.25)]' : 'border-emerald-500/20'}`}>
                 Bom <span className="text-sm opacity-50 block">{intervalLabels[2]}</span><span className="absolute top-2 right-2 text-[10px] opacity-30 font-mono hidden sm:block">3</span>
               </button>
               <button onClick={() => handleAnswer(3)} className="p-4 sm:py-6 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-2xl font-bold relative transition-colors active:scale-95 text-lg sm:text-xl">
@@ -4116,7 +4270,7 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <div className="text-center text-slate-500">Responda acima para revelar o gabarito</div>
+            <div className="text-center text-slate-500">Responda para avançar</div>
           )}
         </div>
       </div>
@@ -4127,80 +4281,160 @@ export default function App() {
     <div className="max-w-md mx-auto p-6 min-h-[80vh] flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-500">
       <div className="w-24 h-24 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center justify-center mb-6 animate-pop"><Sparkles className="w-12 h-12" /></div>
       <h1 className="text-3xl font-bold text-slate-100 mb-2">Sessão Concluída!</h1>
-      <p className="text-slate-400 mb-8">Reviu <span className="font-bold text-slate-200">{sessionStats.reviewed}</span> cartões ({sessionStats.reviewed > 0 ? Math.round((sessionStats.correct / sessionStats.reviewed) * 100) : 100}% de aproveitamento).</p>
-      <button onClick={() => setCurrentView('dashboard')} className="w-full mt-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95"><CheckCircle2 className="w-5 h-5" /> Concluir</button>
+      <p className="text-slate-400 mb-8">Reviu <span className="font-bold text-slate-200">{sessionStats.reviewed}</span> cartões.</p>
+      <button onClick={() => setCurrentView('dashboard')} className="w-full mt-8 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95"><CheckCircle2 className="w-5 h-5" /> Concluir</button>
     </div>
   );
+
+  const renderBrandLogo = (size = 'normal') => {
+    const isLarge = size === 'large';
+    return (
+      <div className="inline-flex items-center gap-3 select-none group/logo">
+        <div className={`relative flex items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-600 via-violet-500 to-fuchsia-500 p-[1px] shadow-[0_0_25px_rgba(99,102,241,0.35)] group-hover/logo:shadow-[0_0_32px_rgba(139,92,246,0.55)] transition-all duration-300 ${isLarge ? 'w-14 h-14 rounded-3xl' : 'w-10 h-10'}`}>
+          <div className={`w-full h-full bg-slate-950/90 backdrop-blur-md flex items-center justify-center relative overflow-hidden ${isLarge ? 'rounded-[23px]' : 'rounded-[15px]'}`}>
+            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/25 via-purple-500/15 to-transparent"></div>
+            <Layers className={`${isLarge ? 'w-7 h-7' : 'w-5 h-5'} text-indigo-400 relative z-10 transform -rotate-6 group-hover/logo:rotate-0 transition-transform duration-300`} />
+            <Sparkles className={`${isLarge ? 'w-3.5 h-3.5 top-2 right-2' : 'w-2.5 h-2.5 top-1.5 right-1.5'} text-fuchsia-400 absolute z-20 animate-pulse`} />
+          </div>
+        </div>
+        <div className="flex flex-col text-left">
+          <div className="flex items-center gap-1.5 leading-none">
+            <span className={`font-black tracking-tight text-white ${isLarge ? 'text-3xl sm:text-4xl' : 'text-lg sm:text-xl'}`}>
+              Flash<span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-violet-400 to-fuchsia-400">Cards</span>
+            </span>
+            <span className={`font-extrabold uppercase tracking-widest rounded-md bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 ${isLarge ? 'text-[10px] px-2 py-0.5' : 'text-[9px] px-1.5 py-0.5'}`}>
+              FSRS
+            </span>
+          </div>
+          <span className={`text-slate-500 font-semibold tracking-wide ${isLarge ? 'text-xs mt-1' : 'text-[10px] hidden sm:block mt-0.5'}`}>
+            Memória de Longo Prazo
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col notranslate" translate="no" lang="pt-BR" onClick={() => setActiveMenuId(null)}>
       <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
       
       {!user ? (
-        <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 flex-grow">
-          <h1 className="text-4xl sm:text-5xl font-extrabold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight animate-float text-center">Flash Cards</h1>
-          
-          <button 
-            onClick={signInWithGoogle}
-            className="flex items-center gap-3 bg-white text-slate-900 hover:bg-slate-200 px-6 py-4 rounded-2xl font-bold transition-all transform hover:scale-105 active:scale-95 shadow-xl shadow-white/10"
-          >
-            <svg className="w-6 h-6" viewBox="0 0 24 24">
-              <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-            </svg>
-            Continuar com o Google
-          </button>
+        <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 flex-grow relative overflow-hidden">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none"></div>
+          <div className="bg-slate-900/70 backdrop-blur-xl border border-slate-800/90 rounded-3xl p-8 sm:p-10 max-w-md w-full flex flex-col items-center text-center shadow-2xl relative z-10">
+            <div className="mb-6 animate-float">
+              {renderBrandLogo('large')}
+            </div>
+            <p className="text-slate-400 text-sm mb-8 leading-relaxed">
+              Organize seus baralhos, estude com o algoritmo científico FSRS-5 e acompanhe sua retenção real em tempo real.
+            </p>
+            <button 
+              onClick={signInWithGoogle}
+              className="w-full flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-100 px-6 py-4 rounded-2xl font-bold transition-all transform hover:scale-[1.02] active:scale-95 shadow-xl shadow-white/10"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+              </svg>
+              Continuar com o Google
+            </button>
+          </div>
         </div>
       ) : (
         <>
-          {/* CABEÇALHO FLUTUANTE */}
-          <header className="w-full px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-between z-40 relative">
-            <h1 onClick={() => setCurrentView('dashboard')} className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500 tracking-tight cursor-pointer hover:opacity-80 transition-opacity">
-              Flash Cards
-            </h1>
+          {/* CABEÇALHO SUPERIOR INTEGRADO E MODERNO */}
+          <header className="sticky top-0 z-40 w-full bg-slate-950/80 backdrop-blur-xl border-b border-slate-800/70">
+            <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-4">
+              {/* LOGO HARMONIOSA */}
+              <button
+                type="button"
+                onClick={() => { setCurrentView('dashboard'); setMainTab('home'); setCurrentFolderId(null); }}
+                className="focus:outline-none"
+              >
+                {renderBrandLogo('normal')}
+              </button>
 
-            <div className="flex items-center gap-2 bg-slate-900/50 backdrop-blur-md p-1.5 rounded-full border border-slate-800/80 shadow-sm">
-              <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
-              <input type="file" accept=".json" ref={backupInputRef} onChange={handleRestoreBackup} className="hidden" />
-              
-              {(() => {
-                const streakCount = calculateStreak();
-                const hasDoneToday = getDailyCount(getTodayStr()) > 0 || streakRecoveries.includes(getTodayStr());
-                const displayStreak = Math.max(streakCount, 0); 
-                return (
-                  <div className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-medium items-center gap-1.5 border transition-all ${hasDoneToday ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700/50 opacity-60'}`} title={hasDoneToday ? "Ofensiva Ativa!" : "Faça revisões hoje para manter a ofensiva!"}>
-                    <Flame className={`w-4 h-4 ${hasDoneToday ? 'fill-current text-orange-400' : 'opacity-50'}`} /> {displayStreak}
-                  </div>
-                );
-              })()}
-              
-              {isImporting ? (
-                <div className="flex items-center justify-center w-8 h-8 rounded-full text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" title={importProgress || "Importando..."}><Loader2 className="w-4 h-4 animate-spin" /></div>
-              ) : (
-                <button onClick={() => fileInputRef.current.click()} className="w-8 h-8 flex items-center justify-center bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors" title="Importar Anki (.apkg) ou Texto (.csv/.txt)">
-                  <Upload className="w-4 h-4" />
-                </button>
+              {/* NAVEGAÇÃO CENTRAL INTEGRADA (DESKTOP) */}
+              {currentView === 'dashboard' && (
+                <nav className="hidden sm:flex items-center bg-slate-900/80 p-1 rounded-2xl border border-slate-800/90 shadow-inner">
+                  {[
+                    { id: 'home', label: 'Início', Icon: Home },
+                    { id: 'stats', label: 'Estatísticas', Icon: PieChart },
+                    { id: 'reports', label: 'Relatórios', Icon: Activity }
+                  ].map(tab => {
+                    const IconComp = tab.Icon;
+                    const active = mainTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => { setMainTab(tab.id); setCurrentFolderId(null); }}
+                        className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
+                          active
+                            ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-600/20'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                        }`}
+                      >
+                        <IconComp className="w-4 h-4" />
+                        <span>{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </nav>
               )}
-              
-              <div className="w-px h-5 bg-slate-800 mx-1"></div>
 
-              <button onClick={() => setIsSettingsOpen(true)} className="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 rounded-full transition-colors" title="Configurações e Backup">
-                <Settings className="w-4 h-4" />
-              </button>
-              
-              <button onClick={toggleFullScreen} className="w-8 h-8 flex items-center justify-center bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-full transition-colors" title="Ecrã Inteiro">
-                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-              </button>
+              {/* DOCK DE AÇÕES À DIREITA */}
+              <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-900/70 p-1.5 rounded-2xl border border-slate-800/90">
+                <input type="file" accept=".txt,.csv,.colpkg,.apkg,.zip" ref={fileInputRef} onChange={handleUniversalImport} className="hidden" />
+                <input type="file" accept=".json" ref={backupInputRef} onChange={handleRestoreBackup} className="hidden" />
+                
+                {(() => {
+                  const streakCount = calculateStreak();
+                  const hasDoneToday = getDailyCount(getTodayStr()) > 0 || streakRecoveries.includes(getTodayStr());
+                  const displayStreak = Math.max(streakCount, 0); 
+                  return (
+                    <div className={`flex px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold items-center gap-1.5 border transition-all ${hasDoneToday ? 'bg-orange-500/15 text-orange-400 border-orange-500/30 shadow-[0_0_12px_rgba(249,115,22,0.15)]' : 'bg-slate-950/60 text-slate-500 border-slate-800'}`} title={hasDoneToday ? "Ofensiva Ativa!" : "Faça revisões hoje para manter a ofensiva!"}>
+                      <Flame className={`w-4 h-4 ${hasDoneToday ? 'fill-current text-orange-400' : 'opacity-60'}`} />
+                      <span>{displayStreak}</span>
+                    </div>
+                  );
+                })()}
 
-              <button onClick={handleLogout} className="w-8 h-8 flex items-center justify-center bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded-full transition-colors" title="Sair da Conta">
-                <LogOut className="w-4 h-4" />
-              </button>
+                <button
+                  onClick={() => openCustomStudyModal('all', null)}
+                  className="w-9 h-9 flex items-center justify-center bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 rounded-xl transition-colors border border-indigo-500/20"
+                  title="Estudo Personalizado / Simulado"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                </button>
+                
+                {isImporting ? (
+                  <div className="flex items-center justify-center w-9 h-9 rounded-xl text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" title={importProgress || "Importando..."}><Loader2 className="w-4 h-4 animate-spin" /></div>
+                ) : (
+                  <button onClick={() => fileInputRef.current.click()} className="w-9 h-9 flex items-center justify-center bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-xl transition-colors" title="Importar Anki (.apkg) ou Texto (.csv/.txt)">
+                    <Upload className="w-4 h-4" />
+                  </button>
+                )}
+                
+                <div className="w-px h-5 bg-slate-800 mx-0.5"></div>
+
+                <button onClick={() => setIsSettingsOpen(true)} className="w-9 h-9 flex items-center justify-center bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-colors" title="Configurações e Backup">
+                  <Settings className="w-4 h-4" />
+                </button>
+                
+                <button onClick={toggleFullScreen} className="hidden sm:flex w-9 h-9 items-center justify-center bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-colors" title="Tela Cheia">
+                  {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                </button>
+
+                <button onClick={handleLogout} className="w-9 h-9 flex items-center justify-center bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl transition-colors" title="Sair da Conta">
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </header>
 
-          <main className="flex-grow w-full pb-24 sm:pb-12">
+          <main className="flex-grow w-full pb-24 sm:pb-12 pt-3">
             {currentView === 'dashboard' && renderDashboard()}
             {currentView === 'deck-detail' && renderDeckDetail()}
             {currentView === 'review' && renderReview()}
@@ -4277,47 +4511,72 @@ export default function App() {
 
       {/* MODAL ESTUDO PERSONALIZADO / SIMULADO */}
       {isCustomStudyModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[85] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsCustomStudyModalOpen(false)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <h3 className="text-2xl font-bold text-slate-100 mb-2 flex items-center gap-2">
-              <SlidersHorizontal className="w-6 h-6 text-indigo-400" /> Estudo Personalizado
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-400 mb-6">Monte uma sessão focada ou simulado filtrando seus cartões.</p>
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[85] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsCustomStudyModalOpen(false)}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl p-6 sm:p-7 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                  <SlidersHorizontal className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl sm:text-2xl font-bold text-white">Estudo Personalizado</h3>
+                  <p className="text-xs sm:text-sm text-slate-400 mt-0.5">Monte uma sessão focada ou simulado filtrando seus cartões.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCustomStudyModalOpen(false)}
+                className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-            <form onSubmit={handleStartCustomStudy} className="space-y-4">
+            <form onSubmit={handleStartCustomStudy} className="space-y-5">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Modo de Filtro</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Modo de Filtro</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {[
-                    { id: 'cram', label: 'Simulado Geral (Sorteio)' },
-                    { id: 'leeches', label: 'Apenas Sanguessugas' },
-                    { id: 'new_only', label: 'Apenas Cartões Novos' },
-                    { id: 'interactive', label: 'Apenas Interativos' },
-                    { id: 'due_only', label: 'Apenas Pendentes Hoje' },
-                  ].map(p => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setCustomStudyConfig(prev => ({ ...prev, preset: p.id }))}
-                      className={`px-3.5 py-2.5 rounded-xl text-xs font-bold text-left border transition-all ${
-                        customStudyConfig.preset === p.id
-                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+                    { id: 'cram', label: 'Simulado Geral (Sorteio)', desc: 'Todos os cartões ativos', Icon: Sparkles },
+                    { id: 'unlearned', label: 'Apenas Não Aprendidos', desc: 'Novos + em aprendizagem', Icon: Layers },
+                    { id: 'due_only', label: 'Apenas Pendentes Hoje', desc: 'Agendados para agora', Icon: CalendarDays },
+                    { id: 'new_only', label: 'Apenas Cartões Novos', desc: 'Nunca revisados antes', Icon: Plus },
+                    { id: 'leeches', label: 'Apenas Sanguessugas', desc: 'Cartões com mais erros', Icon: AlertTriangle },
+                    { id: 'interactive', label: 'Apenas Interativos', desc: 'Escolha, V/F e Digitação', Icon: CheckSquare },
+                  ].map(p => {
+                    const PresetIcon = p.Icon;
+                    const isSelected = customStudyConfig.preset === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setCustomStudyConfig(prev => ({ ...prev, preset: p.id }))}
+                        className={`p-3.5 rounded-2xl text-left border transition-all flex items-start gap-3 ${
+                          isSelected
+                            ? 'bg-indigo-500/15 text-white border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.15)]'
+                            : 'bg-slate-950/80 text-slate-300 border-slate-800/90 hover:border-slate-700 hover:bg-slate-950'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${isSelected ? 'bg-indigo-500 text-white' : 'bg-slate-900 text-slate-400'}`}>
+                          <PresetIcon className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className={`text-xs sm:text-sm font-bold truncate ${isSelected ? 'text-indigo-200' : 'text-slate-200'}`}>{p.label}</div>
+                          <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5">{p.desc}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Tipo de Cartão</label>
                   <select
                     value={customStudyConfig.cardType}
                     onChange={(e) => setCustomStudyConfig(prev => ({ ...prev, cardType: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm font-medium rounded-xl p-3 focus:outline-none focus:border-indigo-500 transition-colors"
                   >
                     <option value="all">Todos os Tipos</option>
                     <option value="standard">Padrão</option>
@@ -4333,7 +4592,7 @@ export default function App() {
                   <select
                     value={customStudyConfig.tag}
                     onChange={(e) => setCustomStudyConfig(prev => ({ ...prev, tag: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm font-medium rounded-xl p-3 focus:outline-none focus:border-indigo-500 transition-colors"
                   >
                     <option value="all">Todas as #tags</option>
                     {getAllGlobalTags().map(t => (
@@ -4344,9 +4603,9 @@ export default function App() {
               </div>
 
               <div>
-                <div className="flex justify-between items-center mb-1.5">
+                <div className="flex justify-between items-center mb-2">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Limite de Cartões na Sessão</label>
-                  <span className="text-xs font-bold text-indigo-400">{customStudyConfig.limit === 0 ? 'Sem limite' : `${customStudyConfig.limit} cartões`}</span>
+                  <span className="text-xs font-bold text-indigo-400">{customStudyConfig.limit === 0 ? 'Todos os encontrados' : `${customStudyConfig.limit} cartões`}</span>
                 </div>
                 <div className="flex gap-2">
                   {[10, 20, 30, 50, 0].map(lim => (
@@ -4354,9 +4613,9 @@ export default function App() {
                       key={lim}
                       type="button"
                       onClick={() => setCustomStudyConfig(prev => ({ ...prev, limit: lim }))}
-                      className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all ${
                         customStudyConfig.limit === lim
-                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50 shadow-sm'
                           : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
                       }`}
                     >
@@ -4366,14 +4625,16 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between">
-                <span className="text-xs text-slate-400">Cartões encontrados com esses filtros:</span>
-                <span className="text-base font-black text-emerald-400">{getFilteredCustomStudyCards(customStudyConfig).length}</span>
+              <div className="bg-slate-950/90 border border-slate-800/90 rounded-2xl px-4 py-3.5 flex items-center justify-between">
+                <span className="text-xs sm:text-sm font-medium text-slate-400">Cartões encontrados com esses filtros:</span>
+                <span className="text-lg font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-0.5 rounded-xl">
+                  {getFilteredCustomStudyCards(customStudyConfig).length}
+                </span>
               </div>
 
               <div className="flex gap-3 pt-3 border-t border-slate-800">
-                <button type="button" onClick={() => setIsCustomStudyModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors">Cancelar</button>
-                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95 flex items-center justify-center gap-2">
+                <button type="button" onClick={() => setIsCustomStudyModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3.5 rounded-2xl transition-colors">Cancelar</button>
+                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95 flex items-center justify-center gap-2">
                   <Play className="w-4 h-4 fill-current" /> Iniciar Treino
                 </button>
               </div>
