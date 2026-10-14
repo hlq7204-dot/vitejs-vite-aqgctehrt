@@ -1780,6 +1780,7 @@ export default function App() {
   const renderForecast = () => {
     const allCards = validDecks.filter(d => !d.isIgnored).flatMap(d => d.cards || []); 
     const today = new Date(); today.setHours(0,0,0,0);
+    const endOfToday = new Date(today); endOfToday.setHours(23, 59, 59, 999);
     
     let bucketCount = 7;
     let labels = [];
@@ -1790,7 +1791,7 @@ export default function App() {
       for(let i=0; i<bucketCount; i++) {
         const d = new Date(today); d.setDate(today.getDate() + i);
         labels.push(i === 0 ? 'Hoje' : d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.',''));
-        buckets.push({ date: d.getTime(), count: 0, label: labels[i] });
+        buckets.push({ date: d.getTime(), count: 0, readyNow: 0, laterToday: 0, label: labels[i] });
       }
     } else if (forecastPeriod === 'month') {
       bucketCount = 30;
@@ -1799,23 +1800,26 @@ export default function App() {
         const day = String(d.getDate()).padStart(2, '0');
         const mo = String(d.getMonth() + 1).padStart(2, '0');
         labels.push(i === 0 ? 'Hoje' : `${day}/${mo}`);
-        buckets.push({ date: d.getTime(), count: 0, label: labels[i] });
+        buckets.push({ date: d.getTime(), count: 0, readyNow: 0, laterToday: 0, label: labels[i] });
       }
     } else if (forecastPeriod === 'year') {
       bucketCount = 12;
       for(let i=0; i<bucketCount; i++) {
         const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
         labels.push(d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.',''));
-        buckets.push({ month: d.getMonth(), year: d.getFullYear(), count: 0, label: labels[i] });
+        buckets.push({ month: d.getMonth(), year: d.getFullYear(), count: 0, readyNow: 0, laterToday: 0, label: labels[i] });
       }
     }
 
     allCards.forEach(c => {
-      if (!c.dueDate) return;
-      
-      if (checkCardDue(c)) {
+      const isDueNow = checkCardDue(c);
+      const isDueToday = !c.dueDate || isDueNow || c.dueDate <= endOfToday.getTime();
+
+      if (isDueToday) {
         if (forecastPeriod === 'week' || forecastPeriod === 'month') {
           buckets[0].count++;
+          if (isDueNow) buckets[0].readyNow++;
+          else buckets[0].laterToday++;
         } else if (forecastPeriod === 'year') {
           const bIdx = buckets.findIndex(b => b.month === today.getMonth() && b.year === today.getFullYear());
           if (bIdx !== -1) buckets[bIdx].count++;
@@ -1827,7 +1831,7 @@ export default function App() {
         if (forecastPeriod === 'week' || forecastPeriod === 'month') {
           const diffTime = cDateStart.getTime() - today.getTime();
           const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-          if (diffDays > 0 && diffDays < bucketCount) {
+          if (diffDays >= 0 && diffDays < bucketCount) {
             buckets[diffDays].count++;
           }
         } else if (forecastPeriod === 'year') {
@@ -1866,6 +1870,11 @@ export default function App() {
                 <div key={i} className="relative flex flex-col items-center flex-1 min-w-0 h-full justify-end group/bar">
                   <div className="absolute bottom-full mb-2 opacity-0 group-hover/bar:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700 flex flex-col items-center origin-bottom">
                     <span className="text-indigo-300 text-sm">{b.count} <span className="text-xs text-slate-400 font-medium">cartões</span></span>
+                    {i === 0 && b.laterToday > 0 && (
+                      <span className="text-[10px] text-amber-400 font-medium mt-0.5">
+                        {b.readyNow > 0 ? `${b.readyNow} agora • ${b.laterToday} mais tarde` : `${b.laterToday} ainda hoje`}
+                      </span>
+                    )}
                     <span className="text-[9px] text-slate-500 uppercase tracking-wider mt-0.5">{b.label}</span>
                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-800"></div>
                   </div>
@@ -1890,19 +1899,28 @@ export default function App() {
   };
 
   const renderDeckDistribution = () => {
-    let dist = validDecks.filter(d => !d.isIgnored).map(d => {
+    const allStudiedDecks = validDecks.filter(d => !d.isIgnored).map(d => {
       const effort = (d.cards || []).reduce((sum, c) => sum + (c.reviews || 0), 0);
       const cardCount = d.cards?.length || 1;
       const intensity = effort / cardCount;
       return { name: d.name, effort: intensity, rawEffort: effort, cardCount };
     }).filter(d => d.rawEffort > 0).sort((a,b) => b.effort - a.effort);
 
+    const totalStudiedDecksCount = allStudiedDecks.length;
+    const totalRawReviews = allStudiedDecks.reduce((sum, d) => sum + d.rawEffort, 0);
+    const totalStudiedCards = allStudiedDecks.reduce((sum, d) => sum + d.cardCount, 0) || 1;
+    const globalAvgEffort = (totalRawReviews / totalStudiedCards).toFixed(1);
+
+    let dist = [...allStudiedDecks];
     const totalEffort = dist.reduce((sum, d) => sum + d.effort, 0);
     
     if (dist.length > 4) {
       const top = dist.slice(0, 3);
-      const othersEffort = dist.slice(3).reduce((sum, d) => sum + d.effort, 0);
-      top.push({ name: 'Outros', effort: othersEffort });
+      const othersSlice = dist.slice(3);
+      const othersEffort = othersSlice.reduce((sum, d) => sum + d.effort, 0);
+      const othersRaw = othersSlice.reduce((sum, d) => sum + d.rawEffort, 0);
+      const othersCards = othersSlice.reduce((sum, d) => sum + d.cardCount, 0) || 1;
+      top.push({ name: `Outros (${othersSlice.length})`, effort: othersEffort, rawEffort: othersRaw, cardCount: othersCards });
       dist = top;
     }
 
@@ -1910,57 +1928,84 @@ export default function App() {
     let cumulativePercent = 0;
 
     return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-200">
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full justify-between relative group animate-pop delay-200">
         <div className="absolute bottom-0 left-0 p-32 bg-amber-500/5 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
-        <div className="flex justify-between items-center mb-8 relative z-10">
+        
+        <div className="flex justify-between items-center mb-5 relative z-10">
           <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-amber-400" /> Intensidade</h3>
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Média de Esforço</span>
+          <span className="text-[11px] font-bold text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg uppercase tracking-wider">Média de Esforço</span>
         </div>
         
         {totalEffort === 0 ? (
-          <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10">Nenhum dado de estudo ainda.</div>
+          <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10 py-12">Nenhum dado de estudo ainda.</div>
         ) : (
-          <div className="flex flex-col sm:flex-row items-center gap-6 flex-grow relative z-10 w-full min-w-0">
-            <div className="relative w-32 h-32 shrink-0 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] mx-auto sm:mx-0">
-              <svg viewBox="-10 -10 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
-                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#1e293b" strokeWidth="16" />
-                {dist.map((item, i) => {
-                  const percent = (item.effort / totalEffort) * 100;
-                  const dashArray = (percent * 251.327) / 100;
-                  const dashOffset = (cumulativePercent * 251.327) / 100;
-                  cumulativePercent += percent;
-                  return (
-                    <circle
-                      key={i}
-                      cx="50" cy="50" r="40"
-                      fill="transparent"
-                      stroke={colors[i]}
-                      strokeWidth="16"
-                      strokeDasharray={`${dashArray} 251.327`}
-                      strokeDashoffset={-dashOffset}
-                      className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
-                    >
-                      <title>{item.name}: média de {item.effort.toFixed(1)} revisões p/ cartão</title>
-                    </circle>
-                  );
-                })}
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-2xl font-black text-slate-200 leading-none">{dist.length}</span>
-                <span className="text-[10px] text-slate-500 uppercase font-bold mt-1">Baralhos</span>
+          <div className="flex flex-col gap-5 flex-grow justify-between relative z-10 w-full">
+            {/* Resumo Superior: Gráfico + Métricas Globais */}
+            <div className="flex items-center gap-4 bg-slate-950/50 p-3.5 rounded-2xl border border-slate-800/80">
+              <div className="relative w-20 h-20 shrink-0 drop-shadow-[0_0_12px_rgba(0,0,0,0.5)]">
+                <svg viewBox="-10 -10 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
+                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="#1e293b" strokeWidth="16" />
+                  {dist.map((item, i) => {
+                    const percent = (item.effort / totalEffort) * 100;
+                    const dashArray = (percent * 251.327) / 100;
+                    const dashOffset = (cumulativePercent * 251.327) / 100;
+                    cumulativePercent += percent;
+                    return (
+                      <circle
+                        key={i}
+                        cx="50" cy="50" r="40"
+                        fill="transparent"
+                        stroke={colors[i]}
+                        strokeWidth="16"
+                        strokeDasharray={`${dashArray} 251.327`}
+                        strokeDashoffset={-dashOffset}
+                        className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
+                      >
+                        <title>{item.name}: média de {item.effort.toFixed(1)} revisões por cartão</title>
+                      </circle>
+                    );
+                  })}
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-lg font-black text-slate-100 leading-none">{totalStudiedDecksCount}</span>
+                  <span className="text-[8px] text-slate-500 uppercase font-bold mt-0.5">Ativos</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5 flex-grow">
+                <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-center">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Média Geral</span>
+                  <div className="text-base sm:text-lg font-black text-amber-400 mt-0.5">{globalAvgEffort}<span className="text-xs text-slate-500 font-semibold ml-1">rev/c</span></div>
+                </div>
+                <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-center">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Volume Total</span>
+                  <div className="text-base sm:text-lg font-black text-indigo-400 mt-0.5">{totalRawReviews}<span className="text-xs text-slate-500 font-semibold ml-1">rev</span></div>
+                </div>
               </div>
             </div>
             
-            <div className="flex flex-col gap-3 flex-grow w-full min-w-0">
-              {dist.map((item, i) => (
-                <div key={i} className="flex items-center justify-between text-sm group min-w-0 w-full gap-2">
-                  <div className="flex items-center gap-2.5 overflow-hidden flex-grow min-w-0">
-                    <div className="w-3 h-3 rounded-full shrink-0 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: colors[i], color: colors[i] }}></div>
-                    <span className="text-slate-300 font-medium truncate group-hover:text-slate-100 transition-colors flex-grow" title={item.name}>{item.name}</span>
+            {/* Lista de Baralhos em Largura Total */}
+            <div className="flex flex-col gap-3 w-full my-auto">
+              {dist.map((item, i) => {
+                const pct = Math.round((item.effort / totalEffort) * 100);
+                return (
+                  <div key={i} className="flex flex-col gap-1.5 group/item w-full">
+                    <div className="flex items-center justify-between text-xs sm:text-sm gap-2 w-full">
+                      <div className="flex items-center gap-2 min-w-0 flex-grow">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: colors[i], color: colors[i] }}></div>
+                        <span className="text-slate-200 font-semibold truncate group-hover/item:text-white transition-colors" title={item.name}>{item.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[11px] text-slate-500 font-medium">{item.effort.toFixed(1)} rev/c</span>
+                        <span className="font-black text-slate-300 w-9 text-right bg-slate-950/80 px-1.5 py-0.5 rounded border border-slate-800 text-xs">{pct}%</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80">
+                      <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${pct}%`, backgroundColor: colors[i] }}></div>
+                    </div>
                   </div>
-                  <span className="font-black text-slate-400 shrink-0 w-10 text-right">{Math.round((item.effort / totalEffort) * 100)}%</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
