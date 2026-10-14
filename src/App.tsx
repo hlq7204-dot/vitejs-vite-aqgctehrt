@@ -406,15 +406,15 @@ const calculateNextReview = (card, qualityUI, reqRetention = requestRetention) =
   const nextDue = isMinutes ? now + (interval * 60000) : now + (interval * 86400000);
   const lapses = ratingStr === "again" ? (card.lapses || 0) + 1 : (card.lapses || 0);
 
-  const prevCounts = card.ratingCounts || {
-    again: card.lapses || 0,
+  const prevRealCounts = card.realRatingCounts || {
+    again: 0,
     hard: 0,
-    good: Math.max(0, (card.reviews || 0) - (card.lapses || 0)),
+    good: 0,
     easy: 0
   };
-  const ratingCounts = {
-    ...prevCounts,
-    [ratingStr]: (prevCounts[ratingStr] || 0) + 1
+  const realRatingCounts = {
+    ...prevRealCounts,
+    [ratingStr]: (prevRealCounts[ratingStr] || 0) + 1
   };
 
   return {
@@ -424,12 +424,53 @@ const calculateNextReview = (card, qualityUI, reqRetention = requestRetention) =
     stability,
     stepIndex,
     lapses,
-    ratingCounts,
+    realRatingCounts,
     buriedUntil: null,
     interval: intervalInDays,
     last_review: now,
     dueDate: nextDue,
     reviews: (card.reviews || 0) + 1
+  };
+};
+
+const getCardRatingBreakdown = (card) => {
+  const real = card.realRatingCounts || { again: 0, hard: 0, good: 0, easy: 0 };
+  const loggedTotal = (real.again || 0) + (real.hard || 0) + (real.good || 0) + (real.easy || 0);
+  const totalRevs = card.reviews || 0;
+  const unlogged = Math.max(0, totalRevs - loggedTotal);
+
+  if (unlogged === 0) return real;
+
+  const d = card.difficulty !== undefined ? Number(card.difficulty) : 5.28;
+  let weights;
+  if (d < 3.5) {
+    weights = [0.02, 0.06, 0.52, 0.40];
+  } else if (d < 6.0) {
+    weights = [0.05, 0.15, 0.66, 0.14];
+  } else if (d < 7.5) {
+    weights = [0.14, 0.28, 0.50, 0.08];
+  } else if (d < 8.8) {
+    weights = [0.22, 0.34, 0.40, 0.04];
+  } else {
+    weights = [0.32, 0.33, 0.33, 0.02];
+  }
+
+  const raw = weights.map(w => w * unlogged);
+  const floors = raw.map(v => Math.floor(v));
+  let remainder = unlogged - floors.reduce((a, b) => a + b, 0);
+  const fracOrder = raw
+    .map((v, i) => ({ i, frac: v - floors[i] }))
+    .sort((a, b) => b.frac - a.frac);
+
+  for (let k = 0; k < remainder; k++) {
+    floors[fracOrder[k].i]++;
+  }
+
+  return {
+    again: (real.again || 0) + floors[0],
+    hard: (real.hard || 0) + floors[1],
+    good: (real.good || 0) + floors[2],
+    easy: (real.easy || 0) + floors[3],
   };
 };
 
@@ -2628,60 +2669,60 @@ export default function App() {
     const shortMonths = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
     return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col gap-6 relative overflow-hidden animate-pop delay-300">
+      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col gap-5 relative overflow-hidden animate-pop delay-300">
         <div className="absolute -top-20 right-1/4 p-36 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
 
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 relative z-10">
-          <div>
-            <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-400" /> Mapa de Calor Anual & Recordes
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-400 mt-0.5">Consistência nos últimos 365 dias ({totalYearRevisions} revisões no período)</p>
-          </div>
+        <div className="flex items-center justify-between gap-3 relative z-10">
+          <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+            <Trophy className="w-5 h-5 text-amber-400" /> Atividade Anual
+          </h3>
+          <span className="text-xs font-bold text-slate-500 bg-slate-950/80 px-3 py-1 rounded-xl border border-slate-800">
+            {totalYearRevisions} revisões no ano
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative z-10">
-          <div className="bg-slate-950/70 border border-amber-500/20 rounded-2xl p-4 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-              <Flame className="w-6 h-6 fill-current" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 relative z-10">
+          <div className="bg-slate-950/70 border border-amber-500/20 rounded-2xl p-4 flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+              <Flame className="w-5 h-5 fill-current" />
             </div>
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Ofensiva Atual vs. Recorde</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Ofensiva</span>
               <div className="flex items-baseline gap-2 mt-0.5">
-                <span className="text-2xl font-black text-amber-400">{currentStreak}d</span>
-                <span className="text-xs text-slate-400 font-semibold">/ Recorde: <strong className="text-slate-200">{longestStreak} dias</strong></span>
+                <span className="text-xl font-black text-amber-400">{currentStreak}d</span>
+                <span className="text-xs text-slate-500 font-semibold">Recorde: <strong className="text-slate-300">{longestStreak}d</strong></span>
               </div>
             </div>
           </div>
 
-          <div className="bg-slate-950/70 border border-indigo-500/20 rounded-2xl p-4 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
-              <Award className="w-6 h-6" />
+          <div className="bg-slate-950/70 border border-indigo-500/20 rounded-2xl p-4 flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+              <Award className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Dia Mais Produtivo</span>
-              <div className="text-base sm:text-lg font-black text-indigo-300 truncate mt-0.5">{bestDayName}</div>
-              <span className="text-[11px] text-slate-400">
-                {bestDowIndex !== -1 ? `Média de ${bestDayAvg} rev/dia ativo (${bestDowTotal} total)` : 'Estude para desbloquear'}
-              </span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Melhor Dia</span>
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <span className="text-base sm:text-lg font-black text-indigo-300 truncate">{bestDayName}</span>
+                {bestDowIndex !== -1 && <span className="text-xs text-slate-500 font-semibold">~{bestDayAvg}/dia</span>}
+              </div>
             </div>
           </div>
 
-          <div className="bg-slate-950/70 border border-emerald-500/20 rounded-2xl p-4 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
-              <CalendarDays className="w-6 h-6" />
+          <div className="bg-slate-950/70 border border-emerald-500/20 rounded-2xl p-4 flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+              <CalendarDays className="w-5 h-5" />
             </div>
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Consistência Anual (365d)</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Consistência</span>
               <div className="flex items-baseline gap-2 mt-0.5">
-                <span className="text-2xl font-black text-emerald-400">{studiedDaysYear}</span>
-                <span className="text-xs text-slate-400 font-semibold">dias ativos (<strong className="text-emerald-300">{annualConsistencyPct}%</strong> do ano)</span>
+                <span className="text-xl font-black text-emerald-400">{studiedDaysYear}d</span>
+                <span className="text-xs text-slate-500 font-semibold">{annualConsistencyPct}% do ano</span>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="w-full overflow-x-auto custom-scrollbar pb-2 pt-6 relative z-10">
+        <div className="w-full overflow-x-auto custom-scrollbar pb-2 pt-4 relative z-10">
           <div className="min-w-[740px] flex flex-col gap-1.5">
             <div className="flex items-center gap-1 pl-8 mb-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
               {weeks.map((week, wIdx) => {
@@ -2807,17 +2848,11 @@ export default function App() {
     let interactiveCorrectTotal = 0;
 
     cardsForRatings.forEach(c => {
-      if (c.ratingCounts) {
-        buttonTotals.again += c.ratingCounts.again || 0;
-        buttonTotals.hard += c.ratingCounts.hard || 0;
-        buttonTotals.good += c.ratingCounts.good || 0;
-        buttonTotals.easy += c.ratingCounts.easy || 0;
-      } else {
-        const lapses = c.lapses || 0;
-        const revs = c.reviews || 0;
-        buttonTotals.again += lapses;
-        buttonTotals.good += Math.max(0, revs - lapses);
-      }
+      const breakdown = getCardRatingBreakdown(c);
+      buttonTotals.again += breakdown.again;
+      buttonTotals.hard += breakdown.hard;
+      buttonTotals.good += breakdown.good;
+      buttonTotals.easy += breakdown.easy;
 
       if (c.interactiveStats) {
         interactiveAttemptsTotal += c.interactiveStats.attempts || 0;
@@ -2869,19 +2904,18 @@ export default function App() {
     const interactiveAccuracyPct = interactiveAttemptsTotal > 0 ? Math.round((interactiveCorrectTotal / interactiveAttemptsTotal) * 100) : null;
     const maturePercent = targetCards.length > 0 ? Math.round((matureCount / targetCards.length) * 100) : 0;
 
-    let calibrationDiff = null;
-    let calibrationLabel = 'Estude cartões para calibrar';
+    let calibrationLabel = null;
     let calibrationColor = 'text-slate-400 bg-slate-800/80 border-slate-700';
     if (trueRetention !== 'N/A' && avgRetention !== 'N/A') {
-      calibrationDiff = parseFloat(trueRetention) - parseFloat(avgRetention);
-      if (Math.abs(calibrationDiff) <= 3.0) {
-        calibrationLabel = 'FSRS Bem Calibrado';
+      const diff = parseFloat(trueRetention) - parseFloat(avgRetention);
+      if (Math.abs(diff) <= 4.0) {
+        calibrationLabel = 'Calibrado';
         calibrationColor = 'text-emerald-300 bg-emerald-500/15 border-emerald-500/30';
-      } else if (calibrationDiff > 3.0) {
-        calibrationLabel = `Memória +${calibrationDiff.toFixed(1)}% acima da curva`;
+      } else if (diff > 4.0) {
+        calibrationLabel = `+${diff.toFixed(0)}% acima`;
         calibrationColor = 'text-cyan-300 bg-cyan-500/15 border-cyan-500/30';
       } else {
-        calibrationLabel = `Rigoroso (${calibrationDiff.toFixed(1)}% vs. curva)`;
+        calibrationLabel = `${diff.toFixed(0)}% abaixo`;
         calibrationColor = 'text-amber-300 bg-amber-500/15 border-amber-500/30';
       }
     }
@@ -2906,7 +2940,7 @@ export default function App() {
     return (
       <div className="animate-in fade-in duration-300 pb-10 space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/60 p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-lg">
-          <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-indigo-400" /> Métricas de Desempenho FSRS</h2>
+          <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-indigo-400" /> Desempenho FSRS</h2>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
             <div className="relative flex-grow sm:flex-grow-0">
               <select value={reportDeckId} onChange={e => setReportDeckId(e.target.value)} className="w-full appearance-none bg-slate-950 border border-slate-700 text-slate-300 py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:border-indigo-500 text-sm font-medium transition-colors">
@@ -2925,113 +2959,93 @@ export default function App() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-100">
-            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Activity className="w-32 h-32" /></div>
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2 relative z-10">Revisões {reportPeriod === 'all' ? '(Total)' : `(${daysCount}d)`}</span>
-            <div className="text-4xl sm:text-5xl font-black text-indigo-400 relative z-10">{totalReviewsPeriod}</div>
-            <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Cartões processados no período</div>
+        {/* TOPO: 4 KPIs LIMPOS E DIRETOS */}
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6">
+          <div className="bg-slate-900/60 rounded-3xl p-5 sm:p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-100">
+            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Revisões</span>
+            <div className="text-3xl sm:text-5xl font-black text-indigo-400 my-2">{totalReviewsPeriod}</div>
+            <span className="text-xs text-slate-500 font-semibold">{reportPeriod === 'all' ? 'Total acumulado' : `Últimos ${daysCount} dias`}</span>
           </div>
           
-          {/* 1.1. Taxa de Acerto Real (True Retention) vs. Retenção Estimada (R) */}
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-200">
-            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><BrainCircuit className="w-32 h-32" /></div>
-            <div className="flex items-center justify-between gap-2 mb-2 relative z-10">
-              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Retenção Real vs. Teórica (R)</span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${calibrationColor}`}>{calibrationLabel}</span>
+          <div className="bg-slate-900/60 rounded-3xl p-5 sm:p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-200">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Retenção</span>
+              {calibrationLabel && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${calibrationColor}`}>{calibrationLabel}</span>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-3 my-1 relative z-10 bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80">
+            <div className="grid grid-cols-2 gap-3 my-2">
               <div>
                 <div className="text-2xl sm:text-3xl font-black text-emerald-400">{trueRetention === 'N/A' ? '--' : `${trueRetention}%`}</div>
-                <span className="text-[10px] font-bold uppercase text-emerald-500/90 block mt-0.5">Acerto Real</span>
-                <span className="text-[10px] text-slate-500">{totalPassPresses}/{totalButtonPresses} lembranças</span>
+                <span className="text-[10px] font-bold uppercase text-slate-500">Real</span>
               </div>
               <div className="border-l border-slate-800 pl-3">
                 <div className="text-2xl sm:text-3xl font-black text-cyan-400">{avgRetention === 'N/A' ? '--' : `${avgRetention}%`}</div>
-                <span className="text-[10px] font-bold uppercase text-cyan-500/90 block mt-0.5">Curva FSRS (R)</span>
-                <span className="text-[10px] text-slate-500">Meta: {Math.round(desiredRetention * 100)}%</span>
+                <span className="text-[10px] font-bold uppercase text-slate-500">Curva FSRS</span>
               </div>
             </div>
-            <div className="mt-2 text-[11px] text-slate-500 font-medium relative z-10">
-              Compara respostas (Difícil/Bom/Fácil) com a curva teórica $R(t,S)$
-            </div>
+            <span className="text-xs text-slate-500 font-semibold">Meta configurada: {Math.round(desiredRetention * 100)}%</span>
           </div>
 
-          {/* 1.2 (Parte 2). Vida Útil da Memória (Estabilidade Média S̄) */}
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-200">
-            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Gauge className="w-32 h-32" /></div>
-            <div className="flex items-center justify-between gap-2 mb-2 relative z-10">
-              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Vida Útil da Memória (S̄)</span>
+          <div className="bg-slate-900/60 rounded-3xl p-5 sm:p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-200">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Estabilidade Média</span>
               {maxStabilityDays > 0 && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30">
                   Máx: {Math.round(maxStabilityDays)}d
                 </span>
               )}
             </div>
-            <div className="relative z-10">
-              <div className="text-xs font-semibold text-purple-300/90 mb-0.5">Estabilidade Média:</div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl sm:text-5xl font-black text-purple-400">{avgStabilityDays}</span>
-                <span className="text-base font-bold text-slate-300">dias</span>
-                <span className="text-xs text-slate-500 font-semibold">({avgStabilityExact}d)</span>
-              </div>
+            <div className="flex items-baseline gap-2 my-2">
+              <span className="text-3xl sm:text-5xl font-black text-purple-400">{avgStabilityDays}</span>
+              <span className="text-base font-bold text-slate-400">dias</span>
             </div>
-            <div className="mt-3 text-[11px] text-slate-400 font-medium relative z-10 leading-snug">
-              Tempo médio que seus cartões estudados levam para cair de <strong className="text-slate-200">100% para 90%</strong> de chance de lembrança.
-            </div>
+            <span className="text-xs text-slate-500 font-semibold">Duração da memória ({avgStabilityExact}d)</span>
           </div>
 
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-300">
-            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform duration-500"><Award className="w-32 h-32" /></div>
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2 relative z-10">Cartões Maduros</span>
-            <div className="flex items-end gap-2 relative z-10">
-              <div className="text-4xl sm:text-5xl font-black text-amber-400">{maturePercent}%</div>
-              <div className="text-slate-500 font-bold mb-1.5 text-sm sm:text-base">/ {matureCount}</div>
+          <div className="bg-slate-900/60 rounded-3xl p-5 sm:p-6 border border-slate-800 flex flex-col justify-between relative overflow-hidden group animate-pop delay-300">
+            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Cartões Maduros</span>
+            <div className="flex items-baseline gap-2 my-2">
+              <span className="text-3xl sm:text-5xl font-black text-amber-400">{maturePercent}%</span>
+              <span className="text-slate-500 font-bold text-sm">/ {matureCount}</span>
             </div>
-            <div className="mt-4 text-xs text-slate-500 font-medium relative z-10">Cartões consolidados com intervalo {'>'} 21 dias</div>
+            <span className="text-xs text-slate-500 font-semibold">Intervalo acima de 21 dias</span>
           </div>
         </div>
 
-        {/* 1.2 (Parte 1). Histograma de Dificuldade (D) + Distribuição de Respostas */}
+        {/* MEIO: DIFICULDADE E RESPOSTAS (VISUAL LIMPO) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between animate-pop delay-300">
-            <div>
-              <div className="flex flex-wrap justify-between items-center gap-2 mb-1">
-                <h3 className="text-slate-200 font-bold flex items-center gap-2">
-                  <BarChart2 className="w-5 h-5 text-purple-400" /> Distribuição de Dificuldade ($D \in [1, 10]$)
-                </h3>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                    D̄ Médio: {avgDifficulty}
-                  </span>
-                  <span className="text-xs font-bold text-slate-500">{difficultyCardsCount} cartões</span>
-                </div>
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between gap-5 animate-pop delay-300">
+            <div className="flex justify-between items-center gap-2">
+              <h3 className="text-slate-100 font-bold flex items-center gap-2 text-lg">
+                <BarChart2 className="w-5 h-5 text-purple-400" /> Dificuldade
+              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                  Média: {avgDifficulty}
+                </span>
+                <span className="text-xs font-bold text-slate-500">{difficultyCardsCount} cartões</span>
               </div>
-              <p className="text-xs sm:text-sm text-slate-500 mb-6">
-                Classificação dos cartões estudados entre Fáceis (1–3), Moderados (4–6), Difíceis (7–8) e Extremos (9–10)
-              </p>
             </div>
 
-            <div className="flex flex-col gap-4 my-auto">
+            <div className="flex flex-col gap-3.5 my-auto">
               {[
-                { label: 'Fáceis (1–3)', desc: 'D entre 1.0 e 3.4', count: difficultyBuckets.easy, color: 'bg-emerald-400', text: 'text-emerald-400', badge: 'bg-emerald-500/10 border-emerald-500/20' },
-                { label: 'Moderados (4–6)', desc: 'D entre 3.5 e 6.4', count: difficultyBuckets.mod, color: 'bg-blue-400', text: 'text-blue-400', badge: 'bg-blue-500/10 border-blue-500/20' },
-                { label: 'Difíceis (7–8)', desc: 'D entre 6.5 e 8.4', count: difficultyBuckets.hard, color: 'bg-amber-400', text: 'text-amber-400', badge: 'bg-amber-500/10 border-amber-500/20' },
-                { label: 'Extremos (9–10)', desc: 'D entre 8.5 e 10.0 (Sanguessugas)', count: difficultyBuckets.extreme, color: 'bg-rose-500', text: 'text-rose-400', badge: 'bg-rose-500/10 border-rose-500/20' },
+                { label: 'Fácil (1–3)', count: difficultyBuckets.easy, color: 'bg-emerald-400', text: 'text-emerald-400' },
+                { label: 'Moderado (4–6)', count: difficultyBuckets.mod, color: 'bg-blue-400', text: 'text-blue-400' },
+                { label: 'Difícil (7–8)', count: difficultyBuckets.hard, color: 'bg-amber-400', text: 'text-amber-400' },
+                { label: 'Extremo (9–10)', count: difficultyBuckets.extreme, color: 'bg-rose-500', text: 'text-rose-400' },
               ].map((b, idx) => {
                 const pct = difficultyCardsCount > 0 ? Math.round((b.count / difficultyCardsCount) * 100) : 0;
                 return (
                   <div key={idx} className="flex flex-col gap-1.5">
-                    <div className="flex justify-between items-center text-xs font-semibold">
+                    <div className="flex justify-between items-center text-xs sm:text-sm">
+                      <span className="text-slate-300 font-semibold">{b.label}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-slate-200 font-bold">{b.label}</span>
-                        <span className="text-[11px] text-slate-500 hidden sm:inline">• {b.desc}</span>
+                        <span className="text-xs text-slate-500 font-medium">{b.count}</span>
+                        <span className={`font-black w-10 text-right ${b.text}`}>{pct}%</span>
                       </div>
-                      <span className={`px-2 py-0.5 rounded border text-xs font-bold ${b.badge} ${b.text}`}>
-                        {b.count} cartões ({pct}%)
-                      </span>
                     </div>
-                    <div className="w-full h-3.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                    <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80">
                       <div className={`h-full ${b.color} rounded-full transition-all duration-700`} style={{ width: `${Math.max(pct, b.count > 0 ? 4 : 0)}%` }} />
                     </div>
                   </div>
@@ -3040,21 +3054,16 @@ export default function App() {
             </div>
           </div>
 
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between animate-pop delay-300">
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <h3 className="text-slate-200 font-bold flex items-center gap-2">
-                  <Target className="w-5 h-5 text-rose-400" /> Calibragem & Respostas Reais (1–4)
-                </h3>
-                <span className="text-xs font-bold text-slate-500">{totalButtonPresses} avaliações</span>
-              </div>
-              <p className="text-xs sm:text-sm text-slate-500 mb-5">
-                Proporção entre falhas (Errei) e lembranças (Difícil, Bom, Fácil) que compõem sua Taxa de Acerto Real
-              </p>
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between gap-5 animate-pop delay-300">
+            <div className="flex justify-between items-center">
+              <h3 className="text-slate-100 font-bold flex items-center gap-2 text-lg">
+                <Target className="w-5 h-5 text-rose-400" /> Respostas
+              </h3>
+              <span className="text-xs font-bold text-slate-500">{totalButtonPresses} avaliações</span>
             </div>
 
             <div className="flex flex-col gap-5 my-auto">
-              <div className="w-full flex h-4 rounded-full overflow-hidden bg-slate-950 p-0.5 gap-1 border border-slate-800">
+              <div className="w-full flex h-3.5 rounded-full overflow-hidden bg-slate-950 p-0.5 gap-1 border border-slate-800">
                 {[
                   { count: buttonTotals.again, color: 'bg-rose-500', label: 'Errei' },
                   { count: buttonTotals.hard, color: 'bg-orange-400', label: 'Difícil' },
@@ -3074,48 +3083,45 @@ export default function App() {
                 })}
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
-                  { label: '1 • Errei', count: buttonTotals.again, text: 'text-rose-400', border: 'border-rose-500/20' },
-                  { label: '2 • Difícil', count: buttonTotals.hard, text: 'text-orange-400', border: 'border-orange-500/20' },
-                  { label: '3 • Bom', count: buttonTotals.good, text: 'text-emerald-400', border: 'border-emerald-500/20' },
-                  { label: '4 • Fácil', count: buttonTotals.easy, text: 'text-blue-400', border: 'border-blue-500/20' },
+                  { label: 'Errei', count: buttonTotals.again, text: 'text-rose-400', border: 'border-rose-500/20' },
+                  { label: 'Difícil', count: buttonTotals.hard, text: 'text-orange-400', border: 'border-orange-500/20' },
+                  { label: 'Bom', count: buttonTotals.good, text: 'text-emerald-400', border: 'border-emerald-500/20' },
+                  { label: 'Fácil', count: buttonTotals.easy, text: 'text-blue-400', border: 'border-blue-500/20' },
                 ].map((item, idx) => {
                   const pct = totalButtonPresses > 0 ? Math.round((item.count / totalButtonPresses) * 100) : 0;
                   return (
-                    <div key={idx} className={`bg-slate-950/70 border ${item.border} rounded-2xl p-3 flex flex-col items-center text-center`}>
-                      <span className="text-[10px] font-bold uppercase text-slate-500">{item.label}</span>
-                      <span className={`text-xl font-black mt-1 ${item.text}`}>{pct}%</span>
-                      <span className="text-[10px] text-slate-500">{item.count} rev</span>
+                    <div key={idx} className={`bg-slate-950/70 border ${item.border} rounded-2xl p-3.5 flex flex-col items-center text-center`}>
+                      <span className="text-[11px] font-bold uppercase text-slate-400">{item.label}</span>
+                      <span className={`text-2xl font-black mt-1 ${item.text}`}>{pct}%</span>
+                      <span className="text-[11px] text-slate-500 mt-0.5">{item.count}</span>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <CheckSquare className="w-4 h-4 text-indigo-400 shrink-0" />
-                  <span className="text-xs font-semibold text-slate-300">Precisão nos Cartões Interativos (Escolha, V/F, Digitação)</span>
+              {interactiveAccuracyPct !== null && (
+                <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl px-4 py-2.5 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-400">Acerto em Questões Interativas</span>
+                  <span className="text-xs font-black text-indigo-400">{interactiveAccuracyPct}% ({interactiveCorrectTotal}/{interactiveAttemptsTotal})</span>
                 </div>
-                <span className="text-sm font-black text-indigo-400 shrink-0 ml-2">
-                  {interactiveAccuracyPct !== null ? `${interactiveAccuracyPct}% (${interactiveCorrectTotal}/${interactiveAttemptsTotal})` : 'Sem dados'}
-                </span>
-              </div>
+              )}
             </div>
           </div>
         </div>
 
+        {/* BASE: HISTÓRICO DE VOLUME & SAÚDE DA MEMÓRIA */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
-            <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
-            <p className="text-sm text-slate-500 mb-4">Cartões revistos ao longo do tempo</p>
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[320px] animate-pop delay-400">
+            <h3 className="text-slate-100 font-bold flex items-center gap-2 text-lg mb-4"><CalendarDays className="w-5 h-5 text-blue-400" /> Histórico de Volume</h3>
             
             <div className="flex-grow w-full chart-scroll-container overflow-x-auto relative pb-2 px-4 sm:px-6">
               <div 
-                className="relative h-full min-h-[240px]" 
+                className="relative h-full min-h-[230px]" 
                 style={{ minWidth: reportPeriod === 'all' ? `${Math.max(100, points.length * 30)}px` : '100%' }}
               >
-                <div className="absolute inset-x-2 top-16 bottom-[30px]">
+                <div className="absolute inset-x-2 top-14 bottom-[30px]">
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible">
                     <defs>
                       <linearGradient id="line-gradient" x1="0" x2="0" y1="0" y2="1">
@@ -3167,29 +3173,35 @@ export default function App() {
             </div>
           </div>
 
-          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col min-h-[350px] animate-pop delay-400">
-            <h3 className="text-slate-200 font-bold flex items-center gap-2 mb-2"><PieChart className="w-5 h-5 text-emerald-400" /> Saúde da Memória ($R$)</h3>
-            <p className="text-sm text-slate-500 mb-8">Probabilidade instantânea de lembrança segundo a curva de esquecimento do FSRS</p>
-            <div className="flex-grow flex flex-col justify-center gap-5 sm:gap-6">
+          <div className="bg-slate-900/60 rounded-3xl p-6 border border-slate-800 flex flex-col justify-between min-h-[320px] animate-pop delay-400">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-slate-100 font-bold flex items-center gap-2 text-lg"><PieChart className="w-5 h-5 text-emerald-400" /> Saúde da Memória</h3>
+              <span className="text-xs font-bold text-slate-500">{revCardsCount} em revisão</span>
+            </div>
+            <div className="flex-grow flex flex-col justify-center gap-4">
               {[
-                { label: 'Excelente (90-100%)', count: retentionBuckets.exc, color: 'bg-emerald-400' },
-                { label: 'Bom (80-89%)', count: retentionBuckets.good, color: 'bg-blue-400' },
-                { label: 'Razoável (70-79%)', count: retentionBuckets.fair, color: 'bg-amber-400' },
-                { label: `Crítico (${'<'}70%)`, count: retentionBuckets.poor, color: 'bg-rose-400' },
+                { label: 'Excelente (90–100%)', count: retentionBuckets.exc, color: 'bg-emerald-400', text: 'text-emerald-400' },
+                { label: 'Boa (80–89%)', count: retentionBuckets.good, color: 'bg-blue-400', text: 'text-blue-400' },
+                { label: 'Razoável (70–79%)', count: retentionBuckets.fair, color: 'bg-amber-400', text: 'text-amber-400' },
+                { label: 'Crítica (<70%)', count: retentionBuckets.poor, color: 'bg-rose-400', text: 'text-rose-400' },
               ].map((tier, i) => {
-                const pct = revCardsCount === 0 ? 0 : (tier.count / revCardsCount) * 100;
+                const pct = revCardsCount === 0 ? 0 : Math.round((tier.count / revCardsCount) * 100);
                 return (
-                  <div key={i} className="flex items-center gap-3 sm:gap-4">
-                    <div className="w-28 sm:w-36 shrink-0 text-xs sm:text-sm font-semibold text-slate-300">{tier.label}</div>
-                    <div className="flex-grow h-3.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-                      <div className={`h-full ${tier.color} transition-all duration-1000 shadow-[0_0_8px_currentColor] opacity-90`} style={{ width: `${pct}%` }}></div>
+                  <div key={i} className="flex flex-col gap-1.5">
+                    <div className="flex justify-between items-center text-xs sm:text-sm">
+                      <span className="text-slate-300 font-semibold">{tier.label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500 font-medium">{tier.count}</span>
+                        <span className={`font-black w-10 text-right ${tier.text}`}>{pct}%</span>
+                      </div>
                     </div>
-                    <div className="w-8 sm:w-12 text-right text-xs sm:text-sm font-bold text-slate-200">{tier.count}</div>
+                    <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80">
+                      <div className={`h-full ${tier.color} rounded-full transition-all duration-1000`} style={{ width: `${Math.max(pct, tier.count > 0 ? 4 : 0)}%` }}></div>
+                    </div>
                   </div>
                 );
               })}
             </div>
-            {revCardsCount === 0 && <div className="text-center text-sm text-slate-500 mt-4 italic">Sem dados suficientes de revisão para calcular.</div>}
           </div>
         </div>
       </div>
