@@ -3262,16 +3262,22 @@ export default function App() {
 
         {mainTab === 'home' && (
           <div className="animate-in fade-in duration-300 pb-10 space-y-8">
+            {}
             {currentFolderId === null && (
-              <div className="rounded-3xl p-6 sm:p-8 border border-slate-800/80 bg-slate-900/60 shadow-xl">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-                  <div className="lg:col-span-7 space-y-4">
-                    <h2 className="text-2xl sm:text-3xl font-bold text-slate-100 tracking-tight">
-                      {getGreeting()}
-                    </h2>
+              <div className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 bg-slate-900/50 shadow-lg">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+                  <div className="flex flex-col items-start text-left space-y-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <h2 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight text-left">
+                        {getGreeting()}
+                      </h2>
+                      <span className="text-xs font-medium text-slate-500 bg-slate-950/80 border border-slate-800/80 px-2.5 py-1 rounded-lg">
+                        Resumo de hoje
+                      </span>
+                    </div>
 
-                    <div className="flex flex-wrap items-center gap-2.5 text-sm text-slate-300">
-                      <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-800 px-3.5 py-2 rounded-xl">
+                    <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-slate-300">
+                      <div className="flex items-center gap-2 bg-slate-950 border border-slate-800/90 px-3 py-1.5 rounded-xl">
                         <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
                         <span><strong className="text-white font-bold">{totalGlobalDue}</strong> pendentes</span>
                       </div>
@@ -3290,54 +3296,48 @@ export default function App() {
                             });
                             setIsCustomStudyModalOpen(true);
                           }}
-                          className="flex items-center gap-2 bg-slate-950/80 hover:bg-slate-800 border border-slate-800 text-slate-300 px-3.5 py-2 rounded-xl transition-colors"
+                          className="flex items-center gap-2 bg-slate-950 hover:bg-slate-800 border border-slate-800/90 text-slate-300 px-3 py-1.5 rounded-xl transition-colors"
                         >
-                          <Layers className="w-4 h-4 text-rose-400" />
+                          <Layers className="w-3.5 h-3.5 text-rose-400" />
                           <span><strong className="font-bold text-rose-400">{totalUnlearnedGlobal}</strong> não aprendidos</span>
                         </button>
                       )}
 
                       {totalGlobalDue > 0 && (
-                        <div className="flex items-center gap-1.5 bg-slate-950/80 border border-slate-800 text-slate-300 px-3.5 py-2 rounded-xl">
-                          <Timer className="w-4 h-4 text-amber-400" />
+                        <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800/90 text-slate-300 px-3 py-1.5 rounded-xl">
+                          <Timer className="w-3.5 h-3.5 text-amber-400" />
                           <span>~<strong>{Math.max(1, Math.ceil(totalGlobalDue * 0.33))} min</strong></span>
                         </div>
                       )}
-                    </div>
 
-                    <div className="pt-1 flex flex-wrap items-center gap-3">
                       <button
                         type="button"
                         onClick={() => openCustomStudyModal('all', null)}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-all active:scale-95"
+                        className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-semibold transition-all active:scale-95"
                       >
-                        <SlidersHorizontal className="w-4 h-4" /> Estudo Personalizado
+                        <SlidersHorizontal className="w-3.5 h-3.5" /> Estudo Personalizado
                       </button>
                     </div>
                   </div>
 
-                  <div className="lg:col-span-5 bg-slate-950/60 border border-slate-800/80 p-5 rounded-2xl flex flex-col justify-between gap-4">
+                  <div className="w-full lg:w-80 xl:w-96 bg-slate-950/70 border border-slate-800/80 p-4 rounded-xl flex flex-col justify-center gap-2.5 shrink-0">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <Target className="w-5 h-5 text-indigo-400" />
-                        <span className="text-sm font-semibold text-slate-200">Meta Diária</span>
+                      <div className="flex items-center gap-2">
+                        <Target className="w-4 h-4 text-indigo-400" />
+                        <span className="text-xs sm:text-sm font-semibold text-slate-200">Meta Diária</span>
                       </div>
-                      <div className="text-right">
-                        <span className="text-xl font-bold text-white">{todayDone}</span>
-                        <span className="text-sm font-medium text-slate-500"> / {dailyGoal}</span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-base sm:text-lg font-bold text-white">{todayDone}</span>
+                        <span className="text-xs font-medium text-slate-500">/ {dailyGoal}</span>
+                        <span className="text-[11px] font-semibold text-indigo-400 ml-1.5">({goalPct}%)</span>
                       </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
-                        <div
-                          className="bg-indigo-500 h-full rounded-full transition-all duration-700"
-                          style={{ width: `${goalPct}%` }}
-                        ></div>
-                      </div>
-                      <div className="flex justify-end text-[11px] font-semibold text-slate-500">
-                        <span>{goalPct}%</span>
-                      </div>
+                    <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                      <div
+                        className="bg-indigo-500 h-full rounded-full transition-all duration-700"
+                        style={{ width: `${goalPct}%` }}
+                      ></div>
                     </div>
                   </div>
                 </div>
@@ -3395,43 +3395,61 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
                 {currentFolders.map((folder, index) => {
                   const isMenuOpen = activeMenuId === folder.id;
                   const colorClass = folder.color || FOLDER_THEMES[0].color;
                   const folderDecksCount = getDecksInFolder(folder.id).length;
                   return (
-                    <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="bg-slate-900/60 rounded-2xl p-4 sm:p-5 border border-slate-800/90 hover:border-slate-700 cursor-pointer flex items-center justify-between group animate-pop hover:-translate-y-0.5 transition-all duration-200" style={{animationDelay: `${index * 40}ms`}}>
-                      <div className="flex items-center gap-3.5 flex-grow min-w-0 pr-2">
-                        <div className={`relative p-3 rounded-xl shrink-0 ${colorClass}`}>
-                          <Folder className="w-5 h-5 relative z-10" />
+                    <div
+                      key={folder.id}
+                      onClick={() => setCurrentFolderId(folder.id)}
+                      className="bg-slate-900/60 rounded-2xl p-5 border border-slate-800/90 hover:border-slate-700 cursor-pointer flex flex-col justify-between min-h-[136px] group animate-pop hover:-translate-y-0.5 transition-all duration-200"
+                      style={{ animationDelay: `${index * 40}ms` }}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-3 w-full">
+                        <div className={`p-2.5 rounded-xl shrink-0 ${colorClass}`}>
+                          <Folder className="w-5 h-5" />
                         </div>
-                        <div className="min-w-0">
-                          <span className="font-semibold text-slate-100 group-hover:text-indigo-300 transition-colors text-base line-clamp-1 break-words block" title={folder.name}>{folder.name}</span>
-                          <span className="text-xs text-slate-500 font-medium">{folderDecksCount} {folderDecksCount === 1 ? 'baralho' : 'baralhos'}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {renderStatBadges(getFolderStats(folder.id))}
+                          <div className="relative" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : folder.id); }}
+                              className={`p-1.5 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                            {isMenuOpen && (
+                              <div className="absolute right-0 top-full mt-2 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
+                                <button onClick={(e) => { openEditModal('folder', folder, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><Pencil className="w-4 h-4 text-indigo-400" /> Editar</button>
+                                <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: folder.id, type: 'folder', name: folder.name, parentId: folder.parentId}); setMoveTargetFolderId(folder.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><CornerUpRight className="w-4 h-4 text-slate-400" /> Mover</button>
+                                <div className="h-px bg-slate-800 w-full"></div>
+                                <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: folder.id, type: 'folder', name: folder.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {renderStatBadges(getFolderStats(folder.id))}
-                        <div className="relative" onClick={e => e.stopPropagation()}>
-                          <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : folder.id); }} className={`p-1.5 text-slate-400 hover:text-slate-200 rounded-lg transition-all border border-transparent ${isMenuOpen ? 'opacity-100 bg-slate-800 border-slate-700 text-slate-200' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-800/80 hover:border-slate-700'}`}>
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-                          {isMenuOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 z-50">
-                              <button onClick={(e) => { openEditModal('folder', folder, e); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><Pencil className="w-4 h-4 text-indigo-400" /> Editar</button>
-                              <button onClick={(e) => { e.stopPropagation(); setItemToMove({id: folder.id, type: 'folder', name: folder.name, parentId: folder.parentId}); setMoveTargetFolderId(folder.parentId); setIsMoveModalOpen(true); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2"><CornerUpRight className="w-4 h-4 text-slate-400" /> Mover</button>
-                              <div className="h-px bg-slate-800 w-full"></div>
-                              <button onClick={(e) => { e.stopPropagation(); setItemToDelete({id: folder.id, type: 'folder', name: folder.name}); setActiveMenuId(null); }} className="w-full text-left px-4 py-2.5 text-sm text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Eliminar</button>
-                            </div>
-                          )}
-                        </div>
+
+                      <div className="w-full text-left mt-auto">
+                        <h3 className="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors text-base truncate w-full" title={folder.name}>
+                          {folder.name}
+                        </h3>
+                        <span className="text-xs text-slate-500 font-medium block mt-0.5">
+                          {folderDecksCount} {folderDecksCount === 1 ? 'baralho' : 'baralhos'}
+                        </span>
                       </div>
                     </div>
                   );
                 })}
-                <div onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }} className="bg-slate-900/20 rounded-2xl p-4 sm:p-5 border border-dashed border-slate-800 hover:border-slate-700 cursor-pointer flex items-center gap-3.5 text-slate-500 hover:text-slate-300 animate-pop transition-colors">
-                  <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80"><FolderPlus className="w-5 h-5" /></div>
+                <div
+                  onClick={() => { setModalMode('create'); setModalType('folder'); setNewItemColor(FOLDER_THEMES[0].color); setIsModalOpen(true); }}
+                  className="bg-slate-900/20 rounded-2xl p-5 border border-dashed border-slate-800 hover:border-slate-700 cursor-pointer flex flex-col items-center justify-center min-h-[136px] gap-2 text-slate-500 hover:text-slate-300 animate-pop transition-colors"
+                >
+                  <div className="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80">
+                    <FolderPlus className="w-5 h-5" />
+                  </div>
                   <span className="font-semibold text-sm">Nova Coleção</span>
                 </div>
               </div>
