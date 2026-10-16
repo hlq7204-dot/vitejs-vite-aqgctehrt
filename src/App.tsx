@@ -321,6 +321,7 @@ const calculateNextReview = (card, qualityUI, reqRetention = requestRetention) =
   const fuzz_factor = generate_fuzz_factor(card);
 
   let state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
+  const prevState = state;
   let stepIndex = card.stepIndex !== undefined ? card.stepIndex : 0;
   let difficulty = card.difficulty;
   let stability = card.stability;
@@ -404,18 +405,27 @@ const calculateNextReview = (card, qualityUI, reqRetention = requestRetention) =
 
   const intervalInDays = isMinutes ? interval / 1440 : interval;
   const nextDue = isMinutes ? now + (interval * 60000) : now + (interval * 86400000);
-  const lapses = ratingStr === "again" ? (card.lapses || 0) + 1 : (card.lapses || 0);
 
-  const prevRealCounts = card.realRatingCounts || {
+  // Lapsos e Retenção Real são contabilizados exclusivamente quando o cartão já estava graduado (prevState === 2)
+  const baseLapses = getEffectiveLapses(card);
+  const reviewLapses = (prevState === 2 && ratingStr === "again") ? baseLapses + 1 : baseLapses;
+
+  const prevReviewCounts = card.reviewRatingCounts || {
     again: 0,
     hard: 0,
     good: 0,
     easy: 0
   };
-  const realRatingCounts = {
-    ...prevRealCounts,
-    [ratingStr]: (prevRealCounts[ratingStr] || 0) + 1
-  };
+  const reviewRatingCounts = prevState === 2
+    ? {
+        ...prevReviewCounts,
+        [ratingStr]: (prevReviewCounts[ratingStr] || 0) + 1
+      }
+    : prevReviewCounts;
+
+  const learningReviews = prevState !== 2
+    ? (card.learningReviews || 0) + 1
+    : (card.learningReviews || 0);
 
   return {
     ...card,
@@ -423,8 +433,10 @@ const calculateNextReview = (card, qualityUI, reqRetention = requestRetention) =
     difficulty,
     stability,
     stepIndex,
-    lapses,
-    realRatingCounts,
+    lapses: reviewLapses,
+    reviewLapses,
+    reviewRatingCounts,
+    learningReviews,
     buriedUntil: null,
     interval: intervalInDays,
     last_review: now,
@@ -433,26 +445,54 @@ const calculateNextReview = (card, qualityUI, reqRetention = requestRetention) =
   };
 };
 
+const getEffectiveLapses = (card) => {
+  if (!card) return 0;
+  const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
+  // Cartões Novos (0) ou em Aprendizagem Inicial (1) ainda estão na fase de aquisição e não possuem lapsos de memória
+  if (state === 0 || state === 1) return 0;
+  if (card.reviewLapses !== undefined) return card.reviewLapses;
+  // Para cartões antigos (antes da separação), limita lapsos ao número máximo possível de revisões pós-graduação
+  const totalRevs = card.reviews || 0;
+  const maxPossibleGraduatedLapses = Math.floor(Math.max(0, totalRevs - 2) / 3);
+  return Math.min(card.lapses || 0, maxPossibleGraduatedLapses);
+};
+
 const getCardRatingBreakdown = (card) => {
-  const real = card.realRatingCounts || { again: 0, hard: 0, good: 0, easy: 0 };
+  const empty = { again: 0, hard: 0, good: 0, easy: 0 };
+  if (!card) return empty;
+
+  const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
+  // Fase de aquisição inicial (Novo ou Aprendendo) não entra no cálculo de Retenção Real
+  if (state === 0 || state === 1) return empty;
+
+  const real = card.reviewRatingCounts || empty;
   const loggedTotal = (real.again || 0) + (real.hard || 0) + (real.good || 0) + (real.easy || 0);
   const totalRevs = card.reviews || 0;
-  const unlogged = Math.max(0, totalRevs - loggedTotal);
+
+  // Desconta os cliques gastos na fase de aprendizagem inicial (mínimo de 2 passos para graduar, ou o total registrado em learningReviews)
+  const acquisitionSteps = card.learningReviews !== undefined
+    ? card.learningReviews
+    : Math.min(totalRevs, (card.difficulty || 5) >= 8 ? 4 : 2);
+
+  const graduatedRevs = Math.max(0, totalRevs - acquisitionSteps);
+  const unlogged = Math.max(0, graduatedRevs - loggedTotal);
 
   if (unlogged === 0) return real;
 
   const d = card.difficulty !== undefined ? Number(card.difficulty) : 5.28;
+  const effectiveLapses = getEffectiveLapses(card);
   let weights;
-  if (d < 3.5) {
-    weights = [0.02, 0.06, 0.52, 0.40];
-  } else if (d < 6.0) {
-    weights = [0.05, 0.15, 0.66, 0.14];
-  } else if (d < 7.5) {
-    weights = [0.14, 0.28, 0.50, 0.08];
-  } else if (d < 8.8) {
-    weights = [0.22, 0.34, 0.40, 0.04];
+
+  if (effectiveLapses === 0) {
+    // Cartão graduado sem lapsos em revisão
+    if (d < 4.5) weights = [0.00, 0.08, 0.62, 0.30];
+    else if (d < 7.0) weights = [0.00, 0.18, 0.70, 0.12];
+    else weights = [0.00, 0.30, 0.64, 0.06];
   } else {
-    weights = [0.32, 0.33, 0.33, 0.02];
+    // Cartão graduado que já teve lapsos em revisões de longo prazo
+    const failRatio = clamp(effectiveLapses / Math.max(unlogged, effectiveLapses + 1), 0.05, 0.35);
+    const passRatio = 1 - failRatio;
+    weights = [failRatio, passRatio * 0.32, passRatio * 0.60, passRatio * 0.08];
   }
 
   const raw = weights.map(w => w * unlogged);
@@ -480,7 +520,10 @@ const isCardBuried = (card) => {
 
 const isCardLeech = (card) => {
   if (!card) return false;
-  return (card.difficulty !== undefined && card.difficulty >= 8.5) || (card.lapses !== undefined && card.lapses >= 4);
+  const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
+  // Cartões Novos (0) ou em Aprendizagem Inicial (1) nunca são Sanguessugas
+  if (state === 0 || state === 1) return false;
+  return getEffectiveLapses(card) >= 4;
 };
 
 const isCardUnlearned = (card) => {
@@ -1762,7 +1805,7 @@ export default function App() {
             c.stability !== undefined ? Number(c.stability).toFixed(2) : '',
             c.interval !== undefined ? Number(c.interval).toFixed(2) : '0',
             c.reviews || 0,
-            c.lapses || 0,
+            getEffectiveLapses(c),
             c.isSuspended ? 'Sim' : 'Nao'
           ]);
         });
@@ -3907,7 +3950,7 @@ export default function App() {
                         {leech && (
                           <span
                             className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                            title={`Cartão difícil (Dificuldade FSRS: ${card.difficulty ? card.difficulty.toFixed(1) : '--'} • Erros: ${card.lapses || 0}). Considere simplificar ou dividir este cartão.`}
+                            title={`Cartão difícil (Dificuldade FSRS: ${card.difficulty ? card.difficulty.toFixed(1) : '--'} • Lapsos em revisão: ${getEffectiveLapses(card)}). Considere simplificar ou dividir este cartão.`}
                           >
                             <AlertTriangle className="w-3 h-3" /> Sanguessuga {card.difficulty ? `(D: ${card.difficulty.toFixed(1)})` : ''}
                           </span>
