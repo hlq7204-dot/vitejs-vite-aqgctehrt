@@ -448,69 +448,22 @@ const calculateNextReview = (card, qualityUI, reqRetention = requestRetention) =
 const getEffectiveLapses = (card) => {
   if (!card) return 0;
   const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
-  // Cartões Novos (0) ou em Aprendizagem Inicial (1) ainda estão na fase de aquisição e não possuem lapsos de memória
   if (state === 0 || state === 1) return 0;
-  if (card.reviewLapses !== undefined) return card.reviewLapses;
-  // Para cartões antigos (antes da separação), limita lapsos ao número máximo possível de revisões pós-graduação
-  const totalRevs = card.reviews || 0;
-  const maxPossibleGraduatedLapses = Math.floor(Math.max(0, totalRevs - 2) / 3);
-  return Math.min(card.lapses || 0, maxPossibleGraduatedLapses);
+  return card.reviewLapses || 0;
 };
 
 const getCardRatingBreakdown = (card) => {
   const empty = { again: 0, hard: 0, good: 0, easy: 0 };
-  if (!card) return empty;
+  if (!card || !card.reviewRatingCounts) return empty;
 
   const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
-  // Fase de aquisição inicial (Novo ou Aprendendo) não entra no cálculo de Retenção Real
   if (state === 0 || state === 1) return empty;
 
-  const real = card.reviewRatingCounts || empty;
-  const loggedTotal = (real.again || 0) + (real.hard || 0) + (real.good || 0) + (real.easy || 0);
-  const totalRevs = card.reviews || 0;
-
-  // Desconta os cliques gastos na fase de aprendizagem inicial (mínimo de 2 passos para graduar, ou o total registrado em learningReviews)
-  const acquisitionSteps = card.learningReviews !== undefined
-    ? card.learningReviews
-    : Math.min(totalRevs, (card.difficulty || 5) >= 8 ? 4 : 2);
-
-  const graduatedRevs = Math.max(0, totalRevs - acquisitionSteps);
-  const unlogged = Math.max(0, graduatedRevs - loggedTotal);
-
-  if (unlogged === 0) return real;
-
-  const d = card.difficulty !== undefined ? Number(card.difficulty) : 5.28;
-  const effectiveLapses = getEffectiveLapses(card);
-  let weights;
-
-  if (effectiveLapses === 0) {
-    // Cartão graduado sem lapsos em revisão
-    if (d < 4.5) weights = [0.00, 0.08, 0.62, 0.30];
-    else if (d < 7.0) weights = [0.00, 0.18, 0.70, 0.12];
-    else weights = [0.00, 0.30, 0.64, 0.06];
-  } else {
-    // Cartão graduado que já teve lapsos em revisões de longo prazo
-    const failRatio = clamp(effectiveLapses / Math.max(unlogged, effectiveLapses + 1), 0.05, 0.35);
-    const passRatio = 1 - failRatio;
-    weights = [failRatio, passRatio * 0.32, passRatio * 0.60, passRatio * 0.08];
-  }
-
-  const raw = weights.map(w => w * unlogged);
-  const floors = raw.map(v => Math.floor(v));
-  let remainder = unlogged - floors.reduce((a, b) => a + b, 0);
-  const fracOrder = raw
-    .map((v, i) => ({ i, frac: v - floors[i] }))
-    .sort((a, b) => b.frac - a.frac);
-
-  for (let k = 0; k < remainder; k++) {
-    floors[fracOrder[k].i]++;
-  }
-
   return {
-    again: (real.again || 0) + floors[0],
-    hard: (real.hard || 0) + floors[1],
-    good: (real.good || 0) + floors[2],
-    easy: (real.easy || 0) + floors[3],
+    again: card.reviewRatingCounts.again || 0,
+    hard: card.reviewRatingCounts.hard || 0,
+    good: card.reviewRatingCounts.good || 0,
+    easy: card.reviewRatingCounts.easy || 0,
   };
 };
 
