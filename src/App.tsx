@@ -2,17 +2,6 @@
 import { Toast } from './components/Toast';
 import { RichTextEditor } from './components/RichTextEditor';
 import { Header, BrandLogo, MobileBottomNav } from './components/Header';
-import type {
-  Card,
-  Deck,
-  Folder,
-  CardStats,
-  ActivityMap,
-  CustomStudyConfig,
-  ReviewHistoryItem,
-  ItemToDelete,
-  ItemToMove,
-} from './types';
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
