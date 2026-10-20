@@ -2,6 +2,47 @@
 import { Toast } from './components/Toast';
 import { RichTextEditor } from './components/RichTextEditor';
 import { Header, BrandLogo, MobileBottomNav } from './components/Header';
+import { app, auth, db, appId } from './services/firebase';
+import {
+  clamp,
+  forgetting_curve,
+  calculateNextReview,
+  getEffectiveLapses,
+  getCardRatingBreakdown,
+  isCardBuried,
+  isCardLeech,
+  isCardUnlearned,
+  checkCardDue,
+  formatInterval,
+} from './utils/fsrs';
+import {
+  cleanupData,
+  getTodayStr,
+  getGreeting,
+  parseTagsString,
+  getAllGlobalTags,
+  getCardStats,
+  calculateTotalDue,
+} from './utils/helpers';
+import {
+  buildExportJSONFile,
+  buildExportCSVFile,
+  parseAnkiPackage,
+  parseTextImportContent,
+} from './utils/importExport';
+import { SettingsModal } from './components/modals/SettingsModal';
+import { CustomStudyModal } from './components/modals/CustomStudyModal';
+import { FolderDeckModal } from './components/modals/FolderDeckModal';
+import { CardEditModal } from './components/modals/CardEditModal';
+import {
+  StreakRecoveryModal,
+  MoveItemModal,
+  MoveCardsModal,
+  DeleteConfirmModal,
+} from './components/modals/ActionModals';
+import { StatsView } from './components/stats/StatsWidgets';
+
+
 import {
   initialFolders,
   initialDecks,
@@ -11,32 +52,11 @@ import {
   globalStyles,
 } from './constants/themes';
 import React, { useState, useEffect, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
 import { 
-  getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, 
+  onAuthStateChanged, signInWithPopup, GoogleAuthProvider, 
   signOut, signInWithCustomToken, signInAnonymously 
 } from 'firebase/auth';
-import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
-
-if (typeof document !== 'undefined') {
-  document.documentElement.lang = 'pt-BR';
-  document.documentElement.setAttribute('translate', 'no');
-  document.documentElement.classList.add('notranslate');
-  
-  if (!document.querySelector('meta[name="google"]')) {
-    const meta = document.createElement('meta');
-    meta.name = 'google';
-    meta.content = 'notranslate';
-    document.head.appendChild(meta);
-  }
-  
-  if (!document.getElementById('tailwind-cdn')) {
-    const script = document.createElement('script');
-    script.id = 'tailwind-cdn';
-    script.src = 'https://cdn.tailwindcss.com';
-    document.head.appendChild(script);
-  }
-}
+import { doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 
 import { 
   BookOpen, Plus, Play, ArrowLeft, CheckCircle2, BrainCircuit, Trash2, 
@@ -48,393 +68,6 @@ import {
   Eye, EyeOff, History, Timer, Send, Volume2, VolumeX, Search, AlertTriangle,
   Download, PauseCircle, PlayCircle, SkipForward, Tag, SlidersHorizontal, Trophy, Gauge
 } from 'lucide-react';
-
-const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
-  ? JSON.parse(__firebase_config) 
-  : {
-      apiKey: "AIzaSyBBSo5uUqvyMuQ_9cZ8KOgQ3VovKZjO2p8",
-      authDomain: "flash-cards-539e8.firebaseapp.com",
-      projectId: "flash-cards-539e8",
-      storageBucket: "flash-cards-539e8.firebasestorage.app",
-      messagingSenderId: "547789982172",
-      appId: "1:547789982172:web:d9d9f38f3bc02d05382719",
-      measurementId: "G-6G02K580GK"
-    };
-
-let app, auth, db;
-try {
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-} catch (error) {
-  console.error("Erro ao inicializar o Firebase:", error);
-}
-
-const appIdRaw = typeof __app_id !== 'undefined' ? String(__app_id) : 'flashcards-app';
-const appId = appIdRaw.replace(/\//g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
-
-const cleanupData = (map, recs) => {
-  let mapChanged = false;
-  const newMap = { ...map };
-  const safeRecs = Array.isArray(recs) ? recs : [];
-  const newRecSet = new Set(safeRecs);
-
-  for (const date in newMap) {
-    if (Array.isArray(newMap[date])) {
-      const ids = newMap[date];
-      const realIds = [];
-      const idCounts = {};
-      let hadFakeOrBug = false;
-
-      for (const id of ids) {
-        const strId = String(id);
-        if (strId.startsWith('recovered-') || strId === 'dummy' || strId === 'phantom' || strId === 'ghost') {
-          hadFakeOrBug = true;
-          newRecSet.add(date);
-        } else {
-          idCounts[strId] = (idCounts[strId] || 0) + 1;
-          if (idCounts[strId] <= 10) {
-            realIds.push(id);
-          } else {
-            hadFakeOrBug = true;
-          }
-        }
-      }
-
-      if (hadFakeOrBug || realIds.length !== ids.length) {
-        newMap[date] = realIds;
-        mapChanged = true;
-      }
-    }
-  }
-
-  return {
-    cleanMap: newMap,
-    cleanRecoveries: Array.from(newRecSet),
-    hasChanges: mapChanged || newRecSet.size !== safeRecs.length
-  };
-};
-
-const w = [0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542];
-const requestRetention = 0.9;
-const maximumInterval = 36500;
-const S_MIN = 0.01;
-const DECAY = -w[20];
-const enable_fuzz = true;
-const LEARNING_STEPS = [1, 10]; // em minutos
-
-const ratings = { "again": 1, "hard": 2, "good": 3, "easy": 4 };
-
-function roundTo(num, precision = 8) {
-  const factor = Math.pow(10, precision);
-  return Math.round(num * factor) / factor;
-}
-
-function clamp(val, min, max) {
-  return Math.min(Math.max(val, min), max);
-}
-
-const FACTOR = roundTo(Math.exp(Math.pow(DECAY, -1) * Math.log(0.9)) - 1.0, 8);
-
-function calculate_interval_modifier(reqRetention) {
-  return roundTo((Math.pow(reqRetention, 1 / DECAY) - 1) / FACTOR, 8);
-}
-
-const INTERVAL_MODIFIER = calculate_interval_modifier(requestRetention);
-
-function generate_fuzz_factor(card) {
-  const seedStr = `${card.id}_${card.reviews || 0}`;
-  let h = 0x811c9dc5;
-  for (let i = 0; i < seedStr.length; i++) {
-    h ^= seedStr.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
-}
-
-function apply_fuzz(ivl, fuzz_factor) {
-  if (!enable_fuzz || ivl < 2.5) return Math.round(ivl);
-  ivl = Math.round(ivl);
-  const min_ivl = Math.max(2, Math.round(ivl * 0.95 - 1));
-  const max_ivl = Math.min(maximumInterval, Math.round(ivl * 1.05 + 1));
-  return Math.floor(fuzz_factor * (max_ivl - min_ivl + 1) + min_ivl);
-}
-
-function forgetting_curve(elapsed_days, stability) {
-  const safeS = Math.max(stability || S_MIN, S_MIN);
-  return roundTo(Math.pow(1 + (FACTOR * elapsed_days) / safeS, DECAY), 8);
-}
-
-function next_interval(stability, fuzz_factor, reqRetention = requestRetention) {
-  const modifier = reqRetention === requestRetention ? INTERVAL_MODIFIER : calculate_interval_modifier(clamp(reqRetention, 0.75, 0.97));
-  const raw_interval = clamp(Math.round(stability * modifier), 1, maximumInterval);
-  return clamp(apply_fuzz(raw_interval, fuzz_factor), 1, maximumInterval);
-}
-
-function linear_damping(delta_d, old_d) {
-  return roundTo((delta_d * (10 - old_d)) / 9, 8);
-}
-
-function mean_reversion(init, current) {
-  return roundTo(w[7] * init + (1 - w[7]) * current, 8);
-}
-
-function init_difficulty(ratingStr) {
-  const g = ratings[ratingStr];
-  return roundTo(w[4] - Math.exp((g - 1) * w[5]) + 1, 8);
-}
-
-function init_stability(ratingStr) {
-  const g = ratings[ratingStr];
-  return Math.max(w[g - 1], 0.1);
-}
-
-function next_difficulty(d, ratingStr) {
-  const g = ratings[ratingStr];
-  const delta_d = -w[6] * (g - 3);
-  const next_d = d + linear_damping(delta_d, d);
-  return clamp(mean_reversion(init_difficulty("easy"), next_d), 1, 10);
-}
-
-function next_recall_stability(d, s, r, ratingStr) {
-  const g = ratings[ratingStr];
-  const hard_penalty = g === 2 ? w[15] : 1;
-  const easy_bound = g === 4 ? w[16] : 1;
-  return roundTo(
-    clamp(
-      s * (1 + Math.exp(w[8]) * (11 - d) * Math.pow(s, -w[9]) * (Math.exp((1 - r) * w[10]) - 1) * hard_penalty * easy_bound),
-      S_MIN,
-      36500.0
-    ),
-    8
-  );
-}
-
-function next_forget_stability(d, s, r) {
-  const s_after_fail = roundTo(
-    clamp(
-      w[11] * Math.pow(d, -w[12]) * (Math.pow(s + 1, w[13]) - 1) * Math.exp((1 - r) * w[14]),
-      S_MIN,
-      36500.0
-    ),
-    8
-  );
-  const next_s_min = s / Math.exp(w[17] * w[18]);
-  return clamp(roundTo(next_s_min, 8), S_MIN, s_after_fail);
-}
-
-function next_short_term_stability(s, ratingStr) {
-  const g = ratings[ratingStr];
-  const sinc = Math.pow(s, -w[19]) * Math.exp(w[17] * (g - 3 + w[18]));
-  const maskedSinc = g >= 2 ? Math.max(sinc, 1.0) : sinc;
-  return roundTo(clamp(s * maskedSinc, S_MIN, 36500.0), 8);
-}
-
-const calculateNextReview = (card, qualityUI, reqRetention = requestRetention) => {
-  const RATING_STRINGS = ["again", "hard", "good", "easy"];
-  const ratingStr = RATING_STRINGS[qualityUI];
-  const now = Date.now();
-  const fuzz_factor = generate_fuzz_factor(card);
-
-  let state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
-  const prevState = state;
-  let stepIndex = card.stepIndex !== undefined ? card.stepIndex : 0;
-  let difficulty = card.difficulty;
-  let stability = card.stability;
-  let last_review = card.last_review || now;
-
-  const elapsed_days = Math.max((now - last_review) / 86400000, 0);
-  let interval = 0;
-  let isMinutes = false;
-
-  if ((stability == null || difficulty == null || stability < S_MIN) && state !== 0) {
-    stability = init_stability("good");
-    difficulty = clamp(init_difficulty("good"), 1, 10);
-  }
-
-  if (state === 0) {
-    stability = init_stability(ratingStr);
-    difficulty = clamp(init_difficulty(ratingStr), 1, 10);
-
-    if (ratingStr === "again") {
-      state = 1; stepIndex = 0; interval = LEARNING_STEPS[0]; isMinutes = true;
-    } else if (ratingStr === "hard") {
-      state = 1; stepIndex = 0; interval = (LEARNING_STEPS[0] + LEARNING_STEPS[1]) / 2; isMinutes = true;
-    } else if (ratingStr === "good") {
-      state = 1; stepIndex = 1; interval = LEARNING_STEPS[1]; isMinutes = true;
-    } else if (ratingStr === "easy") {
-      state = 2;
-      const good_ivl = next_interval(init_stability("good"), fuzz_factor, reqRetention);
-      interval = Math.max(next_interval(stability, fuzz_factor, reqRetention), good_ivl + 1);
-    }
-  } else if (state === 1 || state === 3) {
-    const last_s = stability;
-    const last_d = difficulty;
-
-    difficulty = next_difficulty(last_d, ratingStr);
-    stability = next_short_term_stability(last_s, ratingStr);
-
-    if (ratingStr === "again") {
-      stepIndex = 0; interval = LEARNING_STEPS[0]; isMinutes = true;
-    } else if (ratingStr === "hard") {
-      interval = LEARNING_STEPS[stepIndex] || LEARNING_STEPS[0]; isMinutes = true;
-    } else if (ratingStr === "good") {
-      stepIndex++;
-      if (stepIndex < LEARNING_STEPS.length) {
-        interval = LEARNING_STEPS[stepIndex]; isMinutes = true;
-      } else {
-        state = 2;
-        interval = next_interval(stability, fuzz_factor, reqRetention);
-      }
-    } else if (ratingStr === "easy") {
-      state = 2;
-      const good_s = next_short_term_stability(last_s, "good");
-      const good_ivl = next_interval(good_s, fuzz_factor, reqRetention);
-      interval = Math.max(next_interval(stability, fuzz_factor, reqRetention), good_ivl + 1);
-    }
-  } else if (state === 2) {
-    const retrievability = forgetting_curve(elapsed_days, stability);
-    const last_s = stability;
-    const last_d = difficulty;
-
-    if (ratingStr === "again") {
-      difficulty = next_difficulty(last_d, "again");
-      stability = next_forget_stability(last_d, last_s, retrievability);
-      state = 3; stepIndex = 0; interval = LEARNING_STEPS[0]; isMinutes = true;
-    } else {
-      difficulty = next_difficulty(last_d, ratingStr);
-      stability = next_recall_stability(last_d, last_s, retrievability, ratingStr);
-
-      let hard_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "hard"), fuzz_factor, reqRetention);
-      let good_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "good"), fuzz_factor, reqRetention);
-      let easy_ivl = next_interval(next_recall_stability(last_d, last_s, retrievability, "easy"), fuzz_factor, reqRetention);
-
-      hard_ivl = Math.min(hard_ivl, good_ivl);
-      good_ivl = Math.max(good_ivl, hard_ivl + 1);
-      easy_ivl = Math.max(easy_ivl, good_ivl + 1);
-
-      if (ratingStr === "hard") interval = hard_ivl;
-      else if (ratingStr === "good") interval = good_ivl;
-      else if (ratingStr === "easy") interval = easy_ivl;
-    }
-  }
-
-  const intervalInDays = isMinutes ? interval / 1440 : interval;
-  const nextDue = isMinutes ? now + (interval * 60000) : now + (interval * 86400000);
-
-  // Lapsos e Retenção Real são contabilizados exclusivamente quando o cartão já estava graduado (prevState === 2)
-  const baseLapses = getEffectiveLapses(card);
-  const reviewLapses = (prevState === 2 && ratingStr === "again") ? baseLapses + 1 : baseLapses;
-
-  const prevReviewCounts = card.reviewRatingCounts || {
-    again: 0,
-    hard: 0,
-    good: 0,
-    easy: 0
-  };
-  const reviewRatingCounts = prevState === 2
-    ? {
-        ...prevReviewCounts,
-        [ratingStr]: (prevReviewCounts[ratingStr] || 0) + 1
-      }
-    : prevReviewCounts;
-
-  const learningReviews = prevState !== 2
-    ? (card.learningReviews || 0) + 1
-    : (card.learningReviews || 0);
-
-  return {
-    ...card,
-    state,
-    difficulty,
-    stability,
-    stepIndex,
-    lapses: reviewLapses,
-    reviewLapses,
-    reviewRatingCounts,
-    learningReviews,
-    buriedUntil: null,
-    interval: intervalInDays,
-    last_review: now,
-    dueDate: nextDue,
-    reviews: (card.reviews || 0) + 1
-  };
-};
-
-const getEffectiveLapses = (card) => {
-  if (!card) return 0;
-  const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
-  if (state === 0 || state === 1) return 0;
-  return card.reviewLapses || 0;
-};
-
-const getCardRatingBreakdown = (card) => {
-  const empty = { again: 0, hard: 0, good: 0, easy: 0 };
-  if (!card || !card.reviewRatingCounts) return empty;
-
-  const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
-  if (state === 0 || state === 1) return empty;
-
-  return {
-    again: card.reviewRatingCounts.again || 0,
-    hard: card.reviewRatingCounts.hard || 0,
-    good: card.reviewRatingCounts.good || 0,
-    easy: card.reviewRatingCounts.easy || 0,
-  };
-};
-
-const isCardBuried = (card) => {
-  return Boolean(card?.buriedUntil && Date.now() < card.buriedUntil);
-};
-
-const isCardLeech = (card) => {
-  if (!card) return false;
-  const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
-  // Cartões Novos (0) ou em Aprendizagem Inicial (1) nunca são Sanguessugas
-  if (state === 0 || state === 1) return false;
-  return getEffectiveLapses(card) >= 4;
-};
-
-const isCardUnlearned = (card) => {
-  if (!card || card.isSuspended) return false;
-  const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
-  return state === 0 || state === 1 || state === 3 || !card.reviews || (card.interval || 0) < 1;
-};
-
-const checkCardDue = (card) => {
-  if (!card || card.isIgnored || card.isSuspended) return false;
-  if (isCardBuried(card)) return false;
-  if (!card.dueDate) return true;
-  const now = Date.now();
-  
-  if (card.interval >= 1) {
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
-    return card.dueDate <= endOfToday.getTime();
-  }
-  
-  return card.dueDate <= now;
-};
-
-const formatInterval = (days) => {
-  if (!days) return "<1m";
-  const minutes = Math.round(days * 1440);
-  if (minutes < 1) return "<1m";
-  if (minutes < 60) return `${minutes}m`; 
-  const hours = Math.round(days * 24);
-  if (hours < 24) return `${hours}h`; 
-  const d = Math.round(days);
-  if (d < 30) return `${d}d`; 
-  if (d < 365) return `${Math.round(d / 30)}mo`; 
-  return `${Math.round(d / 365)}a`; 
-};
-
-const loadScript = (src) => new Promise((resolve, reject) => {
-  if (document.querySelector(`script[src="${src}"]`)) return resolve();
-  const s = document.createElement('script');
-  s.src = src; s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
-});
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -807,21 +440,6 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [eliminatedOptions]); 
-  
-  const getTodayStr = () => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
-
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Bom dia';
-    if (hour < 18) return 'Boa tarde';
-    return 'Boa noite';
-  };
 
   const removeDeletedCardsFromActivity = (idsToRemoveSet) => {
     if (idsToRemoveSet.size === 0) return;
@@ -905,29 +523,6 @@ export default function App() {
     return Math.max(maxStreak, calculateStreak());
   };
 
-  const parseTagsString = (str) => {
-    if (!str || typeof str !== 'string') return [];
-    return Array.from(
-      new Set(
-        str
-          .split(/[\s,;]+/)
-          .map(t => t.replace(/^#+/, '').trim().toLowerCase())
-          .filter(Boolean)
-      )
-    );
-  };
-
-  const getAllGlobalTags = (sourceDecks = validDecks) => {
-    const tagSet = new Set();
-    sourceDecks.forEach(d => {
-      if (d.isIgnored) return;
-      (d.cards || []).forEach(c => {
-        (c.tags || []).forEach(t => tagSet.add(t));
-      });
-    });
-    return Array.from(tagSet).sort();
-  };
-
   const getRecoveriesCountForMonth = (yearMonthStr) => {
     return streakRecoveries.filter(d => d.startsWith(yearMonthStr)).length;
   };
@@ -946,32 +541,6 @@ export default function App() {
     }
     setStreakRecoveryDate(null);
   };
-
-  const getCardStats = (cards) => {
-    return (cards || []).reduce((acc, card) => {
-      if (card.isSuspended) {
-        acc.suspended = (acc.suspended || 0) + 1;
-        return acc;
-      }
-      const state = card.state !== undefined ? card.state : (card.reviews > 0 ? 2 : 0);
-      const r = card.reviews || 0;
-      const isDue = checkCardDue(card);
-      
-      if (state === 0 || r === 0) {
-        if (isDue) acc.new++;
-      }
-      else if (state === 1 || state === 3 || card.interval < 1) {
-        acc.learning++;
-      }
-      else {
-        if (isDue) acc.review++;
-        else acc.learned++;
-      }
-      return acc;
-    }, { new: 0, learning: 0, review: 0, learned: 0, suspended: 0 });
-  };
-
-  const calculateTotalDue = (stats) => stats.new + stats.learning + stats.review;
 
   const getDecksInFolder = (folderId, visited = new Set()) => {
     if (visited.has(folderId)) return [];
@@ -1330,25 +899,14 @@ export default function App() {
 
   const handleExportJSON = () => {
     try {
-      const backupData = {
-        version: 2,
-        exportedAt: new Date().toISOString(),
+      buildExportJSONFile({
         dailyGoal,
         desiredRetention,
         folders,
         decks,
         activityMap,
-        streakRecoveries
-      };
-      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `flashcards-backup-${getTodayStr()}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+        streakRecoveries,
+      });
       showToast("Backup (.json) exportado com sucesso!");
     } catch (err) {
       showToast("Erro ao exportar backup.", "error");
@@ -1357,51 +915,7 @@ export default function App() {
 
   const handleExportCSV = () => {
     try {
-      const stripHtml = (html) => {
-        const tmp = document.createElement('div');
-        tmp.innerHTML = html || '';
-        return (tmp.textContent || tmp.innerText || '').replace(/"/g, '""').replace(/\r?\n/g, ' ');
-      };
-      const rows = [
-        ['Baralho', 'Tipo', 'Tags', 'Frente', 'Verso / Detalhes', 'Gabarito', 'Estado FSRS', 'Dificuldade', 'Estabilidade', 'Intervalo (dias)', 'Revisoes', 'Erros (Lapses)', 'Suspenso']
-      ];
-      validDecks.forEach(d => {
-        (d.cards || []).forEach(c => {
-          const stateMap = { 0: 'Novo', 1: 'Aprender', 2: 'Revisao', 3: 'Reaprender' };
-          const st = c.state !== undefined ? stateMap[c.state] : (c.reviews > 0 ? 'Revisao' : 'Novo');
-          let answerInfo = '';
-          if (c.type === 'choice') answerInfo = (c.options || [])[c.correctOption || 0] || '';
-          else if (c.type === 'tf') answerInfo = c.isTrue ? 'Verdadeiro' : 'Falso';
-          else if (c.type === 'typing') answerInfo = c.typeAnswer || '';
-          const tagsFormatted = (c.tags || []).map(t => `#${t}`).join(' ');
-
-          rows.push([
-            `"${(d.name || '').replace(/"/g, '""')}"`,
-            `"${c.type || 'standard'}"`,
-            `"${tagsFormatted.replace(/"/g, '""')}"`,
-            `"${stripHtml(c.front)}"`,
-            `"${stripHtml(c.back)}"`,
-            `"${String(answerInfo).replace(/"/g, '""')}"`,
-            `"${st}"`,
-            c.difficulty !== undefined ? Number(c.difficulty).toFixed(2) : '',
-            c.stability !== undefined ? Number(c.stability).toFixed(2) : '',
-            c.interval !== undefined ? Number(c.interval).toFixed(2) : '0',
-            c.reviews || 0,
-            getEffectiveLapses(c),
-            c.isSuspended ? 'Sim' : 'Nao'
-          ]);
-        });
-      });
-      const csvContent = '\uFEFF' + rows.map(r => r.join(',')).join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `flashcards-export-${getTodayStr()}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      buildExportCSVFile(validDecks);
       showToast("Planilha (.csv) exportada com sucesso!");
     } catch (err) {
       showToast("Erro ao exportar CSV.", "error");
@@ -1506,187 +1020,50 @@ export default function App() {
   };
 
   const processAnkiImport = async (file) => {
-    let sqliteDb = null;
     try {
-      setImportProgress('A carregar...');
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js');
-      await loadScript('https://cdn.jsdelivr.net/npm/fzstd/umd/index.js');
-
-      const initSqlJsFn = window.initSqlJs; const JSZipClass = window.JSZip;
-      if (!initSqlJsFn || !JSZipClass) throw new Error("Bibliotecas falharam.");
-
-      const SQL = await initSqlJsFn({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${f}` });
-      await new Promise(r => setTimeout(r, 100)); 
-      const zip = new JSZipClass(); await zip.loadAsync(file);
-      
-      let dbFile = zip.file("collection.anki21b") || zip.file("collection.anki21") || zip.file("collection.anki2");
-      if (!dbFile) throw new Error("Base de dados Anki não encontrada.");
-      
-      let dbData = await dbFile.async("uint8array");
-      if (dbFile.name === "collection.anki21b") { if (!window.fzstd) throw new Error("Biblioteca de descompressão falhou."); dbData = window.fzstd.decompress(dbData); }
-      sqliteDb = new SQL.Database(dbData);
-
-      let mediaMap = {};
-      if (zip.file("media")) {
-        try { const mediaData = await zip.file("media").async("string"); mediaMap = JSON.parse(mediaData); } catch (err) {}
+      const { newFolders, newDecks, importedCount } = await parseAnkiPackage(
+        file,
+        currentFolderId,
+        folders,
+        setImportProgress
+      );
+      if (newFolders.length > 0) {
+        setFolders(prev => [...prev, ...newFolders]);
+        newFolders.forEach(f => updateFolderInCloud(f));
       }
-
-      const mediaAssets = {}; const fileNames = Object.keys(zip.files);
-      for (let i = 0; i < fileNames.length; i++) {
-        const mappedName = mediaMap[fileNames[i]];
-        if (mappedName && typeof mappedName === 'string' && mappedName.match(/\.(jpeg|jpg|gif|png|svg|webp)$/i)) {
-          try {
-            const b64 = await zip.file(fileNames[i]).async("base64");
-            const exts = mappedName.split('.').pop().toLowerCase();
-            mediaAssets[mappedName] = `data:image/${exts === 'jpg' ? 'jpeg' : exts};base64,${b64}`;
-          } catch (err) { }
-        }
+      if (newDecks.length > 0) {
+        setDecks(prev => [...prev, ...newDecks]);
+        newDecks.forEach(d => updateDeckInCloud(d));
       }
-
-      let decksInfo = [];
-      try {
-        const decksTable = sqliteDb.exec("SELECT id, name FROM decks");
-        if (decksTable.length > 0 && decksTable[0].values) decksTable[0].values.forEach(row => decksInfo.push({ id: String(row[0]), name: String(row[1]) }));
-      } catch (e) {
-        try {
-          const colQuery = sqliteDb.exec("SELECT decks FROM col");
-          if (colQuery.length > 0 && colQuery[0].values && colQuery[0].values[0]) {
-            const parsed = JSON.parse(colQuery[0].values[0][0]);
-            Object.values(parsed).forEach(d => decksInfo.push({ id: String(d.id), name: String(d.name) }));
-          }
-        } catch (err) { }
-      }
-
-      const importBatchId = Date.now();
-      const newDecksMap = {}; const newFoldersToCloud = [];
-      const getOrCreateFolder = (fName, parentId) => {
-        let f = newFoldersToCloud.find(x => x.name === fName && x.parentId === parentId) || folders.find(x => x.name === fName && x.parentId === parentId);
-        if (f) return f.id;
-        const newId = `f-anki-${importBatchId}-${Math.random().toString(36).substring(2, 9)}`;
-        const newFolder = { id: newId, name: fName, parentId, color: FOLDER_THEMES[0].color };
-        newFoldersToCloud.push(newFolder); setFolders(prev => [...prev, newFolder]); updateFolderInCloud(newFolder);
-        return newId;
-      };
-
-      decksInfo.forEach(ankiDeck => {
-        if (ankiDeck.name === "Default" && ankiDeck.id === "1") return;
-        const pathParts = ankiDeck.name.split(/::|\x1f|\x1e/).map(p => p.trim()).filter(Boolean);
-        if (pathParts.length === 0) return;
-        let parent = currentFolderId; const deckName = pathParts.pop();
-        pathParts.forEach(p => { parent = getOrCreateFolder(p, parent); });
-        newDecksMap[ankiDeck.id] = { id: `d-anki-${importBatchId}-${ankiDeck.id}`, name: deckName, parentId: parent, color: DECK_THEMES[0].color, cards: [] };
-      });
-
-      const fallbackDeck = { id: `d-fb-${importBatchId}`, name: file.name.split('.')[0], parentId: currentFolderId, color: DECK_THEMES[0].color, cards: [] };
-      const cardsQuery = sqliteDb.exec("SELECT c.did, n.flds FROM cards c JOIN notes n ON c.nid = n.id");
-      
-      let importedCount = 0;
-      if (cardsQuery.length > 0) {
-        cardsQuery[0].values.forEach((row) => {
-          const fields = row[1].split('\x1f');
-          if (fields.length >= 2 && !fields[0].includes("Atualize para a versão")) {
-            let front = fields[0], back = fields[1];
-            Object.keys(mediaAssets).forEach(imgName => {
-              const b64 = mediaAssets[imgName];
-              front = front.split(imgName).join(b64).split(encodeURIComponent(imgName)).join(b64);
-              back = back.split(imgName).join(b64).split(encodeURIComponent(imgName)).join(b64);
-            });
-            const newCard = { id: `c-anki-${importBatchId}-${Math.random().toString(36).substring(2, 9)}`, type: 'standard', front, back, state: 0, interval: 0, dueDate: Date.now(), reviews: 0 };
-            if (newDecksMap[String(row[0])]) newDecksMap[String(row[0])].cards.push(newCard); else fallbackDeck.cards.push(newCard);
-            importedCount++;
-          }
-        });
-      }
-      
-      const finalDecks = Object.values(newDecksMap).filter(d => d.cards.length > 0);
-      if (fallbackDeck.cards.length > 0) finalDecks.push(fallbackDeck); 
-      setDecks(prev => [...prev, ...finalDecks]); finalDecks.forEach(d => updateDeckInCloud(d));
-
-      if(importedCount > 0) showToast(`${importedCount} cartões importados!`);
+      if (importedCount > 0) showToast(`${importedCount} cartões importados!`);
       else showToast("Nenhum cartão lido.", "error");
-
-    } catch (e) { 
-      showToast(`Erro: ${e.message}`, "error"); 
-    } finally { 
-      if (sqliteDb) {
-        try { sqliteDb.close(); } catch (closeErr) {}
-      }
-      setIsImporting(false); 
-      setImportProgress(''); 
+    } catch (e) {
+      showToast(`Erro: ${e.message}`, "error");
+    } finally {
+      setIsImporting(false);
+      setImportProgress('');
     }
   };
 
   const processTextImport = (file) => {
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const text = evt.target.result;
-      if (text.includes('\x00')) { showToast('Ficheiro binário não suportado.', 'error'); setIsImporting(false); return; }
-      const lines = text.split('\n'); const importedCards = [];
-      lines.forEach((line) => {
-        if (!line.trim()) return;
-        
-        let parsedType = 'standard';
-        let parsedFront = '';
-        let parsedBack = '';
-        let parsedOptions = ['', '', '', ''];
-        let parsedCorrectOption = 0;
-
-        const gabaritoIndex = line.search(/Gabarito:/i);
-
-        if (gabaritoIndex !== -1 && /[a-e]\)/i.test(line.substring(0, gabaritoIndex))) {
-          parsedType = 'choice';
-          const rawFront = line.substring(0, gabaritoIndex).replace(/[\t\s]+$/, '');
-          const rawBack = line.substring(gabaritoIndex);
-
-          const firstOptionMatch = rawFront.match(/(?:<br\s*\/?>\s*)*a\)/i);
-          if (firstOptionMatch) {
-            const questionEndIndex = firstOptionMatch.index;
-            parsedFront = rawFront.substring(0, questionEndIndex).replace(/<br\s*[\/]?>/gi, '<br>').trim();
-
-            const optionsPart = rawFront.substring(questionEndIndex);
-            const optionsRegex = /[a-e]\)\s*([\s\S]*?)(?=(?:<br\s*\/?>\s*)*[a-e]\)|$)/gi;
-            let match;
-            let extractedOptions = [];
-            while ((match = optionsRegex.exec(optionsPart)) !== null) {
-              extractedOptions.push(match[1].replace(/<br\s*\/?>/gi, '').trim());
-            }
-            if (extractedOptions.length >= 2) {
-              parsedOptions = extractedOptions;
-            }
-          } else {
-            parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-          }
-
-          const gabaritoMatch = rawBack.match(/Gabarito:\s*([a-e])\)/i);
-          if (gabaritoMatch) {
-            const letter = gabaritoMatch[1].toLowerCase();
-            parsedCorrectOption = letter.charCodeAt(0) - 97; 
-          }
-
-          const justMatch = rawBack.match(/Justificativa:\s*([\s\S]*)/i);
-          if (justMatch) {
-            parsedBack = `<strong>Justificativa:</strong><br>${justMatch[1].replace(/<br\s*[\/]?>/gi, '<br>').trim()}`;
-          } else {
-            parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-          }
-        } else {
-          const separator = line.includes('\t') ? '\t' : ',';
-          const parts = line.split(separator);
-          const rawFront = parts[0] || '';
-          const rawBack = parts.slice(1).join(separator) || '';
-          
-          parsedFront = rawFront.replace(/<br\s*[\/]?>/gi, '<br>').trim();
-          parsedBack = rawBack.replace(/<br\s*[\/]?>/gi, '<br>').trim();
+      try {
+        const newDeck = parseTextImportContent(
+          String(evt.target?.result || ''),
+          file.name,
+          currentFolderId
+        );
+        if (newDeck) {
+          setDecks(prev => [...prev, newDeck]);
+          updateDeckInCloud(newDeck);
+          showToast(`${newDeck.cards.length} cartões importados!`);
         }
-
-        importedCards.push({ id: `c-imp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`, type: parsedType, front: parsedFront, back: parsedBack, options: parsedOptions, correctOption: parsedCorrectOption, state: 0, interval: 0, dueDate: Date.now(), reviews: 0 });
-      });
-      if (importedCards.length > 0) {
-        const newDeck = { id: `d-imp-${Date.now()}`, name: file.name.split('.')[0], parentId: currentFolderId, description: 'Importado', color: DECK_THEMES[0].color, cards: importedCards };
-        setDecks(prev => [...prev, newDeck]); updateDeckInCloud(newDeck); showToast(`${importedCards.length} cartões importados!`);
+      } catch (err) {
+        showToast(err.message || 'Ficheiro binário não suportado.', 'error');
+      } finally {
+        setIsImporting(false);
       }
-      setIsImporting(false);
     };
     reader.readAsText(file);
   };
@@ -1906,539 +1283,6 @@ export default function App() {
         {stats.new > 0 && <span className="bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold px-2 py-0.5 rounded shadow-[0_0_8px_rgba(59,130,246,0.15)]" title="Novos">{stats.new}</span>}
         {stats.learning > 0 && <span className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold px-2 py-0.5 rounded shadow-[0_0_8px_rgba(244,63,94,0.15)]" title="Aprender">{stats.learning}</span>}
         {stats.review > 0 && <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold px-2 py-0.5 rounded shadow-[0_0_8px_rgba(16,185,129,0.15)]" title="Revisar">{stats.review}</span>}
-      </div>
-    );
-  };
-
-  const renderMastery = () => {
-    const gCards = validDecks.filter(d => !d.isIgnored).flatMap(d => d.cards || []);
-    const gStats = getCardStats(gCards); const totalC = gCards.length || 1;
-    return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl relative overflow-hidden group flex flex-col h-full justify-between animate-pop delay-300">
-        <div className="absolute top-0 right-0 p-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-        <div>
-          <div className="flex justify-between items-center mb-6 relative z-10">
-            <h3 className="font-bold text-slate-100 flex items-center gap-2"><PieChart className="w-5 h-5 text-blue-400" /> Domínio Global</h3>
-            <span className="text-xl font-black text-blue-400">{gCards.length} <span className="text-sm text-slate-500">cartões</span></span>
-          </div>
-          <div className="w-full flex h-4 rounded-full overflow-hidden border border-slate-800 mb-6 relative z-10">
-            <div title={`Novos: ${gStats.new}`} className="bg-blue-500" style={{ width: `${(gStats.new / totalC) * 100}%` }}></div>
-            <div title={`Aprender: ${gStats.learning}`} className="bg-rose-500" style={{ width: `${(gStats.learning / totalC) * 100}%` }}></div>
-            <div title={`Revisar: ${gStats.review}`} className="bg-emerald-400" style={{ width: `${(gStats.review / totalC) * 100}%` }}></div>
-            <div title={`Aprendidos: ${gStats.learned}`} className="bg-slate-600" style={{ width: `${(gStats.learned / totalC) * 100}%` }}></div>
-          </div>
-        </div>
-        <div className="grid grid-cols-4 gap-2 text-center relative z-10 mt-auto">
-          <div className="flex flex-col"><span className="text-[10px] uppercase text-slate-500 font-bold mb-1">Novos</span><span className="text-sm font-semibold text-blue-400">{gStats.new}</span></div>
-          <div className="flex flex-col"><span className="text-[10px] uppercase text-slate-500 font-bold mb-1">Aprender</span><span className="text-sm font-semibold text-rose-400">{gStats.learning}</span></div>
-          <div className="flex flex-col"><span className="text-[10px] uppercase text-slate-500 font-bold mb-1">Revisar</span><span className="text-sm font-semibold text-emerald-400">{gStats.review}</span></div>
-          <div className="flex flex-col"><span className="text-[10px] uppercase text-slate-500 font-bold mb-1">Prontos</span><span className="text-sm font-semibold text-slate-400">{gStats.learned}</span></div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderCalendar = () => {
-    const year = calendarMonth.getFullYear(); const month = calendarMonth.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate(); const firstDay = new Date(year, month, 1).getDay();
-    const prevMonth = () => setCalendarMonth(new Date(year, month - 1, 1));
-    const nextMonth = () => setCalendarMonth(new Date(year, month + 1, 1));
-    const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-    const dayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-    const cells = []; let monthTotalRevisions = 0;
-    
-    for (let i = 0; i < firstDay; i++) cells.push(<div key={`empty-${i}`} className="p-2"></div>);
-    const todayStr = getTodayStr();
-
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateObj = new Date(year, month, d, 12, 0, 0); const y = dateObj.getFullYear(); const m = String(dateObj.getMonth() + 1).padStart(2, '0'); const dy = String(dateObj.getDate()).padStart(2, '0');
-      const dateStr = `${y}-${m}-${dy}`;
-      
-      const count = getDailyCount(dateStr); 
-      const isToday = dateStr === todayStr; 
-      monthTotalRevisions += count;
-      
-      const isPast = dateObj < new Date(new Date().setHours(0,0,0,0));
-      const isRecovered = streakRecoveries.includes(dateStr);
-      const isCompleted = count > 0 || isRecovered;
-      const canRecover = isPast && !isCompleted;
-
-      let bg = 'bg-slate-900/50 border-slate-800 text-slate-400';
-      if (isCompleted) {
-        if (count === 0 && isRecovered) bg = 'bg-indigo-900/60 border-indigo-500/40 text-indigo-200';
-        else if (count > 0 && count < 5) bg = 'bg-emerald-900/60 border-emerald-900 text-emerald-200';
-        else if (count >= 5 && count < 15) bg = 'bg-emerald-700/80 border-emerald-700 text-emerald-100';
-        else if (count >= 15 && count < 30) bg = 'bg-emerald-500 border-emerald-400 text-white';
-        else if (count >= 30) bg = 'bg-emerald-400 border-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.4)] text-slate-900 font-bold';
-      }
-
-      cells.push(
-        <div key={d} tabIndex="0" onClick={() => { 
-          if(canRecover) {
-            setStreakRecoveryDate(dateStr);
-          }
-        }} className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all group focus:outline-none ${canRecover ? 'cursor-pointer hover:border-indigo-500 hover:shadow-[0_0_10px_rgba(99,102,241,0.3)] hover:scale-110 hover:z-20 focus:z-20' : 'cursor-default hover:scale-110 hover:z-20 focus:scale-110 focus:z-20'} ${bg}`}>
-          <span className="text-sm pointer-events-none">{d}</span>
-          {isToday && <div className="absolute -bottom-1 w-1.5 h-1.5 rounded-full bg-indigo-400 pointer-events-none"></div>}
-          
-          <div className="absolute bottom-full mb-1.5 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-all duration-200 translate-y-1 group-hover:translate-y-0 group-focus:translate-y-0 bg-slate-800/95 text-slate-200 text-[10px] font-medium px-2 py-1.5 rounded-lg pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700/80 flex flex-col items-center backdrop-blur-md">
-            <span className={count > 0 ? "text-emerald-400 font-bold text-xs" : "text-slate-400"}>{count} revisões</span>
-            {isRecovered && count === 0 && <span className="text-indigo-300 text-[9px] mt-0.5 uppercase tracking-wider">Recuperada</span>}
-            {canRecover && <span className="text-indigo-300 text-[9px] mt-0.5 uppercase tracking-wider">Recuperar</span>}
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl overflow-hidden flex flex-col h-full relative animate-pop delay-100">
-        <div className="absolute top-0 right-0 p-32 bg-emerald-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-        <div className="flex justify-between items-start mb-6 relative z-10">
-          <div>
-            <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><CalendarDays className="w-5 h-5 text-emerald-400" /> Histórico</h3>
-            <div className="flex items-center gap-4 mt-3">
-              <button onClick={prevMonth} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"><ChevronLeft className="w-4 h-4" /></button>
-              <span className="text-sm font-semibold text-slate-200 uppercase tracking-wider">{monthNames[month]} {year}</span>
-              <button onClick={nextMonth} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"><ChevronRight className="w-4 h-4" /></button>
-            </div>
-          </div>
-          <div className="text-right bg-slate-950/50 px-4 py-2 rounded-2xl border border-slate-800/80">
-            <span className="text-2xl font-black text-emerald-400">{monthTotalRevisions}</span>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Neste Mês</p>
-          </div>
-        </div>
-        <div className="relative z-10 w-full mt-2">
-          <div className="grid grid-cols-7 gap-1.5 mb-2">{dayNames.map(day => <div key={day} className="text-center text-[10px] font-bold text-slate-500 uppercase tracking-widest">{day}</div>)}</div>
-          <div className="grid grid-cols-7 gap-1.5">{cells}</div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderForecast = () => {
-    const allCards = validDecks.filter(d => !d.isIgnored).flatMap(d => d.cards || []); 
-    const today = new Date(); today.setHours(0,0,0,0);
-    const endOfToday = new Date(today); endOfToday.setHours(23, 59, 59, 999);
-    
-    let bucketCount = 7;
-    let labels = [];
-    let buckets = [];
-
-    if (forecastPeriod === 'week') {
-      bucketCount = 7;
-      for(let i=0; i<bucketCount; i++) {
-        const d = new Date(today); d.setDate(today.getDate() + i);
-        labels.push(i === 0 ? 'Hoje' : d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.',''));
-        buckets.push({ date: d.getTime(), count: 0, readyNow: 0, laterToday: 0, label: labels[i] });
-      }
-    } else if (forecastPeriod === 'month') {
-      bucketCount = 30;
-      for(let i=0; i<bucketCount; i++) {
-        const d = new Date(today); d.setDate(today.getDate() + i);
-        const day = String(d.getDate()).padStart(2, '0');
-        const mo = String(d.getMonth() + 1).padStart(2, '0');
-        labels.push(i === 0 ? 'Hoje' : `${day}/${mo}`);
-        buckets.push({ date: d.getTime(), count: 0, readyNow: 0, laterToday: 0, label: labels[i] });
-      }
-    } else if (forecastPeriod === 'year') {
-      bucketCount = 12;
-      for(let i=0; i<bucketCount; i++) {
-        const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
-        labels.push(d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.',''));
-        buckets.push({ month: d.getMonth(), year: d.getFullYear(), count: 0, readyNow: 0, laterToday: 0, label: labels[i] });
-      }
-    }
-
-    allCards.forEach(c => {
-      if (c.isSuspended) return;
-      const isDueNow = checkCardDue(c);
-      const isDueToday = !isCardBuried(c) && (!c.dueDate || isDueNow || c.dueDate <= endOfToday.getTime());
-
-      if (isDueToday) {
-        if (forecastPeriod === 'week' || forecastPeriod === 'month') {
-          buckets[0].count++;
-          if (isDueNow) buckets[0].readyNow++;
-          else buckets[0].laterToday++;
-        } else if (forecastPeriod === 'year') {
-          const bIdx = buckets.findIndex(b => b.month === today.getMonth() && b.year === today.getFullYear());
-          if (bIdx !== -1) buckets[bIdx].count++;
-        }
-      } else {
-        const cDateStart = new Date(c.dueDate); 
-        cDateStart.setHours(0,0,0,0);
-        
-        if (forecastPeriod === 'week' || forecastPeriod === 'month') {
-          const diffTime = cDateStart.getTime() - today.getTime();
-          const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-          if (diffDays >= 0 && diffDays < bucketCount) {
-            buckets[diffDays].count++;
-          }
-        } else if (forecastPeriod === 'year') {
-          const bIdx = buckets.findIndex(b => b.month === cDateStart.getMonth() && b.year === cDateStart.getFullYear());
-          if (bIdx !== -1) {
-            buckets[bIdx].count++;
-          }
-        }
-      }
-    });
-    
-    const max = Math.max(...buckets.map(b => b.count), 10);
-
-    return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full relative group animate-pop delay-400">
-        <div className="absolute top-0 left-0 p-32 bg-indigo-500/5 rounded-full blur-3xl -ml-16 -mt-16 pointer-events-none"></div>
-        
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 relative z-10">
-          <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><BarChart2 className="w-5 h-5 text-indigo-400" /> Previsão</h3>
-          
-          <div className="flex bg-slate-950 border border-slate-700 rounded-xl overflow-hidden shadow-inner text-xs">
-            <button onClick={() => setForecastPeriod('week')} className={`px-3 py-1.5 font-bold transition-colors ${forecastPeriod === 'week' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>7 Dias</button>
-            <div className="w-px bg-slate-700"></div>
-            <button onClick={() => setForecastPeriod('month')} className={`px-3 py-1.5 font-bold transition-colors ${forecastPeriod === 'month' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>30 Dias</button>
-            <div className="w-px bg-slate-700"></div>
-            <button onClick={() => setForecastPeriod('year')} className={`px-3 py-1.5 font-bold transition-colors ${forecastPeriod === 'year' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`}>1 Ano</button>
-          </div>
-        </div>
-
-        <div className="flex items-end justify-between flex-grow min-h-[200px] gap-1.5 sm:gap-2 relative z-10 mt-auto chart-scroll-container overflow-x-auto pb-2 pt-16">
-          <div className={`flex items-end justify-between h-full w-full gap-1.5 sm:gap-2 px-3 ${forecastPeriod === 'month' ? 'min-w-[600px]' : 'min-w-full'}`}>
-            {buckets.map((b, i) => {
-              const height = Math.max((b.count / max) * 100, 4);
-              const showLabel = forecastPeriod === 'week' || forecastPeriod === 'year' || (forecastPeriod === 'month' && i % 3 === 0);
-              return (
-                <div key={i} className="relative flex flex-col items-center flex-1 min-w-0 h-full justify-end group/bar">
-                  <div className="absolute bottom-full mb-2 opacity-0 group-hover/bar:opacity-100 transition-opacity duration-200 bg-slate-800 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700 flex flex-col items-center origin-bottom">
-                    <span className="text-indigo-300 text-sm">{b.count} <span className="text-xs text-slate-400 font-medium">cartões</span></span>
-                    {i === 0 && b.laterToday > 0 && (
-                      <span className="text-[10px] text-amber-400 font-medium mt-0.5">
-                        {b.readyNow > 0 ? `${b.readyNow} agora • ${b.laterToday} mais tarde` : `${b.laterToday} ainda hoje`}
-                      </span>
-                    )}
-                    <span className="text-[9px] text-slate-500 uppercase tracking-wider mt-0.5">{b.label}</span>
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-800"></div>
-                  </div>
-
-                  <div className="w-full max-w-[40px] relative flex items-end justify-center flex-grow bg-slate-950 rounded-t-md sm:rounded-t-xl border border-b-0 border-slate-800/80 hover:border-indigo-500/50 transition-colors overflow-hidden">
-                    <div className="w-full bg-gradient-to-t from-indigo-600/80 to-purple-400/80 rounded-t-md sm:rounded-t-xl transition-all duration-500 group-hover/bar:from-indigo-500 group-hover/bar:to-purple-300" style={{ height: `${height}%` }}></div>
-                  </div>
-                  <div className="relative w-full h-4 mt-2 flex items-center justify-center">
-                    {showLabel && (
-                      <span className="absolute text-[9px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap pointer-events-none">
-                        {b.label}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderDeckDistribution = () => {
-    const allStudiedDecks = validDecks.filter(d => !d.isIgnored).map(d => {
-      const effort = (d.cards || []).reduce((sum, c) => sum + (c.reviews || 0), 0);
-      const cardCount = d.cards?.length || 1;
-      const intensity = effort / cardCount;
-      return { name: d.name, effort: intensity, rawEffort: effort, cardCount };
-    }).filter(d => d.rawEffort > 0).sort((a,b) => b.effort - a.effort);
-
-    const totalStudiedDecksCount = allStudiedDecks.length;
-    const totalRawReviews = allStudiedDecks.reduce((sum, d) => sum + d.rawEffort, 0);
-    const totalStudiedCards = allStudiedDecks.reduce((sum, d) => sum + d.cardCount, 0) || 1;
-    const globalAvgEffort = (totalRawReviews / totalStudiedCards).toFixed(1);
-
-    let dist = [...allStudiedDecks];
-    const totalEffort = dist.reduce((sum, d) => sum + d.effort, 0);
-    
-    if (dist.length > 4) {
-      const top = dist.slice(0, 3);
-      const othersSlice = dist.slice(3);
-      const othersEffort = othersSlice.reduce((sum, d) => sum + d.effort, 0);
-      const othersRaw = othersSlice.reduce((sum, d) => sum + d.rawEffort, 0);
-      const othersCards = othersSlice.reduce((sum, d) => sum + d.cardCount, 0) || 1;
-      top.push({ name: `Outros (${othersSlice.length})`, effort: othersEffort, rawEffort: othersRaw, cardCount: othersCards });
-      dist = top;
-    }
-
-    const colors = ['#818cf8', '#34d399', '#fbbf24', '#f472b6', '#94a3b8'];
-
-    return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col h-full justify-between relative group animate-pop delay-200">
-        <div className="absolute bottom-0 left-0 p-32 bg-amber-500/5 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
-        
-        <div className="flex justify-between items-center mb-4 relative z-10">
-          <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2"><Flame className="w-5 h-5 text-amber-400" /> Intensidade</h3>
-          <span className="text-[11px] font-bold text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg uppercase tracking-wider">Média de Esforço</span>
-        </div>
-        
-        {totalEffort === 0 ? (
-          <div className="flex-grow flex items-center justify-center text-slate-500 text-sm italic relative z-10 py-12">Nenhum dado de estudo ainda.</div>
-        ) : (
-          <div className="flex flex-col gap-5 flex-grow justify-between relative z-10 w-full">
-            <div className="flex flex-col gap-3 bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800/70 flex flex-col">
-                  <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Ativos</span>
-                  <div className="text-base sm:text-lg font-black text-slate-100 mt-0.5">{totalStudiedDecksCount}<span className="text-[10px] text-slate-500 font-semibold ml-1">baralhos</span></div>
-                </div>
-                <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800/70 flex flex-col">
-                  <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Média Geral</span>
-                  <div className="text-base sm:text-lg font-black text-amber-400 mt-0.5">{globalAvgEffort}<span className="text-[10px] text-slate-500 font-semibold ml-1">rev/c</span></div>
-                </div>
-                <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800/70 flex flex-col">
-                  <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">Volume</span>
-                  <div className="text-base sm:text-lg font-black text-indigo-400 mt-0.5">{totalRawReviews}<span className="text-[10px] text-slate-500 font-semibold ml-1">rev</span></div>
-                </div>
-              </div>
-
-              <div className="w-full flex h-3 rounded-full overflow-hidden bg-slate-900 p-0.5 gap-1 border border-slate-800">
-                {dist.map((item, i) => {
-                  const pct = Math.max((item.effort / totalEffort) * 100, 4);
-                  return (
-                    <div
-                      key={i}
-                      title={`${item.name}: ${item.effort.toFixed(1)} rev/cartão (${Math.round((item.effort / totalEffort) * 100)}%)`}
-                      className="h-full rounded-full transition-all duration-700 hover:brightness-125"
-                      style={{ width: `${pct}%`, backgroundColor: colors[i] }}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-            
-            <div className="flex flex-col gap-3 w-full my-auto">
-              {dist.map((item, i) => {
-                const pct = Math.round((item.effort / totalEffort) * 100);
-                return (
-                  <div key={i} className="flex flex-col gap-1.5 group/item w-full">
-                    <div className="flex items-center justify-between text-xs sm:text-sm gap-2 w-full">
-                      <div className="flex items-center gap-2 min-w-0 flex-grow">
-                        <div className="w-2.5 h-2.5 rounded-full shrink-0 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: colors[i], color: colors[i] }}></div>
-                        <span className="text-slate-200 font-semibold truncate group-hover/item:text-white transition-colors" title={item.name}>{item.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[11px] text-slate-500 font-medium">{item.effort.toFixed(1)} rev/c</span>
-                        <span className="font-black text-slate-300 w-9 text-right bg-slate-950/80 px-1.5 py-0.5 rounded border border-slate-800 text-xs">{pct}%</span>
-                      </div>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80">
-                      <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${pct}%`, backgroundColor: colors[i] }}></div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderAnnualHeatmap = () => {
-    const today = new Date();
-    today.setHours(12, 0, 0, 0);
-    const totalDays = 365;
-    const startDay = new Date(today);
-    startDay.setDate(today.getDate() - (totalDays - 1));
-
-    const startDayOfWeek = startDay.getDay();
-    const cells = [];
-    for (let i = 0; i < startDayOfWeek; i++) {
-      cells.push({ empty: true, key: `pad-${i}` });
-    }
-
-    let studiedDaysYear = 0;
-    let totalYearRevisions = 0;
-    const weekdayTotals = [0, 0, 0, 0, 0, 0, 0];
-    const weekdayActiveCounts = [0, 0, 0, 0, 0, 0, 0];
-
-    for (let i = 0; i < totalDays; i++) {
-      const d = new Date(startDay);
-      d.setDate(startDay.getDate() + i);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const dy = String(d.getDate()).padStart(2, '0');
-      const dateStr = `${y}-${m}-${dy}`;
-      const count = getDailyCount(dateStr);
-      const isRecovered = streakRecoveries.includes(dateStr);
-      const dow = d.getDay();
-
-      if (count > 0 || isRecovered) {
-        studiedDaysYear++;
-      }
-      if (count > 0) {
-        totalYearRevisions += count;
-        weekdayTotals[dow] += count;
-        weekdayActiveCounts[dow]++;
-      }
-
-      cells.push({
-        empty: false,
-        key: dateStr,
-        dateStr,
-        labelDate: `${dy}/${m}/${y}`,
-        count,
-        isRecovered,
-        month: d.getMonth(),
-        dayOfMonth: d.getDate()
-      });
-    }
-
-    const weeks = [];
-    for (let i = 0; i < cells.length; i += 7) {
-      weeks.push(cells.slice(i, i + 7));
-    }
-
-    const weekdayNamesFull = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-    let bestDowIndex = -1;
-    let bestDowTotal = 0;
-    for (let d = 0; d < 7; d++) {
-      if (weekdayTotals[d] > bestDowTotal) {
-        bestDowTotal = weekdayTotals[d];
-        bestDowIndex = d;
-      }
-    }
-    const bestDayName = bestDowIndex !== -1 ? weekdayNamesFull[bestDowIndex] : 'Sem dados ainda';
-    const bestDayAvg = bestDowIndex !== -1 && weekdayActiveCounts[bestDowIndex] > 0
-      ? Math.round(weekdayTotals[bestDowIndex] / weekdayActiveCounts[bestDowIndex])
-      : 0;
-
-    const currentStreak = calculateStreak();
-    const longestStreak = calculateLongestStreak();
-    const annualConsistencyPct = Math.round((studiedDaysYear / totalDays) * 100);
-    const shortMonths = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-
-    return (
-      <div className="bg-slate-900/60 backdrop-blur-sm rounded-3xl p-5 sm:p-6 border border-slate-800 shadow-xl flex flex-col gap-5 relative overflow-hidden animate-pop delay-300">
-        <div className="absolute -top-20 right-1/4 p-36 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
-
-        <div className="flex items-center justify-between gap-3 relative z-10">
-          <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-            <Trophy className="w-5 h-5 text-amber-400" /> Atividade Anual
-          </h3>
-          <span className="text-xs font-bold text-slate-500 bg-slate-950/80 px-3 py-1 rounded-xl border border-slate-800">
-            {totalYearRevisions} revisões no ano
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 relative z-10">
-          <div className="bg-slate-950/70 border border-amber-500/20 rounded-2xl p-4 flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-              <Flame className="w-5 h-5 fill-current" />
-            </div>
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Ofensiva</span>
-              <div className="flex items-baseline gap-2 mt-0.5">
-                <span className="text-xl font-black text-amber-400">{currentStreak}d</span>
-                <span className="text-xs text-slate-500 font-semibold">Recorde: <strong className="text-slate-300">{longestStreak}d</strong></span>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-slate-950/70 border border-indigo-500/20 rounded-2xl p-4 flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
-              <Award className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Melhor Dia</span>
-              <div className="flex items-baseline gap-2 mt-0.5">
-                <span className="text-base sm:text-lg font-black text-indigo-300 truncate">{bestDayName}</span>
-                {bestDowIndex !== -1 && <span className="text-xs text-slate-500 font-semibold">~{bestDayAvg}/dia</span>}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-slate-950/70 border border-emerald-500/20 rounded-2xl p-4 flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
-              <CalendarDays className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Consistência</span>
-              <div className="flex items-baseline gap-2 mt-0.5">
-                <span className="text-xl font-black text-emerald-400">{studiedDaysYear}d</span>
-                <span className="text-xs text-slate-500 font-semibold">{annualConsistencyPct}% do ano</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="w-full overflow-x-auto custom-scrollbar pb-2 pt-4 relative z-10">
-          <div className="min-w-[740px] flex flex-col gap-1.5">
-            <div className="flex items-center gap-1 pl-8 mb-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              {weeks.map((week, wIdx) => {
-                const firstOfMonth = week.find(c => !c.empty && c.dayOfMonth <= 7 && (wIdx === 0 || weeks[wIdx - 1].every(prev => prev.empty || prev.month !== c.month)));
-                return (
-                  <div key={wIdx} className="w-3 shrink-0 relative h-3">
-                    {firstOfMonth && (
-                      <span className="absolute left-0 top-0 whitespace-nowrap">{shortMonths[firstOfMonth.month]}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-start gap-1">
-              <div className="flex flex-col gap-1 pr-2 text-[9px] font-bold text-slate-500 uppercase leading-3 select-none">
-                <span className="h-3 flex items-center">Dom</span>
-                <span className="h-3 flex items-center opacity-0">Seg</span>
-                <span className="h-3 flex items-center">Ter</span>
-                <span className="h-3 flex items-center opacity-0">Qua</span>
-                <span className="h-3 flex items-center">Qui</span>
-                <span className="h-3 flex items-center opacity-0">Sex</span>
-                <span className="h-3 flex items-center">Sáb</span>
-              </div>
-
-              <div className="flex items-center gap-1">
-                {weeks.map((week, wIdx) => (
-                  <div key={wIdx} className="flex flex-col gap-1">
-                    {Array.from({ length: 7 }).map((_, dIdx) => {
-                      const cell = week[dIdx];
-                      if (!cell || cell.empty) {
-                        return <div key={`empty-${wIdx}-${dIdx}`} className="w-3 h-3 rounded-[3px] bg-transparent" />;
-                      }
-                      let cellColor = 'bg-slate-950 border border-slate-800/80';
-                      if (cell.count === 0 && cell.isRecovered) {
-                        cellColor = 'bg-indigo-600/70 border border-indigo-400/50';
-                      } else if (cell.count > 0 && cell.count < 5) {
-                        cellColor = 'bg-emerald-900/80 border border-emerald-800';
-                      } else if (cell.count >= 5 && cell.count < 15) {
-                        cellColor = 'bg-emerald-700 border border-emerald-600';
-                      } else if (cell.count >= 15 && cell.count < 30) {
-                        cellColor = 'bg-emerald-500 border border-emerald-400';
-                      } else if (cell.count >= 30) {
-                        cellColor = 'bg-emerald-300 border border-emerald-200 shadow-[0_0_6px_rgba(52,211,153,0.5)]';
-                      }
-
-                      return (
-                        <div
-                          key={cell.key}
-                          className={`w-3 h-3 rounded-[3px] transition-transform hover:scale-150 hover:z-30 relative group/hcell cursor-default ${cellColor}`}
-                        >
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 opacity-0 group-hover/hcell:opacity-100 pointer-events-none transition-opacity bg-slate-800 text-slate-100 text-[10px] font-semibold px-2 py-1 rounded-lg whitespace-nowrap shadow-xl border border-slate-700 z-50">
-                            <span className="text-emerald-400 font-bold">{cell.count} rev</span> em {cell.labelDate}
-                            {cell.isRecovered && cell.count === 0 && <span className="text-indigo-300 ml-1">(Recuperada)</span>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 mt-2 text-[10px] text-slate-500 font-semibold">
-              <span>Menos</span>
-              <span className="w-3 h-3 rounded-[3px] bg-slate-950 border border-slate-800"></span>
-              <span className="w-3 h-3 rounded-[3px] bg-emerald-900/80 border border-emerald-800"></span>
-              <span className="w-3 h-3 rounded-[3px] bg-emerald-700 border border-emerald-600"></span>
-              <span className="w-3 h-3 rounded-[3px] bg-emerald-500 border border-emerald-400"></span>
-              <span className="w-3 h-3 rounded-[3px] bg-emerald-300 border border-emerald-200"></span>
-              <span>Mais</span>
-            </div>
-          </div>
-        </div>
       </div>
     );
   };
@@ -3160,13 +2004,18 @@ export default function App() {
         )}
 
         {mainTab === 'stats' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 mb-8 pb-10">
-            <div className="lg:col-span-2 xl:col-span-2">{renderCalendar()}</div>
-            <div className="lg:col-span-1 xl:col-span-1">{renderMastery()}</div>
-            <div className="lg:col-span-1 xl:col-span-1">{renderDeckDistribution()}</div>
-            <div className="lg:col-span-2 xl:col-span-2">{renderForecast()}</div>
-            <div className="lg:col-span-2 xl:col-span-3">{renderAnnualHeatmap()}</div>
-          </div>
+          <StatsView
+            validDecks={validDecks}
+            calendarMonth={calendarMonth}
+            setCalendarMonth={setCalendarMonth}
+            getDailyCount={getDailyCount}
+            streakRecoveries={streakRecoveries}
+            setStreakRecoveryDate={setStreakRecoveryDate}
+            forecastPeriod={forecastPeriod}
+            setForecastPeriod={setForecastPeriod}
+            calculateStreak={calculateStreak}
+            calculateLongestStreak={calculateLongestStreak}
+          />
         )}
         
         {mainTab === 'reports' && renderReports()}
@@ -3934,398 +2783,102 @@ export default function App() {
       )}
 
       {/* MODAL CONFIGURAÇÕES & BACKUP */}
-      {isSettingsOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsSettingsOpen(false)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
-            <h3 className="text-2xl font-bold text-slate-100 mb-6 flex items-center gap-2"><Settings className="w-6 h-6 text-indigo-400" /> Configurações</h3>
-            <form onSubmit={handleSaveSettings} className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1.5">Meta Diária (cartões)</label>
-                <input type="number" min="1" max="1000" required value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
-              </div>
-
-              <div className="pt-3 border-t border-slate-800/80">
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="text-sm font-medium text-slate-300">Retenção Desejada FSRS</label>
-                  <span className="text-sm font-black text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded-lg border border-indigo-500/20">{Math.round(desiredRetention * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.75"
-                  max="0.97"
-                  step="0.01"
-                  value={desiredRetention}
-                  onChange={(e) => setDesiredRetention(parseFloat(e.target.value))}
-                  className="w-full accent-indigo-500 cursor-pointer"
-                />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Valores maiores (ex: 95%) agendam revisões mais frequentes; valores menores (ex: 85%) espaçam mais os cartões. Padrão: 90%.
-                </p>
-              </div>
-
-              <div className="pt-4 border-t border-slate-800">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Backup e Exportação de Dados</h4>
-                <div className="grid grid-cols-1 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={handleExportJSON}
-                    className="w-full flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 font-semibold py-2.5 px-4 rounded-xl transition-colors text-sm"
-                  >
-                    <Download className="w-4 h-4" /> Exportar Backup Completo (.json)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => backupInputRef.current?.click()}
-                    className="w-full flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-emerald-400 border border-slate-800 font-semibold py-2.5 px-4 rounded-xl transition-colors text-sm"
-                  >
-                    <Upload className="w-4 h-4" /> Restaurar Backup (.json)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleExportCSV}
-                    className="w-full flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 font-semibold py-2.5 px-4 rounded-xl transition-colors text-sm"
-                  >
-                    <Download className="w-4 h-4" /> Exportar Planilha de Cartões (.csv)
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800">
-                <button type="button" onClick={() => setIsSettingsOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        dailyGoal={dailyGoal}
+        setDailyGoal={setDailyGoal}
+        desiredRetention={desiredRetention}
+        setDesiredRetention={setDesiredRetention}
+        onSave={handleSaveSettings}
+        onExportJSON={handleExportJSON}
+        onTriggerRestoreBackup={() => backupInputRef.current?.click()}
+        onExportCSV={handleExportCSV}
+      />
 
       {/* MODAL ESTUDO PERSONALIZADO / SIMULADO */}
-      {isCustomStudyModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[85] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsCustomStudyModalOpen(false)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl p-6 sm:p-7 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between gap-4 mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-indigo-400 shrink-0">
-                  <SlidersHorizontal className="w-5 h-5" />
-                </div>
-                <h3 className="text-xl font-bold text-white">Estudo Personalizado</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsCustomStudyModalOpen(false)}
-                className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded-xl transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      <CustomStudyModal
+        isOpen={isCustomStudyModalOpen}
+        onClose={() => setIsCustomStudyModalOpen(false)}
+        config={customStudyConfig}
+        setConfig={setCustomStudyConfig}
+        onStart={handleStartCustomStudy}
+        availableTags={getAllGlobalTags(validDecks)}
+        matchedCardsCount={getFilteredCustomStudyCards(customStudyConfig).length}
+      />
 
-            <form onSubmit={handleStartCustomStudy} className="space-y-5">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Modo de Filtro</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {[
-                    { id: 'cram', label: 'Simulado Geral (Sorteio)', Icon: Sparkles },
-                    { id: 'unlearned', label: 'Apenas Não Aprendidos', Icon: Layers },
-                    { id: 'due_only', label: 'Apenas Pendentes Hoje', Icon: CalendarDays },
-                    { id: 'new_only', label: 'Apenas Cartões Novos', Icon: Plus },
-                    { id: 'leeches', label: 'Apenas Sanguessugas', Icon: AlertTriangle },
-                    { id: 'interactive', label: 'Apenas Interativos', Icon: CheckSquare },
-                  ].map(p => {
-                    const PresetIcon = p.Icon;
-                    const isSelected = customStudyConfig.preset === p.id;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => setCustomStudyConfig(prev => ({ ...prev, preset: p.id }))}
-                        className={`p-3.5 rounded-xl text-left border transition-all flex items-center gap-3 ${
-                          isSelected
-                            ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/40'
-                            : 'bg-slate-950/80 text-slate-300 border-slate-800/90 hover:border-slate-700 hover:bg-slate-950'
-                        }`}
-                      >
-                        <PresetIcon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-indigo-400' : 'text-slate-500'}`} />
-                        <span className="text-xs sm:text-sm font-semibold truncate">{p.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+      {/* MODAIS DE AÇÃO E CONFIRMAÇÃO */}
+      <StreakRecoveryModal
+        streakRecoveryDate={streakRecoveryDate}
+        onClose={() => setStreakRecoveryDate(null)}
+        onConfirm={confirmRecoverStreak}
+      />
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Tipo de Cartão</label>
-                  <select
-                    value={customStudyConfig.cardType}
-                    onChange={(e) => setCustomStudyConfig(prev => ({ ...prev, cardType: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm font-medium rounded-xl p-3 focus:outline-none focus:border-indigo-500 transition-colors"
-                  >
-                    <option value="all">Todos os Tipos</option>
-                    <option value="standard">Padrão</option>
-                    <option value="choice_tf">Múltipla Escolha + V/F</option>
-                    <option value="choice">Apenas Múltipla Escolha</option>
-                    <option value="tf">Apenas V/F</option>
-                    <option value="typing">Apenas Digitação</option>
-                  </select>
-                </div>
+      <MoveItemModal
+        isOpen={isMoveModalOpen}
+        onClose={() => setIsMoveModalOpen(false)}
+        itemToMove={itemToMove}
+        moveTargetFolderId={moveTargetFolderId}
+        setMoveTargetFolderId={setMoveTargetFolderId}
+        folderPaths={getFolderPaths(itemToMove?.type === 'folder' ? itemToMove.id : null)}
+        onConfirm={handleMoveItem}
+      />
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Etiqueta (#tag)</label>
-                  <select
-                    value={customStudyConfig.tag}
-                    onChange={(e) => setCustomStudyConfig(prev => ({ ...prev, tag: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm font-medium rounded-xl p-3 focus:outline-none focus:border-indigo-500 transition-colors"
-                  >
-                    <option value="all">Todas as #tags</option>
-                    {getAllGlobalTags().map(t => (
-                      <option key={t} value={t}>#{t}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+      <MoveCardsModal
+        isOpen={isMoveCardsModalOpen}
+        onClose={() => setIsMoveCardsModalOpen(false)}
+        selectedCount={selectedCardIds.size}
+        moveCardsTargetDeckId={moveCardsTargetDeckId}
+        setMoveCardsTargetDeckId={setMoveCardsTargetDeckId}
+        availableDecks={validDecks.filter((d) => d.id !== activeDeckId)}
+        onConfirm={handleMoveCards}
+      />
 
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Limite de Cartões na Sessão</label>
-                  <span className="text-xs font-bold text-indigo-400">{customStudyConfig.limit === 0 ? 'Todos os encontrados' : `${customStudyConfig.limit} cartões`}</span>
-                </div>
-                <div className="flex gap-2">
-                  {[10, 20, 30, 50, 0].map(lim => (
-                    <button
-                      key={lim}
-                      type="button"
-                      onClick={() => setCustomStudyConfig(prev => ({ ...prev, limit: lim }))}
-                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all ${
-                        customStudyConfig.limit === lim
-                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50 shadow-sm'
-                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
-                      }`}
-                    >
-                      {lim === 0 ? 'Todos' : lim}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-slate-950/90 border border-slate-800/90 rounded-2xl px-4 py-3.5 flex items-center justify-between">
-                <span className="text-xs sm:text-sm font-medium text-slate-400">Cartões encontrados com esses filtros:</span>
-                <span className="text-lg font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-0.5 rounded-xl">
-                  {getFilteredCustomStudyCards(customStudyConfig).length}
-                </span>
-              </div>
-
-              <div className="flex gap-3 pt-3 border-t border-slate-800">
-                <button type="button" onClick={() => setIsCustomStudyModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3.5 rounded-2xl transition-colors">Cancelar</button>
-                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95 flex items-center justify-center gap-2">
-                  <Play className="w-4 h-4 fill-current" /> Iniciar Treino
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL RECUPERAR OFENSIVA (Calendário) */}
-      {streakRecoveryDate && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setStreakRecoveryDate(null)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-indigo-500/20"><History className="w-8 h-8" /></div>
-            <h3 className="text-xl font-bold text-slate-100 mb-2">Recuperar Ofensiva?</h3>
-            <p className="text-slate-400 mb-6 text-sm">Usar recuperação para o dia {streakRecoveryDate.split('-').reverse().join('/')}. Isso manterá sua ofensiva viva.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setStreakRecoveryDate(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-              <button onClick={confirmRecoverStreak} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Recuperar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL MOVER PASTA/BARALHO ÚNICO */}
-      {isMoveModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveModalOpen(false)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-slate-100 mb-6 flex items-center gap-2"><CornerUpRight className="w-6 h-6 text-indigo-400" /> Mover "{itemToMove?.name}"</h3>
-            <div className="space-y-4">
-              <label className="block text-sm font-medium text-slate-400">Selecionar Destino</label>
-              <select
-                value={moveTargetFolderId || ''}
-                onChange={(e) => setMoveTargetFolderId(e.target.value === '' ? null : e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 text-slate-300 py-3 px-4 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors"
-              >
-                {getFolderPaths(itemToMove?.type === 'folder' ? itemToMove.id : null).map(path => (
-                  <option key={path.id || 'root'} value={path.id || ''}>{path.path}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800/50">
-              <button onClick={() => setIsMoveModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-              <button onClick={handleMoveItem} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Mover</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL MOVER MÚLTIPLOS CARTÕES */}
-      {isMoveCardsModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsMoveCardsModalOpen(false)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-slate-100 mb-6 flex items-center gap-2"><CornerUpRight className="w-6 h-6 text-indigo-400" /> Mover {selectedCardIds.size} cartões</h3>
-            <div className="space-y-4">
-              <label className="block text-sm font-medium text-slate-400">Selecionar Baralho de Destino</label>
-              <select
-                value={moveCardsTargetDeckId || ''}
-                onChange={(e) => setMoveCardsTargetDeckId(e.target.value === '' ? null : e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 text-slate-300 py-3 px-4 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors"
-              >
-                <option value="" disabled>Escolha um baralho...</option>
-                {validDecks.filter(d => d.id !== activeDeckId).map(deck => (
-                  <option key={deck.id} value={deck.id}>{deck.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex gap-3 mt-8 pt-4 border-t border-slate-800/50">
-              <button onClick={() => setIsMoveCardsModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-              <button onClick={handleMoveCards} disabled={!moveCardsTargetDeckId} className={`flex-1 font-medium py-3 rounded-xl transition-all shadow-lg active:scale-95 ${moveCardsTargetDeckId ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/25' : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'}`}>Confirmar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL ELIMINAR */}
-      {itemToDelete && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setItemToDelete(null)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="w-16 h-16 bg-rose-500/10 text-rose-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-rose-500/20"><Trash2 className="w-8 h-8" /></div>
-            <h3 className="text-xl font-bold text-slate-100 mb-2">Eliminar {itemToDelete.type === 'folder' ? 'Pasta' : 'Baralho'}?</h3>
-            <p className="text-slate-400 mb-6 text-sm">Esta ação é irreversível.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setItemToDelete(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-              <button onClick={confirmDelete} className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-rose-500/25 active:scale-95">Eliminar</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteConfirmModal
+        itemToDelete={itemToDelete}
+        onClose={() => setItemToDelete(null)}
+        onConfirm={confirmDelete}
+      />
 
       {/* MODAL CRIAR/EDITAR PASTA/BARALHO */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={closeAndResetModal}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <h3 className="text-2xl font-bold text-slate-100 mb-6">{modalMode === 'edit' ? 'Editar ' : 'Criar nov'}{modalType === 'folder' ? 'a Pasta' : 'o Baralho'}</h3>
-            <form onSubmit={handleCreateOrEditItem} className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Nome</label>
-                <input type="text" autoFocus value={newItemName} onChange={(e) => setNewItemName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors" />
-              </div>
-              {modalType === 'deck' && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Descrição</label>
-                  <textarea value={newItemDesc} onChange={(e) => setNewItemDesc(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-20 custom-scrollbar transition-colors" />
-                </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center gap-2"><Palette className="w-4 h-4" /> Estilo Visual</label>
-                <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
-                  {modalType === 'folder' && FOLDER_THEMES.map(theme => (
-                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`relative shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 ${theme.color} ${newItemColor === theme.color ? 'ring-2 ring-white ring-offset-2 ring-slate-900 scale-110 z-10 shadow-lg shadow-black/50' : 'opacity-70 hover:opacity-100 hover:scale-105'}`} title={theme.label}>
-                      <Folder className="w-6 h-6 fill-current opacity-20 absolute" /><Folder className="w-6 h-6 relative z-10" />
-                    </button>
-                  ))}
-                  {modalType !== 'folder' && DECK_THEMES.map(theme => (
-                    <button key={theme.id} type="button" onClick={() => setNewItemColor(theme.color)} className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 ${theme.color} ${newItemColor === theme.color ? 'ring-2 ring-white ring-offset-2 ring-slate-900 scale-110 z-10' : 'opacity-70 hover:opacity-100 hover:scale-105'}`} title={theme.label}>
-                      <BookOpen className="w-6 h-6" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex gap-3 mt-8 pt-2">
-                <button type="button" onClick={closeAndResetModal} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">{modalMode === 'edit' ? 'Guardar' : 'Criar'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <FolderDeckModal
+        isOpen={isModalOpen}
+        onClose={closeAndResetModal}
+        modalMode={modalMode}
+        modalType={modalType}
+        newItemName={newItemName}
+        setNewItemName={setNewItemName}
+        newItemDesc={newItemDesc}
+        setNewItemDesc={setNewItemDesc}
+        newItemColor={newItemColor}
+        setNewItemColor={setNewItemColor}
+        onSubmit={handleCreateOrEditItem}
+      />
 
       {/* MODAL EDITAR CARTÃO NA REVISÃO */}
-      {isCardEditModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsCardEditModalOpen(false)}>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-slate-200 mb-6 flex items-center gap-2 shrink-0">
-              <Pencil className="w-5 h-5 text-indigo-400" /> Editar Cartão
-            </h3>
-            
-            <div className="overflow-y-auto custom-scrollbar pr-2 flex-grow">
-              <div className="grid grid-cols-2 gap-2 bg-slate-950 p-2 rounded-xl mb-6 border border-slate-800">
-                {CARD_TYPES.map(type => {
-                  const IconComp = type.Icon;
-                  return (
-                    <button key={type.id} type="button" onClick={() => setCardType(type.id)} className={`flex items-center justify-center gap-2 px-3 py-3 rounded-lg text-sm font-medium transition-all ${cardType === type.id ? 'bg-indigo-500/20 text-indigo-400 shadow-sm border border-indigo-500/30' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800 border border-transparent'}`}>
-                      <IconComp className="w-4 h-4" /> {type.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <form id="edit-card-form" onSubmit={(e) => { handleSaveCard(e); setIsCardEditModalOpen(false); }} className="space-y-4">
-                <RichTextEditor label="Frente" placeholder="" value={newCardFront} onChange={setNewCardFront} />
-
-                {cardType === 'choice' && (
-                  <div className="space-y-2 pt-2 border-t border-slate-800">
-                    <label className="block text-sm font-medium text-slate-400">Opções</label>
-                    {choiceOptions.map((opt, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
-                        <button type="button" onClick={() => setCorrectOption(idx)} className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center border transition-all ${correctOption === idx ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-700 text-transparent hover:border-slate-500'}`}><Check className="w-3 h-3" /></button>
-                        <input type="text" value={opt} onChange={(e) => updateChoiceOption(idx, e.target.value)} className={`w-full bg-slate-950 border text-sm rounded-lg p-2 focus:outline-none transition-colors ${correctOption === idx ? 'border-emerald-500/50 text-emerald-100' : 'border-slate-800 text-slate-300 focus:border-indigo-500'}`} placeholder="" />
-                        {choiceOptions.length > 2 && (
-                          <button type="button" onClick={() => removeChoiceOption(idx)} className="p-2 text-slate-500 hover:text-rose-400 transition-colors rounded-lg"><X className="w-4 h-4" /></button>
-                        )}
-                      </div>
-                    ))}
-                    {choiceOptions.length < 6 && (
-                      <button type="button" onClick={addChoiceOption} className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mt-2 p-1"><Plus className="w-4 h-4"/> Adicionar opção</button>
-                    )}
-                  </div>
-                )}
-                {cardType === 'tf' && (
-                  <div className="pt-2 border-t border-slate-800">
-                    <label className="block text-sm font-medium text-slate-400 mb-2">Qual a certa?</label>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => setTfCorrect(true)} className={`flex-1 py-2 rounded-lg font-bold border transition-all ${tfCorrect ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Verdadeiro</button>
-                      <button type="button" onClick={() => setTfCorrect(false)} className={`flex-1 py-2 rounded-lg font-bold border transition-all ${!tfCorrect ? 'bg-rose-500/20 border-rose-500 text-rose-400' : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Falso</button>
-                    </div>
-                  </div>
-                )}
-                {cardType === 'typing' && (
-                  <div className="pt-2 border-t border-slate-800">
-                    <label className="block text-sm font-medium text-slate-400 mb-1">Gabarito</label>
-                    <input type="text" value={typeAnswer} onChange={(e) => setTypeAnswer(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-indigo-300 font-mono rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="" />
-                  </div>
-                )}
-                <div className="pt-2 border-t border-slate-800">
-                  <RichTextEditor label="Verso" placeholder="" value={newCardBack} onChange={setNewCardBack} />
-                </div>
-                <div className="pt-2 border-t border-slate-800">
-                  <label className="block text-sm font-medium text-slate-400 mb-1.5 flex items-center gap-1.5">
-                    <Tag className="w-3.5 h-3.5 text-indigo-400" /> Etiquetas (#tags)
-                  </label>
-                  <input
-                    type="text"
-                    value={cardTagsInput}
-                    onChange={(e) => setCardTagsInput(e.target.value)}
-                    placeholder="Ex: #importante #formula #edital"
-                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-              </form>
-            </div>
-            
-            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-800 shrink-0">
-              <button type="button" onClick={() => setIsCardEditModalOpen(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors active:scale-95">Cancelar</button>
-              <button type="submit" form="edit-card-form" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/25 active:scale-95">Guardar Alterações</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CardEditModal
+        isOpen={isCardEditModalOpen}
+        onClose={() => setIsCardEditModalOpen(false)}
+        cardType={cardType}
+        setCardType={setCardType}
+        newCardFront={newCardFront}
+        setNewCardFront={setNewCardFront}
+        newCardBack={newCardBack}
+        setNewCardBack={setNewCardBack}
+        choiceOptions={choiceOptions}
+        updateChoiceOption={updateChoiceOption}
+        addChoiceOption={addChoiceOption}
+        removeChoiceOption={removeChoiceOption}
+        correctOption={correctOption}
+        setCorrectOption={setCorrectOption}
+        tfCorrect={tfCorrect}
+        setTfCorrect={setTfCorrect}
+        typeAnswer={typeAnswer}
+        setTypeAnswer={setTypeAnswer}
+        cardTagsInput={cardTagsInput}
+        setCardTagsInput={setCardTagsInput}
+        onSave={handleSaveCard}
+      />
 
       {/* TOASTS */}
       <Toast toast={toast} />
