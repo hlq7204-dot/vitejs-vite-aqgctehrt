@@ -23,14 +23,6 @@ import type { Deck } from '../../types';
 import { checkCardDue, isCardBuried } from '../../utils/fsrs';
 import { getCardStats, getTodayStr } from '../../utils/helpers';
 
-export interface CalendarEventItem {
-  id: string;
-  title: string;
-  type: 'task' | 'reminder';
-  time?: string;
-  completed?: boolean;
-}
-
 interface StatsViewProps {
   validDecks: Deck[];
   calendarMonth: Date;
@@ -42,8 +34,6 @@ interface StatsViewProps {
   setForecastPeriod: (period: string) => void;
   calculateStreak: () => number;
   calculateLongestStreak: () => number;
-  calendarEvents?: Record<string, CalendarEventItem[]>;
-  onUpdateCalendarEvents?: (newEvents: Record<string, CalendarEventItem[]>) => void;
 }
 
 export const StatsView: React.FC<StatsViewProps> = ({
@@ -57,84 +47,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
   setForecastPeriod,
   calculateStreak,
   calculateLongestStreak,
-  calendarEvents = {},
-  onUpdateCalendarEvents,
 }) => {
-  const [selectedDate, setSelectedDate] = useState<string>(() => getTodayStr());
-  const [newItemTitle, setNewItemTitle] = useState('');
-  const [newItemType, setNewItemType] = useState<'task' | 'reminder'>('task');
-  const [newItemTime, setNewItemTime] = useState('');
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-
-  const handleSaveCalendarItem = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newItemTitle.trim() || !onUpdateCalendarEvents) return;
-
-    const currentDayItems = [...(calendarEvents[selectedDate] || [])];
-    if (editingItemId) {
-      const updated = currentDayItems.map((item) =>
-        item.id === editingItemId
-          ? {
-              ...item,
-              title: newItemTitle.trim(),
-              type: newItemType,
-              time: newItemTime || undefined,
-            }
-          : item
-      );
-      onUpdateCalendarEvents({ ...calendarEvents, [selectedDate]: updated });
-      setEditingItemId(null);
-    } else {
-      const newItem: CalendarEventItem = {
-        id: `ev-${Date.now()}`,
-        title: newItemTitle.trim(),
-        type: newItemType,
-        time: newItemTime || undefined,
-        completed: false,
-      };
-      onUpdateCalendarEvents({
-        ...calendarEvents,
-        [selectedDate]: [...currentDayItems, newItem],
-      });
-    }
-
-    setNewItemTitle('');
-    setNewItemTime('');
-  };
-
-  const handleToggleTask = (itemId: string) => {
-    if (!onUpdateCalendarEvents) return;
-    const currentDayItems = calendarEvents[selectedDate] || [];
-    const updated = currentDayItems.map((item) =>
-      item.id === itemId ? { ...item, completed: !item.completed } : item
-    );
-    onUpdateCalendarEvents({ ...calendarEvents, [selectedDate]: updated });
-  };
-
-  const handleDeleteCalendarItem = (itemId: string) => {
-    if (!onUpdateCalendarEvents) return;
-    const currentDayItems = calendarEvents[selectedDate] || [];
-    const updated = currentDayItems.filter((item) => item.id !== itemId);
-    const nextMap = { ...calendarEvents };
-    if (updated.length > 0) {
-      nextMap[selectedDate] = updated;
-    } else {
-      delete nextMap[selectedDate];
-    }
-    onUpdateCalendarEvents(nextMap);
-    if (editingItemId === itemId) {
-      setEditingItemId(null);
-      setNewItemTitle('');
-      setNewItemTime('');
-    }
-  };
-
-  const handleStartEditItem = (item: CalendarEventItem) => {
-    setEditingItemId(item.id);
-    setNewItemTitle(item.title);
-    setNewItemType(item.type);
-    setNewItemTime(item.time || '');
-  };
   const renderMastery = () => {
     const gCards = validDecks
       .filter((d) => !d.isIgnored)
