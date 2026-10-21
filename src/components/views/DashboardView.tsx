@@ -748,7 +748,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
 
 {mainTab === 'stats' && (
-        <StatsView calculateLongestStreak="{calculateLongestStreak}" calculateStreak="{calculateStreak}" calendarEvents="{calendarEvents}" calendarMonth="{calendarMonth}" forecastPeriod="{forecastPeriod}" getDailyCount="{getDailyCount}" onUpdateCalendarEvents="{onUpdateCalendarEvents}" setCalendarMonth="{setCalendarMonth}" setForecastPeriod="{setForecastPeriod}" setStreakRecoveryDate="{setStreakRecoveryDate}" streakRecoveries="{streakRecoveries}" validDecks="{validDecks}"/>
+        <StatsView
+          validDecks={validDecks}
+          calendarMonth={calendarMonth}
+          setCalendarMonth={setCalendarMonth}
+          getDailyCount={getDailyCount}
+          streakRecoveries={streakRecoveries}
+          setStreakRecoveryDate={setStreakRecoveryDate}
+          forecastPeriod={forecastPeriod}
+          setForecastPeriod={setForecastPeriod}
+          calculateStreak={calculateStreak}
+          calculateLongestStreak={calculateLongestStreak}
+          calendarEvents={calendarEvents}
+          onUpdateCalendarEvents={onUpdateCalendarEvents}
+        />
       )}
 
       {mainTab === 'reports' && (
