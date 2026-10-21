@@ -97,6 +97,10 @@ export default function App() {
     try { const saved = localStorage.getItem('lumina_streakRecoveries'); if (saved) { const p = JSON.parse(saved); return Array.isArray(p) ? p : []; } } catch (e) {}
     return [];
   });
+  const [calendarEvents, setCalendarEvents] = useState(() => {
+    try { const saved = localStorage.getItem('lumina_calendarEvents'); if (saved) { const p = JSON.parse(saved); return typeof p === 'object' && p !== null && !Array.isArray(p) ? p : {}; } } catch (e) {}
+    return {};
+  });
 
   const [dailyGoal, setDailyGoal] = useState(() => {
     try { const saved = localStorage.getItem('lumina_dailyGoal'); if (saved) return parseInt(saved); } catch(e){} return 50;
@@ -206,22 +210,27 @@ export default function App() {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
 
-  const syncDataToCloud = (newMap, newRecs) => {
+  const syncDataToCloud = (newMap, newRecs, newCalEvents = null) => {
     if (!user || !db) return;
     const payload = {};
     if (newMap) payload.activityMap = newMap;
     if (newRecs) payload.streakRecoveries = newRecs;
+    if (newCalEvents) payload.calendarEvents = newCalEvents;
     if (Object.keys(payload).length > 0) {
       setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), payload, { merge: true }).catch(console.error);
     }
+  };
+
+  const handleUpdateCalendarEvents = (newEvents) => {
+    setCalendarEvents(newEvents);
+    syncDataToCloud(null, null, newEvents);
   };
 
   useEffect(() => { try { localStorage.setItem('lumina_decks', JSON.stringify(decks)); } catch(e){} }, [decks]);
   useEffect(() => { try { localStorage.setItem('lumina_folders', JSON.stringify(folders)); } catch(e){} }, [folders]);
   useEffect(() => { try { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); } catch(e){} }, [activityMap]);
   useEffect(() => { try { localStorage.setItem('lumina_streakRecoveries', JSON.stringify(streakRecoveries)); } catch(e){} }, [streakRecoveries]);
-  useEffect(() => { try { localStorage.setItem('lumina_dailyGoal', dailyGoal); } catch(e){} }, [dailyGoal]);
-  useEffect(() => { try { localStorage.setItem('lumina_desiredRetention', desiredRetention); } catch(e){} }, [desiredRetention]);
+  useEffect(() => { try { localStorage.setItem('lumina_calendarEvents', JSON.stringify(calendarEvents)); } catch(e){} }, [calendarEvents]);
 
   useEffect(() => {
     if (!hasCleanedUpPhantoms.current && Object.keys(activityMap).length > 0) {
@@ -298,7 +307,7 @@ export default function App() {
   const handleLogout = async () => {
     try {
       if (auth) await signOut(auth);
-      setDecks([]); setFolders([]); setActivityMap({}); setStreakRecoveries([]);
+      setDecks([]); setFolders([]); setActivityMap({}); setStreakRecoveries([]); setCalendarEvents({});
       setCurrentView('dashboard'); setMainTab('home');
     } catch (error) {
       console.error("Erro ao sair:", error);
@@ -323,6 +332,7 @@ export default function App() {
           setDoc(profileRef, { activityMap: cleanMap, streakRecoveries: cleanRecoveries }, { merge: true }).catch(console.error);
         }
 
+        if (data.calendarEvents && typeof data.calendarEvents === 'object') setCalendarEvents(data.calendarEvents);
         if (data.dailyGoal) setDailyGoal(data.dailyGoal);
         if (data.desiredRetention) setDesiredRetention(clamp(parseFloat(data.desiredRetention), 0.75, 0.97));
       } else {
@@ -330,7 +340,9 @@ export default function App() {
         const activityToSync = localActivity ? JSON.parse(localActivity) : {};
         const localRecs = localStorage.getItem('lumina_streakRecoveries');
         const recsToSync = localRecs ? JSON.parse(localRecs) : [];
-        setDoc(profileRef, { activityMap: activityToSync, streakRecoveries: recsToSync, dailyGoal: 50, desiredRetention: 0.90 }).catch(console.error);
+        const localCalEvents = localStorage.getItem('lumina_calendarEvents');
+        const calEventsToSync = localCalEvents ? JSON.parse(localCalEvents) : {};
+        setDoc(profileRef, { activityMap: activityToSync, streakRecoveries: recsToSync, calendarEvents: calEventsToSync, dailyGoal: 50, desiredRetention: 0.90 }).catch(console.error);
       }
     }, console.error);
 
@@ -1380,6 +1392,8 @@ export default function App() {
                 reportDeckId={reportDeckId}
                 setReportDeckId={setReportDeckId}
                 desiredRetention={desiredRetention}
+                calendarEvents={calendarEvents}
+                onUpdateCalendarEvents={handleUpdateCalendarEvents}
               />
             )}
             {currentView === 'deck-detail' && (

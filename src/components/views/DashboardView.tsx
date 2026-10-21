@@ -97,6 +97,8 @@ interface DashboardViewProps {
   reportDeckId: string;
   setReportDeckId: (deckId: string) => void;
   desiredRetention: number;
+  calendarEvents?: Record<string, any[]>;
+  onUpdateCalendarEvents?: (newEvents: Record<string, any[]>) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -144,6 +146,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   reportDeckId,
   setReportDeckId,
   desiredRetention,
+  calendarEvents = {},
+  onUpdateCalendarEvents,
 }) => {
   const renderStatBadges = (stats: CardStats) => {
     if (calculateTotalDue(stats) === 0) return null;
@@ -743,19 +747,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {mainTab === 'stats' && (
-        <StatsView
-          validDecks={validDecks}
-          calendarMonth={calendarMonth}
-          setCalendarMonth={setCalendarMonth}
-          getDailyCount={getDailyCount}
-          streakRecoveries={streakRecoveries}
-          setStreakRecoveryDate={setStreakRecoveryDate}
-          forecastPeriod={forecastPeriod}
-          setForecastPeriod={setForecastPeriod}
-          calculateStreak={calculateStreak}
-          calculateLongestStreak={calculateLongestStreak}
-        />
+{mainTab === 'stats' && (
+        <StatsView calculateLongestStreak="{calculateLongestStreak}" calculateStreak="{calculateStreak}" calendarEvents="{calendarEvents}" calendarMonth="{calendarMonth}" forecastPeriod="{forecastPeriod}" getDailyCount="{getDailyCount}" onUpdateCalendarEvents="{onUpdateCalendarEvents}" setCalendarMonth="{setCalendarMonth}" setForecastPeriod="{setForecastPeriod}" setStreakRecoveryDate="{setStreakRecoveryDate}" streakRecoveries="{streakRecoveries}" validDecks="{validDecks}"/>
       )}
 
       {mainTab === 'reports' && (
