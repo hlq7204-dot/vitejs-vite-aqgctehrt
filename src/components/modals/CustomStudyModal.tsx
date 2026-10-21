@@ -157,7 +157,7 @@ export const CustomStudyModal: React.FC<CustomStudyModalProps> = ({
               </span>
             </div>
             <div className="flex gap-2">
-              {[10, 20, 30, 50, 0].map((lim) => (
+              {[5, 10, 20, 30, 50, 0].map((lim) => (
                 <button
                   key={lim}
                   type="button"
