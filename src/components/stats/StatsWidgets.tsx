@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   PieChart,
   CalendarDays,
@@ -58,7 +58,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
   setForecastPeriod,
   calculateStreak,
   calculateLongestStreak,
-  calendarEvents = {},
+  calendarEvents,
   onUpdateCalendarEvents,
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayStr());
@@ -67,11 +67,41 @@ export const StatsView: React.FC<StatsViewProps> = ({
   const [newItemTime, setNewItemTime] = useState('');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
+  // Estado local persistente para garantir que Adicionar/Editar/Excluir sempre funcione
+  const [localEvents, setLocalEvents] = useState<Record<string, CalendarEventItem[]>>(() => {
+    try {
+      const saved = localStorage.getItem('lumina_calendarEvents');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return {};
+  });
+
+  useEffect(() => {
+    if (calendarEvents && Object.keys(calendarEvents).length > 0) {
+      setLocalEvents(calendarEvents);
+    }
+  }, [calendarEvents]);
+
+  const updateEvents = (nextMap: Record<string, CalendarEventItem[]>) => {
+    setLocalEvents(nextMap);
+    try {
+      localStorage.setItem('lumina_calendarEvents', JSON.stringify(nextMap));
+    } catch (e) {}
+    if (onUpdateCalendarEvents) {
+      onUpdateCalendarEvents(nextMap);
+    }
+  };
+
   const handleSaveCalendarItem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newItemTitle.trim() || !onUpdateCalendarEvents) return;
+    if (!newItemTitle.trim()) return;
 
-    const currentDayItems = [...(calendarEvents[selectedDate] || [])];
+    const currentDayItems = [...(localEvents[selectedDate] || [])];
     if (editingItemId) {
       const updated = currentDayItems.map((item) =>
         item.id === editingItemId
@@ -83,7 +113,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
             }
           : item
       );
-      onUpdateCalendarEvents({ ...calendarEvents, [selectedDate]: updated });
+      updateEvents({ ...localEvents, [selectedDate]: updated });
       setEditingItemId(null);
     } else {
       const newItem: CalendarEventItem = {
@@ -93,8 +123,8 @@ export const StatsView: React.FC<StatsViewProps> = ({
         time: newItemTime || undefined,
         completed: false,
       };
-      onUpdateCalendarEvents({
-        ...calendarEvents,
+      updateEvents({
+        ...localEvents,
         [selectedDate]: [...currentDayItems, newItem],
       });
     }
@@ -104,25 +134,23 @@ export const StatsView: React.FC<StatsViewProps> = ({
   };
 
   const handleToggleTask = (itemId: string) => {
-    if (!onUpdateCalendarEvents) return;
-    const currentDayItems = calendarEvents[selectedDate] || [];
+    const currentDayItems = localEvents[selectedDate] || [];
     const updated = currentDayItems.map((item) =>
       item.id === itemId ? { ...item, completed: !item.completed } : item
     );
-    onUpdateCalendarEvents({ ...calendarEvents, [selectedDate]: updated });
+    updateEvents({ ...localEvents, [selectedDate]: updated });
   };
 
   const handleDeleteCalendarItem = (itemId: string) => {
-    if (!onUpdateCalendarEvents) return;
-    const currentDayItems = calendarEvents[selectedDate] || [];
+    const currentDayItems = localEvents[selectedDate] || [];
     const updated = currentDayItems.filter((item) => item.id !== itemId);
-    const nextMap = { ...calendarEvents };
+    const nextMap = { ...localEvents };
     if (updated.length > 0) {
       nextMap[selectedDate] = updated;
     } else {
       delete nextMap[selectedDate];
     }
-    onUpdateCalendarEvents(nextMap);
+    updateEvents(nextMap);
     if (editingItemId === itemId) {
       setEditingItemId(null);
       setNewItemTitle('');
@@ -245,6 +273,9 @@ export const StatsView: React.FC<StatsViewProps> = ({
       cells.push(<div key={`empty-${i}`} className="p-2"></div>);
     }
     const todayStr = getTodayStr();
+    const nowDate = new Date();
+    const isCurrentMonthView =
+      year === nowDate.getFullYear() && month === nowDate.getMonth();
 
     for (let d = 1; d <= daysInMonth; d++) {
       const dateObj = new Date(year, month, d, 12, 0, 0);
@@ -262,7 +293,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
       const isRecovered = streakRecoveries.includes(dateStr);
       const isCompleted = count > 0 || isRecovered;
 
-      const dayItems = calendarEvents[dateStr] || [];
+      const dayItems = localEvents[dateStr] || [];
       const tasks = dayItems.filter((i) => i.type === 'task');
       const pendingTasksCount = tasks.filter((t) => !t.completed).length;
       const completedTasksCount = tasks.filter((t) => t.completed).length;
@@ -359,7 +390,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
       );
     }
 
-    const selectedDayItems = [...(calendarEvents[selectedDate] || [])].sort(
+    const selectedDayItems = [...(localEvents[selectedDate] || [])].sort(
       (a, b) => (a.time || '99:99').localeCompare(b.time || '99:99')
     );
     const selectedDateObj = new Date(selectedDate + 'T12:00:00');
@@ -379,8 +410,9 @@ export const StatsView: React.FC<StatsViewProps> = ({
             <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2">
               <CalendarDays className="w-5 h-5 text-emerald-400" /> Calendário & Agenda
             </h3>
-            <div className="flex items-center gap-3 mt-3">
+            <div className="flex items-center gap-3 mt-3 flex-wrap">
               <button
+                type="button"
                 onClick={prevMonth}
                 className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"
               >
@@ -390,14 +422,22 @@ export const StatsView: React.FC<StatsViewProps> = ({
                 {monthNames[month]} {year}
               </span>
               <button
+                type="button"
                 onClick={nextMonth}
                 className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
-              {selectedDate !== todayStr && (
+              {(selectedDate !== todayStr || !isCurrentMonthView) && (
                 <button
-                  onClick={() => setSelectedDate(todayStr)}
+                  type="button"
+                  onClick={() => {
+                    const current = new Date();
+                    setCalendarMonth(
+                      new Date(current.getFullYear(), current.getMonth(), 1)
+                    );
+                    setSelectedDate(todayStr);
+                  }}
                   className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-lg transition-colors"
                 >
                   Ir para Hoje
