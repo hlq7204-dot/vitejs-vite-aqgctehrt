@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   PieChart,
   CalendarDays,
@@ -20,6 +20,9 @@ import {
   X,
   History,
 } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { auth, db, appId } from '../../services/firebase';
 import type { Deck } from '../../types';
 import { checkCardDue, isCardBuried } from '../../utils/fsrs';
 import { getCardStats, getTodayStr } from '../../utils/helpers';
@@ -58,7 +61,6 @@ export const StatsView: React.FC<StatsViewProps> = ({
   setForecastPeriod,
   calculateStreak,
   calculateLongestStreak,
-  calendarEvents,
   onUpdateCalendarEvents,
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayStr());
@@ -66,8 +68,8 @@ export const StatsView: React.FC<StatsViewProps> = ({
   const [newItemType, setNewItemType] = useState<'task' | 'reminder'>('task');
   const [newItemTime, setNewItemTime] = useState('');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const isFirstSyncRef = useRef(true);
 
-  // Estado local persistente para garantir que Adicionar/Editar/Excluir sempre funcione
   const [localEvents, setLocalEvents] = useState<Record<string, CalendarEventItem[]>>(() => {
     try {
       const saved = localStorage.getItem('lumina_calendarEvents');
@@ -81,17 +83,103 @@ export const StatsView: React.FC<StatsViewProps> = ({
     return {};
   });
 
+  // Sincronização em tempo real diretamente com o Firebase Firestore
   useEffect(() => {
-    if (calendarEvents && Object.keys(calendarEvents).length > 0) {
-      setLocalEvents(calendarEvents);
-    }
-  }, [calendarEvents]);
+    if (!auth || !db) return;
+    let unsubDoc: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (currentUser) => {
+      if (unsubDoc) {
+        unsubDoc();
+        unsubDoc = null;
+      }
+      if (!currentUser) return;
+
+      const profileRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'profile', 'main');
+      unsubDoc = onSnapshot(
+        profileRef,
+        (docSnap) => {
+          const data = docSnap.exists() ? docSnap.data() : {};
+          const cloudEvents =
+            data.calendarEvents && typeof data.calendarEvents === 'object' && !Array.isArray(data.calendarEvents)
+              ? data.calendarEvents
+              : null;
+
+          if (isFirstSyncRef.current) {
+            isFirstSyncRef.current = false;
+            let localParsed: Record<string, CalendarEventItem[]> = {};
+            try {
+              const saved = localStorage.getItem('lumina_calendarEvents');
+              if (saved) {
+                const p = JSON.parse(saved);
+                if (p && typeof p === 'object' && !Array.isArray(p)) localParsed = p;
+              }
+            } catch (e) {}
+
+            const hasCloud = cloudEvents && Object.keys(cloudEvents).length > 0;
+            const hasLocal = Object.keys(localParsed).length > 0;
+
+            if (!hasCloud && hasLocal) {
+              setDoc(profileRef, { calendarEvents: localParsed }, { mergeFields: ['calendarEvents'] }).catch(
+                console.error
+              );
+              setLocalEvents(localParsed);
+              return;
+            } else if (hasCloud && hasLocal) {
+              const merged: Record<string, CalendarEventItem[]> = { ...cloudEvents };
+              let needsUpload = false;
+              for (const dateKey of Object.keys(localParsed)) {
+                const localList = Array.isArray(localParsed[dateKey]) ? localParsed[dateKey] : [];
+                const cloudList = Array.isArray(merged[dateKey]) ? merged[dateKey] : [];
+                const cloudIds = new Set(cloudList.map((item) => item.id));
+                const missingFromCloud = localList.filter((item) => !cloudIds.has(item.id));
+                if (missingFromCloud.length > 0) {
+                  merged[dateKey] = [...cloudList, ...missingFromCloud];
+                  needsUpload = true;
+                }
+              }
+              setLocalEvents(merged);
+              try {
+                localStorage.setItem('lumina_calendarEvents', JSON.stringify(merged));
+              } catch (e) {}
+              if (needsUpload) {
+                setDoc(profileRef, { calendarEvents: merged }, { mergeFields: ['calendarEvents'] }).catch(
+                  console.error
+                );
+              }
+              return;
+            }
+          }
+
+          if (cloudEvents) {
+            setLocalEvents(cloudEvents);
+            try {
+              localStorage.setItem('lumina_calendarEvents', JSON.stringify(cloudEvents));
+            } catch (e) {}
+          }
+        },
+        console.error
+      );
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubDoc) unsubDoc();
+    };
+  }, []);
 
   const updateEvents = (nextMap: Record<string, CalendarEventItem[]>) => {
+    isFirstSyncRef.current = false;
     setLocalEvents(nextMap);
     try {
       localStorage.setItem('lumina_calendarEvents', JSON.stringify(nextMap));
     } catch (e) {}
+
+    if (auth?.currentUser && db) {
+      const profileRef = doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'profile', 'main');
+      setDoc(profileRef, { calendarEvents: nextMap }, { mergeFields: ['calendarEvents'] }).catch(console.error);
+    }
+
     if (onUpdateCalendarEvents) {
       onUpdateCalendarEvents(nextMap);
     }
