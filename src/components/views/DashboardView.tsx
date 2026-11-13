@@ -38,6 +38,7 @@ import {
   getTodayStr,
 } from '../../utils/helpers';
 import { MobileBottomNav } from '../Header';
+import { TodayAgendaWidget } from '../TodayAgendaWidget';
 import { StatsView } from '../stats/StatsWidgets';
 import { ReportsView } from './ReportsView';
 
@@ -199,7 +200,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-16 sm:pb-0 animate-in fade-in duration-300">
-      {/* NAVEGAÇÃO MOBILE FIXA NO RODAPÉ */}
       <MobileBottomNav
         mainTab={mainTab}
         onSelectTab={(tabId) => {
@@ -209,7 +209,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       />
 
       {mainTab === 'home' && (
-        <div className="animate-in fade-in duration-300 pb-10 space-y-8">
+        <div className="animate-in fade-in duration-300 pb-10 space-y-6">
           {currentFolderId === null && (
             <div className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 bg-slate-900/50 shadow-lg">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
@@ -313,6 +313,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
             </div>
+          )}
+
+          {currentFolderId === null && (
+            <TodayAgendaWidget
+              calendarEvents={calendarEvents}
+              onUpdateCalendarEvents={onUpdateCalendarEvents}
+              validDecks={validDecks}
+              folders={folders}
+              getDecksInFolder={getDecksInFolder}
+              startReview={startReview}
+              onOpenCalendarTab={() => setMainTab('stats')}
+            />
           )}
 
           {currentFolderId !== null && (

@@ -74,6 +74,25 @@ import {
 const STORAGE_EVENTS_KEY = 'lumina_agenda_items';
 const STORAGE_EVENTS_TS_KEY = 'lumina_agenda_updated_at';
 
+const playGentleAlertChime = () => {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.14);
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.45);
+  } catch (e) {}
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -82,6 +101,7 @@ export default function App() {
   const firstLoadRefDecks = useRef(true);
   const isProcessingRef = useRef(false);
   const hasCleanedUpPhantoms = useRef(false);
+  const notifiedAlertsRef = useRef(new Set());
 
   const [decks, setDecks] = useState(() => {
     try { const saved = localStorage.getItem('lumina_decks'); if (saved) { const p = JSON.parse(saved); return Array.isArray(p) ? p : initialDecks; } } catch (e) {}
@@ -219,7 +239,7 @@ export default function App() {
 
   const stateRef = useRef({});
 
-  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
+  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 5000); };
 
   const syncDataToCloud = (newMap, newRecs, newCalEvents = null, newCalTs = null) => {
     if (!user || !db) return;
@@ -244,6 +264,19 @@ export default function App() {
     const cleanEvents = JSON.parse(JSON.stringify(newEvents || {}));
     const nowTs = Date.now();
     setCalendarEvents(cleanEvents);
+
+    const hasTimedItem = Object.values(cleanEvents).some(
+      (items) => Array.isArray(items) && items.some((i) => !!i?.time)
+    );
+    if (
+      hasTimedItem &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default'
+    ) {
+      Notification.requestPermission().catch(() => {});
+    }
+
     try {
       localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(cleanEvents));
       localStorage.setItem('lumina_calendarEvents', JSON.stringify(cleanEvents));
@@ -251,6 +284,82 @@ export default function App() {
     } catch (e) {}
     syncDataToCloud(null, null, cleanEvents, nowTs);
   };
+
+  // Monitor de horário para disparar lembretes/tarefas agendadas do dia atual
+  useEffect(() => {
+    if (!user) return;
+
+    const checkTimedEvents = () => {
+      const todayStr = getTodayStr();
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const currentHHMM = `${hh}:${mm}`;
+      const todayDow = now.getDay();
+
+      const dueNowItems = [];
+
+      Object.entries(calendarEvents || {}).forEach(([originDate, items]) => {
+        if (!Array.isArray(items)) return;
+        items.forEach((item) => {
+          if (!item || !item.time || item.time !== currentHHMM) return;
+          if ((item.excludedDates || []).includes(todayStr)) return;
+
+          const isRec = item.recurrence && item.recurrence !== 'none';
+          const isCompletedToday = isRec
+            ? (item.completedDates || []).includes(todayStr) || !!item.completed
+            : !!item.completed;
+          if (item.type === 'task' && isCompletedToday) return;
+
+          let appliesToday = false;
+          if (originDate === todayStr) {
+            appliesToday = true;
+          } else if (isRec && todayStr > originDate) {
+            if (item.recurrence === 'daily') appliesToday = true;
+            else if (item.recurrence === 'weekdays')
+              appliesToday = todayDow >= 1 && todayDow <= 5;
+            else if (item.recurrence === 'weekly') {
+              const originDow = new Date(originDate + 'T12:00:00').getDay();
+              appliesToday = todayDow === originDow;
+            } else if (item.recurrence === 'custom_days') {
+              appliesToday =
+                Array.isArray(item.recurrenceDays) &&
+                item.recurrenceDays.includes(todayDow);
+            }
+          }
+
+          if (appliesToday) {
+            dueNowItems.push(item);
+          }
+        });
+      });
+
+      dueNowItems.forEach((item) => {
+        const alertKey = `${todayStr}_${item.id}_${item.time}`;
+        if (notifiedAlertsRef.current.has(alertKey)) return;
+        notifiedAlertsRef.current.add(alertKey);
+
+        showToast(`Agendado (${item.time}): ${item.title}`, 'info');
+        playGentleAlertChime();
+
+        if (
+          typeof window !== 'undefined' &&
+          'Notification' in window &&
+          Notification.permission === 'granted'
+        ) {
+          try {
+            new Notification('FlashCards • Agenda', {
+              body: `${item.time} - ${item.title}`,
+            });
+          } catch (e) {}
+        }
+      });
+    };
+
+    checkTimedEvents();
+    const timer = setInterval(checkTimedEvents, 15000);
+    return () => clearInterval(timer);
+  }, [user, calendarEvents]);
 
   useEffect(() => { try { localStorage.setItem('lumina_decks', JSON.stringify(decks)); } catch(e){} }, [decks]);
   useEffect(() => { try { localStorage.setItem('lumina_folders', JSON.stringify(folders)); } catch(e){} }, [folders]);
