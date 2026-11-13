@@ -24,17 +24,56 @@ import {
   BookOpen,
   Folder as FolderIcon,
   Layers,
+  Repeat,
+  AlertCircle,
+  ArrowRight,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import type {
   Deck,
   Folder,
   CalendarEventItem,
   CalendarEventType,
+  CalendarRecurrence,
 } from '../../types';
 import { checkCardDue, isCardBuried } from '../../utils/fsrs';
 import { getCardStats, getTodayStr } from '../../utils/helpers';
 
 export type { CalendarEventItem } from '../../types';
+
+interface DisplayCalendarItem extends CalendarEventItem {
+  originDate: string;
+  isProjected: boolean;
+  isCompletedOnDate: boolean;
+}
+
+const RECURRENCE_LABELS: Record<CalendarRecurrence, string> = {
+  none: 'Não se repete',
+  daily: 'Diário',
+  weekdays: 'Seg–Sex',
+  weekly: 'Semanal',
+};
+
+const matchesRecurrenceOnDate = (
+  originDateStr: string,
+  targetDateStr: string,
+  recurrence?: CalendarRecurrence
+): boolean => {
+  if (!recurrence || recurrence === 'none') return false;
+  if (targetDateStr <= originDateStr) return false;
+
+  const targetDate = new Date(targetDateStr + 'T12:00:00');
+  const targetDow = targetDate.getDay();
+
+  if (recurrence === 'daily') return true;
+  if (recurrence === 'weekdays') return targetDow >= 1 && targetDow <= 5;
+  if (recurrence === 'weekly') {
+    const originDate = new Date(originDateStr + 'T12:00:00');
+    return targetDow === originDate.getDay();
+  }
+  return false;
+};
 
 interface StatsViewProps {
   validDecks: Deck[];
@@ -79,14 +118,84 @@ export const StatsView: React.FC<StatsViewProps> = ({
   const [newItemTitle, setNewItemTitle] = useState('');
   const [newItemType, setNewItemType] = useState<CalendarEventType>('task');
   const [newItemTime, setNewItemTime] = useState('');
-  const [newItemLink, setNewItemLink] = useState(''); // '' | 'deck:<id>' | 'folder:<id>'
+  const [newItemLink, setNewItemLink] = useState('');
+  const [newItemRecurrence, setNewItemRecurrence] =
+    useState<CalendarRecurrence>('none');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [showOverdueDetails, setShowOverdueDetails] = useState(false);
 
   const eventsMap = calendarEvents || {};
   const activeDecksList = useMemo(
     () => validDecks.filter((d) => !d.isIgnored),
     [validDecks]
   );
+
+  // Lista todos os itens recorrentes cadastrados para projeção nas datas seguintes
+  const recurringOrigins = useMemo(() => {
+    const list: { originDate: string; item: CalendarEventItem }[] = [];
+    Object.entries(eventsMap).forEach(([dateStr, items]) => {
+      (items || []).forEach((item) => {
+        if (item.recurrence && item.recurrence !== 'none') {
+          list.push({ originDate: dateStr, item });
+        }
+      });
+    });
+    return list;
+  }, [eventsMap]);
+
+  // Resolve os itens diretos + recorrentes de qualquer data
+  const getItemsForDate = (targetDateStr: string): DisplayCalendarItem[] => {
+    const directItems: DisplayCalendarItem[] = (eventsMap[targetDateStr] || []).map(
+      (item) => {
+        const isRec = item.recurrence && item.recurrence !== 'none';
+        const isCompletedOnDate = isRec
+          ? (item.completedDates || []).includes(targetDateStr) || !!item.completed
+          : !!item.completed;
+        return {
+          ...item,
+          originDate: targetDateStr,
+          isProjected: false,
+          isCompletedOnDate,
+        };
+      }
+    );
+
+    const projectedItems: DisplayCalendarItem[] = [];
+    recurringOrigins.forEach(({ originDate, item }) => {
+      if (matchesRecurrenceOnDate(originDate, targetDateStr, item.recurrence)) {
+        projectedItems.push({
+          ...item,
+          originDate,
+          isProjected: true,
+          isCompletedOnDate: (item.completedDates || []).includes(targetDateStr),
+        });
+      }
+    });
+
+    return [...directItems, ...projectedItems].sort((a, b) =>
+      (a.time || '99:99').localeCompare(b.time || '99:99')
+    );
+  };
+
+  // Tarefas únicas de dias anteriores que ainda não foram concluídas
+  const overdueTasks = useMemo(() => {
+    const todayStr = getTodayStr();
+    const list: { originDate: string; item: CalendarEventItem }[] = [];
+    const pastDates = Object.keys(eventsMap)
+      .filter((d) => d < todayStr)
+      .sort();
+
+    pastDates.forEach((dateStr) => {
+      (eventsMap[dateStr] || []).forEach((item) => {
+        const isOneOff = !item.recurrence || item.recurrence === 'none';
+        if (item.type === 'task' && !item.completed && isOneOff) {
+          list.push({ originDate: dateStr, item });
+        }
+      });
+    });
+
+    return list;
+  }, [eventsMap]);
 
   // Mapa de revisões previstas pelo FSRS por data (YYYY-MM-DD)
   const forecastByDateStr = useMemo(() => {
@@ -145,6 +254,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
     setNewItemTitle('');
     setNewItemTime('');
     setNewItemLink('');
+    setNewItemRecurrence('none');
     setEditingItemId(null);
   };
 
@@ -154,6 +264,8 @@ export const StatsView: React.FC<StatsViewProps> = ({
 
     const trimmedTime = newItemTime.trim();
     const currentDayItems = [...(eventsMap[selectedDate] || [])];
+    const effectiveRecurrence: CalendarRecurrence =
+      newItemType === 'exam' ? 'none' : newItemRecurrence;
 
     const linkedDeckId = newItemLink.startsWith('deck:')
       ? newItemLink.slice(5)
@@ -170,7 +282,11 @@ export const StatsView: React.FC<StatsViewProps> = ({
           title: newItemTitle.trim(),
           type: newItemType,
           completed: newItemType === 'task' ? !!item.completed : false,
+          recurrence: effectiveRecurrence,
         };
+        if (item.completedDates && effectiveRecurrence !== 'none') {
+          updatedItem.completedDates = item.completedDates;
+        }
         if (trimmedTime) updatedItem.time = trimmedTime;
         if (linkedDeckId) updatedItem.deckId = linkedDeckId;
         if (linkedFolderId) updatedItem.folderId = linkedFolderId;
@@ -183,6 +299,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
         title: newItemTitle.trim(),
         type: newItemType,
         completed: false,
+        recurrence: effectiveRecurrence,
       };
       if (trimmedTime) newItem.time = trimmedTime;
       if (linkedDeckId) newItem.deckId = linkedDeckId;
@@ -197,37 +314,122 @@ export const StatsView: React.FC<StatsViewProps> = ({
     resetFormInputs();
   };
 
-  const handleToggleTask = (itemId: string) => {
-    const currentDayItems = eventsMap[selectedDate] || [];
-    const updated = currentDayItems.map((item) =>
-      item.id === itemId ? { ...item, completed: !item.completed } : item
-    );
-    updateEvents({ ...eventsMap, [selectedDate]: updated });
+  const handleToggleTask = (displayItem: DisplayCalendarItem) => {
+    const originDate = displayItem.originDate;
+    const originItems = eventsMap[originDate] || [];
+    const isRec = displayItem.recurrence && displayItem.recurrence !== 'none';
+
+    const updated = originItems.map((item) => {
+      if (item.id !== displayItem.id) return item;
+      if (isRec) {
+        const prevDates = new Set(item.completedDates || []);
+        if (prevDates.has(selectedDate)) prevDates.delete(selectedDate);
+        else prevDates.add(selectedDate);
+        return {
+          ...item,
+          completedDates: Array.from(prevDates),
+          completed:
+            originDate === selectedDate
+              ? prevDates.has(selectedDate)
+              : item.completed,
+        };
+      }
+      return { ...item, completed: !item.completed };
+    });
+
+    updateEvents({ ...eventsMap, [originDate]: updated });
   };
 
-  const handleDeleteCalendarItem = (itemId: string) => {
-    const currentDayItems = eventsMap[selectedDate] || [];
-    const updated = currentDayItems.filter((item) => item.id !== itemId);
+  const handleDeleteCalendarItem = (displayItem: DisplayCalendarItem) => {
+    const originDate = displayItem.originDate;
+    const originItems = eventsMap[originDate] || [];
+    const updated = originItems.filter((item) => item.id !== displayItem.id);
     const nextMap = { ...eventsMap };
     if (updated.length > 0) {
-      nextMap[selectedDate] = updated;
+      nextMap[originDate] = updated;
     } else {
-      delete nextMap[selectedDate];
+      delete nextMap[originDate];
     }
     updateEvents(nextMap);
-    if (editingItemId === itemId) {
+    if (editingItemId === displayItem.id) {
       resetFormInputs();
     }
   };
 
-  const handleStartEditItem = (item: CalendarEventItem) => {
-    setEditingItemId(item.id);
-    setNewItemTitle(item.title);
-    setNewItemType(item.type || 'task');
-    setNewItemTime(item.time || '');
-    if (item.deckId) setNewItemLink(`deck:${item.deckId}`);
-    else if (item.folderId) setNewItemLink(`folder:${item.folderId}`);
+  const handleStartEditItem = (displayItem: DisplayCalendarItem) => {
+    if (displayItem.isProjected) {
+      const originObj = new Date(displayItem.originDate + 'T12:00:00');
+      setCalendarMonth(
+        new Date(originObj.getFullYear(), originObj.getMonth(), 1)
+      );
+      setSelectedDate(displayItem.originDate);
+    }
+    setEditingItemId(displayItem.id);
+    setNewItemTitle(displayItem.title);
+    setNewItemType(displayItem.type || 'task');
+    setNewItemTime(displayItem.time || '');
+    setNewItemRecurrence(displayItem.recurrence || 'none');
+    if (displayItem.deckId) setNewItemLink(`deck:${displayItem.deckId}`);
+    else if (displayItem.folderId) setNewItemLink(`folder:${displayItem.folderId}`);
     else setNewItemLink('');
+  };
+
+  // Move todas as tarefas atrasadas para hoje
+  const handleMoveAllOverdueToToday = () => {
+    if (overdueTasks.length === 0) return;
+    const todayStr = getTodayStr();
+    const nextMap: Record<string, CalendarEventItem[]> = { ...eventsMap };
+    const movedItems: CalendarEventItem[] = [];
+
+    overdueTasks.forEach(({ originDate, item }) => {
+      const filtered = (nextMap[originDate] || []).filter(
+        (x) => x.id !== item.id
+      );
+      if (filtered.length > 0) nextMap[originDate] = filtered;
+      else delete nextMap[originDate];
+      movedItems.push({ ...item, completed: false });
+    });
+
+    nextMap[todayStr] = [...(nextMap[todayStr] || []), ...movedItems];
+    updateEvents(nextMap);
+    setShowOverdueDetails(false);
+
+    const now = new Date();
+    setCalendarMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+    setSelectedDate(todayStr);
+    resetFormInputs();
+  };
+
+  // Move apenas uma tarefa atrasada para hoje
+  const handleMoveSingleOverdueToToday = (
+    originDate: string,
+    targetItem: CalendarEventItem
+  ) => {
+    const todayStr = getTodayStr();
+    const nextMap: Record<string, CalendarEventItem[]> = { ...eventsMap };
+    const filtered = (nextMap[originDate] || []).filter(
+      (x) => x.id !== targetItem.id
+    );
+    if (filtered.length > 0) nextMap[originDate] = filtered;
+    else delete nextMap[originDate];
+
+    nextMap[todayStr] = [
+      ...(nextMap[todayStr] || []),
+      { ...targetItem, completed: false },
+    ];
+    updateEvents(nextMap);
+  };
+
+  // Marca uma tarefa atrasada como concluída diretamente do banner
+  const handleCompleteSingleOverdue = (
+    originDate: string,
+    targetItem: CalendarEventItem
+  ) => {
+    const nextMap: Record<string, CalendarEventItem[]> = { ...eventsMap };
+    nextMap[originDate] = (nextMap[originDate] || []).map((x) =>
+      x.id === targetItem.id ? { ...x, completed: true } : x
+    );
+    updateEvents(nextMap);
   };
 
   const resolveLinkedTarget = (item: CalendarEventItem) => {
@@ -420,10 +622,10 @@ export const StatsView: React.FC<StatsViewProps> = ({
       const isRecovered = streakRecoveries.includes(dateStr);
       const isCompleted = count > 0 || isRecovered;
 
-      const dayItems = eventsMap[dateStr] || [];
+      const dayItems = getItemsForDate(dateStr);
       const tasks = dayItems.filter((i) => i.type === 'task');
-      const pendingTasksCount = tasks.filter((t) => !t.completed).length;
-      const completedTasksCount = tasks.filter((t) => t.completed).length;
+      const pendingTasksCount = tasks.filter((t) => !t.isCompletedOnDate).length;
+      const completedTasksCount = tasks.filter((t) => t.isCompletedOnDate).length;
       const remindersCount = dayItems.filter((i) => i.type === 'reminder').length;
       const examsCount = dayItems.filter((i) => i.type === 'exam').length;
 
@@ -461,7 +663,6 @@ export const StatsView: React.FC<StatsViewProps> = ({
         >
           <span className="text-sm pointer-events-none leading-none">{d}</span>
 
-          {/* Previsão discreta de revisões FSRS nos dias futuros */}
           {isFuture && forecastCount > 0 && (
             <span className="text-[9px] font-bold text-indigo-300/80 leading-none mt-1 pointer-events-none">
               {forecastCount}p
@@ -548,9 +749,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
       );
     }
 
-    const selectedDayItems = [...(eventsMap[selectedDate] || [])].sort(
-      (a, b) => (a.time || '99:99').localeCompare(b.time || '99:99')
-    );
+    const selectedDayItems = getItemsForDate(selectedDate);
     const selectedDateObj = new Date(selectedDate + 'T12:00:00');
     const selectedIsPast = selectedDateObj < todayStart;
     const selectedIsFuture = selectedDate > todayStr;
@@ -630,7 +829,87 @@ export const StatsView: React.FC<StatsViewProps> = ({
         </div>
 
         <div className="mt-6 pt-5 border-t border-slate-800/80 relative z-10 flex flex-col gap-4">
-          {/* Banner da próxima prova futura, se houver */}
+          {/* Aviso de tarefas atrasadas de dias anteriores */}
+          {overdueTasks.length > 0 && (
+            <div className="bg-amber-950/30 border border-amber-500/35 rounded-2xl px-3.5 py-2.5 flex flex-col gap-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-200">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    {overdueTasks.length === 1
+                      ? '1 tarefa pendente de dia anterior'
+                      : `${overdueTasks.length} tarefas pendentes de dias anteriores`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowOverdueDetails((prev) => !prev)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-300 hover:text-amber-200 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 transition-colors"
+                  >
+                    {showOverdueDetails ? (
+                      <>
+                        Ocultar <ChevronUp className="w-3.5 h-3.5" />
+                      </>
+                    ) : (
+                      <>
+                        Ver <ChevronDown className="w-3.5 h-3.5" />
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleMoveAllOverdueToToday}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg transition-all active:scale-95"
+                  >
+                    Mover para hoje <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {showOverdueDetails && (
+                <div className="flex flex-col gap-1.5 pt-2 border-t border-amber-500/20 max-h-36 overflow-y-auto custom-scrollbar">
+                  {overdueTasks.map(({ originDate, item }) => (
+                    <div
+                      key={`${originDate}-${item.id}`}
+                      className="flex items-center justify-between gap-2 bg-slate-950/70 border border-slate-800/90 rounded-xl px-3 py-1.5 text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[10px] font-bold text-amber-400/90 bg-amber-500/10 px-1.5 py-0.5 rounded shrink-0">
+                          {originDate.split('-').reverse().slice(0, 2).join('/')}
+                        </span>
+                        <span className="text-slate-200 truncate font-medium">
+                          {item.title}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCompleteSingleOverdue(originDate, item)
+                          }
+                          className="p-1 text-slate-400 hover:text-emerald-400 rounded-lg hover:bg-slate-800 transition-colors"
+                          title="Marcar como concluída"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleMoveSingleOverdueToToday(originDate, item)
+                          }
+                          className="text-[10px] font-bold text-indigo-300 hover:text-white bg-indigo-500/15 hover:bg-indigo-600 px-2 py-1 rounded-lg border border-indigo-500/30 transition-colors"
+                        >
+                          Hoje
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {nextUpcomingExam && (
             <div
               onClick={() => {
@@ -743,7 +1022,10 @@ export const StatsView: React.FC<StatsViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setNewItemType('exam')}
+                  onClick={() => {
+                    setNewItemType('exam');
+                    setNewItemRecurrence('none');
+                  }}
                   className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
                     newItemType === 'exam'
                       ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
@@ -760,20 +1042,20 @@ export const StatsView: React.FC<StatsViewProps> = ({
                 onChange={(e) => setNewItemTitle(e.target.value)}
                 placeholder={
                   newItemType === 'task'
-                    ? 'Ex: Revisar Direito Administrativo...'
+                    ? 'Título da tarefa...'
                     : newItemType === 'reminder'
-                    ? 'Ex: Fazer simulado às 19h...'
-                    : 'Ex: Prova HOB - Técnico em Administração...'
+                    ? 'Título do lembrete...'
+                    : 'Título da prova...'
                 }
                 className="flex-grow bg-slate-900 border border-slate-800 text-slate-100 text-xs sm:text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 transition-colors"
               />
             </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-wrap">
               <select
                 value={newItemLink}
                 onChange={(e) => setNewItemLink(e.target.value)}
-                className="flex-grow bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 transition-colors"
+                className="flex-grow min-w-[180px] bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 transition-colors"
                 title="Vincular a um baralho ou coleção (opcional)"
               >
                 <option value="">Sem vínculo com baralho/coleção</option>
@@ -797,7 +1079,23 @@ export const StatsView: React.FC<StatsViewProps> = ({
                 )}
               </select>
 
-              <div className="flex items-center gap-2 shrink-0">
+              {newItemType !== 'exam' && (
+                <select
+                  value={newItemRecurrence}
+                  onChange={(e) =>
+                    setNewItemRecurrence(e.target.value as CalendarRecurrence)
+                  }
+                  className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 transition-colors"
+                  title="Repetição automática"
+                >
+                  <option value="none">Não se repete</option>
+                  <option value="daily">Diariamente</option>
+                  <option value="weekdays">Dias úteis (Seg–Sex)</option>
+                  <option value="weekly">Semanalmente</option>
+                </select>
+              )}
+
+              <div className="flex items-center gap-2 shrink-0 ml-auto">
                 <input
                   type="time"
                   value={newItemTime}
@@ -847,6 +1145,8 @@ export const StatsView: React.FC<StatsViewProps> = ({
               {selectedDayItems.map((item) => {
                 const isTask = item.type === 'task';
                 const isExam = item.type === 'exam';
+                const hasRecurrence =
+                  item.recurrence && item.recurrence !== 'none';
                 const linkedTarget = resolveLinkedTarget(item);
                 const examMetrics = isExam
                   ? getExamMetrics(selectedDate, item)
@@ -854,9 +1154,9 @@ export const StatsView: React.FC<StatsViewProps> = ({
 
                 return (
                   <div
-                    key={item.id}
+                    key={`${item.originDate}-${item.id}`}
                     className={`flex flex-col gap-2 px-3.5 py-2.5 rounded-xl border transition-all ${
-                      isTask && item.completed
+                      isTask && item.isCompletedOnDate
                         ? 'bg-slate-950/40 border-slate-800/60 opacity-60'
                         : isExam
                         ? 'bg-purple-950/25 border-purple-500/35 hover:border-purple-400/50'
@@ -870,19 +1170,19 @@ export const StatsView: React.FC<StatsViewProps> = ({
                         {isTask ? (
                           <button
                             type="button"
-                            onClick={() => handleToggleTask(item.id)}
+                            onClick={() => handleToggleTask(item)}
                             className={`shrink-0 transition-colors ${
-                              item.completed
+                              item.isCompletedOnDate
                                 ? 'text-emerald-400'
                                 : 'text-amber-400 hover:text-amber-300'
                             }`}
                             title={
-                              item.completed
+                              item.isCompletedOnDate
                                 ? 'Desmarcar tarefa'
                                 : 'Concluir tarefa'
                             }
                           >
-                            {item.completed ? (
+                            {item.isCompletedOnDate ? (
                               <CheckSquare className="w-4 h-4" />
                             ) : (
                               <Square className="w-4 h-4" />
@@ -896,7 +1196,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
 
                         <span
                           className={`text-xs sm:text-sm font-semibold truncate ${
-                            isTask && item.completed
+                            isTask && item.isCompletedOnDate
                               ? 'line-through text-slate-500'
                               : isExam
                               ? 'text-purple-100'
@@ -910,6 +1210,13 @@ export const StatsView: React.FC<StatsViewProps> = ({
                           <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md shrink-0">
                             <Clock className="w-3 h-3 text-indigo-400" />
                             {item.time}
+                          </span>
+                        )}
+
+                        {hasRecurrence && item.recurrence && (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/25 px-2 py-0.5 rounded-md shrink-0">
+                            <Repeat className="w-3 h-3 text-cyan-400" />
+                            {RECURRENCE_LABELS[item.recurrence]}
                           </span>
                         )}
 
@@ -954,22 +1261,25 @@ export const StatsView: React.FC<StatsViewProps> = ({
                           type="button"
                           onClick={() => handleStartEditItem(item)}
                           className="p-1.5 text-slate-500 hover:text-indigo-400 rounded-lg hover:bg-slate-800 transition-colors"
-                          title="Editar"
+                          title={
+                            item.isProjected ? 'Editar série recorrente' : 'Editar'
+                          }
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteCalendarItem(item.id)}
+                          onClick={() => handleDeleteCalendarItem(item)}
                           className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
-                          title="Excluir"
+                          title={
+                            item.isProjected ? 'Excluir série recorrente' : 'Excluir'
+                          }
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
 
-                    {/* Rodapé informativo quando há vínculo com Baralho/Coleção ou meta de Prova */}
                     {(linkedTarget || (isExam && examMetrics)) && (
                       <div className="flex flex-wrap items-center gap-2 pl-6 text-[11px]">
                         {linkedTarget && (

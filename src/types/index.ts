@@ -94,6 +94,7 @@ export interface CalendarEventItem {
   type: CalendarEventType;
   time?: string;
   completed?: boolean;
+  completedDates?: string[];
   deckId?: string;
   folderId?: string;
   recurrence?: CalendarRecurrence;
