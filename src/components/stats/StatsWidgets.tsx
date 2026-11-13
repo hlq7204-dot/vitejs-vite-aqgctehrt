@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   PieChart,
   CalendarDays,
@@ -20,23 +20,11 @@ import {
   X,
   History,
 } from 'lucide-react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
-import { auth, db, appId } from '../../services/firebase';
-import type { Deck } from '../../types';
+import type { Deck, CalendarEventItem } from '../../types';
 import { checkCardDue, isCardBuried } from '../../utils/fsrs';
 import { getCardStats, getTodayStr } from '../../utils/helpers';
 
-export interface CalendarEventItem {
-  id: string;
-  title: string;
-  type: 'task' | 'reminder';
-  time?: string;
-  completed?: boolean;
-}
-
-const STORAGE_EVENTS_KEY = 'lumina_agenda_items';
-const STORAGE_TS_KEY = 'lumina_agenda_updated_at';
+export type { CalendarEventItem } from '../../types';
 
 interface StatsViewProps {
   validDecks: Deck[];
@@ -64,6 +52,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
   setForecastPeriod,
   calculateStreak,
   calculateLongestStreak,
+  calendarEvents = {},
   onUpdateCalendarEvents,
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayStr());
@@ -72,122 +61,10 @@ export const StatsView: React.FC<StatsViewProps> = ({
   const [newItemTime, setNewItemTime] = useState('');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
-  const [localEvents, setLocalEvents] = useState<Record<string, CalendarEventItem[]>>(() => {
-    try {
-      const saved =
-        localStorage.getItem(STORAGE_EVENTS_KEY) ||
-        localStorage.getItem('lumina_calendarEvents');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
-    } catch (e) {}
-    return {};
-  });
-
-  // Sincronização em tempo real com o Firebase Firestore protegida por Timestamp
-  useEffect(() => {
-    if (!auth || !db) return;
-    let unsubDoc: (() => void) | null = null;
-
-    const unsubAuth = onAuthStateChanged(auth, (currentUser) => {
-      if (unsubDoc) {
-        unsubDoc();
-        unsubDoc = null;
-      }
-      if (!currentUser) return;
-
-      const profileRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'profile', 'main');
-      unsubDoc = onSnapshot(
-        profileRef,
-        (docSnap) => {
-          const data = docSnap.exists() ? docSnap.data() : {};
-          const cloudEvents =
-            data.calendarEvents &&
-            typeof data.calendarEvents === 'object' &&
-            !Array.isArray(data.calendarEvents)
-              ? data.calendarEvents
-              : null;
-          const cloudTs = typeof data.calendarUpdatedAt === 'number' ? data.calendarUpdatedAt : 0;
-
-          let localParsed: Record<string, CalendarEventItem[]> = {};
-          let localTs = 0;
-          try {
-            const saved =
-              localStorage.getItem(STORAGE_EVENTS_KEY) ||
-              localStorage.getItem('lumina_calendarEvents');
-            if (saved) {
-              const p = JSON.parse(saved);
-              if (p && typeof p === 'object' && !Array.isArray(p)) localParsed = p;
-            }
-            const savedTs = localStorage.getItem(STORAGE_TS_KEY);
-            if (savedTs) localTs = parseInt(savedTs, 10) || 0;
-          } catch (e) {}
-
-          const hasLocalItems = Object.keys(localParsed).length > 0;
-          const hasCloudItems = cloudEvents && Object.keys(cloudEvents).length > 0;
-
-          // Se o navegador tiver uma alteração mais recente que a nuvem, envia para o Firebase
-          if (localTs > cloudTs || (!hasCloudItems && hasLocalItems)) {
-            const cleanLocal = JSON.parse(JSON.stringify(localParsed));
-            const uploadTs = localTs || Date.now();
-            setLocalEvents(cleanLocal);
-            try {
-              localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(cleanLocal));
-              localStorage.setItem(STORAGE_TS_KEY, String(uploadTs));
-            } catch (e) {}
-            setDoc(
-              profileRef,
-              { calendarEvents: cleanLocal, calendarUpdatedAt: uploadTs },
-              { mergeFields: ['calendarEvents', 'calendarUpdatedAt'] }
-            ).catch(console.error);
-            return;
-          }
-
-          // Se a nuvem for mais recente (ou igual), atualiza o estado local
-          if (cloudEvents !== null) {
-            setLocalEvents(cloudEvents);
-            try {
-              localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(cloudEvents));
-              if (cloudTs) localStorage.setItem(STORAGE_TS_KEY, String(cloudTs));
-            } catch (e) {}
-          }
-        },
-        console.error
-      );
-    });
-
-    return () => {
-      unsubAuth();
-      if (unsubDoc) unsubDoc();
-    };
-  }, []);
+  const eventsMap = calendarEvents || {};
 
   const updateEvents = (nextMap: Record<string, CalendarEventItem[]>) => {
-    // Remove qualquer valor undefined para o Firebase nunca rejeitar o documento
     const cleanMap = JSON.parse(JSON.stringify(nextMap));
-    const nowTs = Date.now();
-
-    setLocalEvents(cleanMap);
-    try {
-      localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(cleanMap));
-      localStorage.setItem('lumina_calendarEvents', JSON.stringify(cleanMap));
-      localStorage.setItem(STORAGE_TS_KEY, String(nowTs));
-    } catch (e) {}
-
-    if (auth?.currentUser && db) {
-      const profileRef = doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'profile', 'main');
-      setDoc(
-        profileRef,
-        { calendarEvents: cleanMap, calendarUpdatedAt: nowTs },
-        { mergeFields: ['calendarEvents', 'calendarUpdatedAt'] }
-      ).catch((err) => {
-        console.error('Erro ao salvar agenda no Firebase:', err);
-      });
-    }
-
     if (onUpdateCalendarEvents) {
       onUpdateCalendarEvents(cleanMap);
     }
@@ -198,7 +75,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
     if (!newItemTitle.trim()) return;
 
     const trimmedTime = newItemTime.trim();
-    const currentDayItems = [...(localEvents[selectedDate] || [])];
+    const currentDayItems = [...(eventsMap[selectedDate] || [])];
 
     if (editingItemId) {
       const updated = currentDayItems.map((item) => {
@@ -212,7 +89,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
         if (trimmedTime) updatedItem.time = trimmedTime;
         return updatedItem;
       });
-      updateEvents({ ...localEvents, [selectedDate]: updated });
+      updateEvents({ ...eventsMap, [selectedDate]: updated });
       setEditingItemId(null);
     } else {
       const newItem: CalendarEventItem = {
@@ -224,7 +101,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
       if (trimmedTime) newItem.time = trimmedTime;
 
       updateEvents({
-        ...localEvents,
+        ...eventsMap,
         [selectedDate]: [...currentDayItems, newItem],
       });
     }
@@ -234,17 +111,17 @@ export const StatsView: React.FC<StatsViewProps> = ({
   };
 
   const handleToggleTask = (itemId: string) => {
-    const currentDayItems = localEvents[selectedDate] || [];
+    const currentDayItems = eventsMap[selectedDate] || [];
     const updated = currentDayItems.map((item) =>
       item.id === itemId ? { ...item, completed: !item.completed } : item
     );
-    updateEvents({ ...localEvents, [selectedDate]: updated });
+    updateEvents({ ...eventsMap, [selectedDate]: updated });
   };
 
   const handleDeleteCalendarItem = (itemId: string) => {
-    const currentDayItems = localEvents[selectedDate] || [];
+    const currentDayItems = eventsMap[selectedDate] || [];
     const updated = currentDayItems.filter((item) => item.id !== itemId);
-    const nextMap = { ...localEvents };
+    const nextMap = { ...eventsMap };
     if (updated.length > 0) {
       nextMap[selectedDate] = updated;
     } else {
@@ -261,7 +138,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
   const handleStartEditItem = (item: CalendarEventItem) => {
     setEditingItemId(item.id);
     setNewItemTitle(item.title);
-    setNewItemType(item.type);
+    setNewItemType(item.type === 'reminder' ? 'reminder' : 'task');
     setNewItemTime(item.time || '');
   };
 
@@ -393,7 +270,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
       const isRecovered = streakRecoveries.includes(dateStr);
       const isCompleted = count > 0 || isRecovered;
 
-      const dayItems = localEvents[dateStr] || [];
+      const dayItems = eventsMap[dateStr] || [];
       const tasks = dayItems.filter((i) => i.type === 'task');
       const pendingTasksCount = tasks.filter((t) => !t.completed).length;
       const completedTasksCount = tasks.filter((t) => t.completed).length;
@@ -490,7 +367,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
       );
     }
 
-    const selectedDayItems = [...(localEvents[selectedDate] || [])].sort(
+    const selectedDayItems = [...(eventsMap[selectedDate] || [])].sort(
       (a, b) => (a.time || '99:99').localeCompare(b.time || '99:99')
     );
     const selectedDateObj = new Date(selectedDate + 'T12:00:00');

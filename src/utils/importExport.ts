@@ -1,4 +1,11 @@
-import type { Card, CardType, Deck, Folder, ActivityMap } from '../types';
+import type {
+  Card,
+  CardType,
+  Deck,
+  Folder,
+  ActivityMap,
+  CalendarEventItem,
+} from '../types';
 import { FOLDER_THEMES, DECK_THEMES } from '../constants/themes';
 import { getEffectiveLapses } from './fsrs';
 import { loadScript, getTodayStr } from './helpers';
@@ -18,6 +25,7 @@ export const buildExportJSONFile = (data: {
   decks: Deck[];
   activityMap: ActivityMap;
   streakRecoveries: string[];
+  calendarEvents?: Record<string, CalendarEventItem[]>;
 }) => {
   const backupData = {
     version: 2,

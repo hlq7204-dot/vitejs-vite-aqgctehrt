@@ -71,6 +71,9 @@ import {
   Download, PauseCircle, PlayCircle, SkipForward, Tag, SlidersHorizontal, Trophy, Gauge
 } from 'lucide-react';
 
+const STORAGE_EVENTS_KEY = 'lumina_agenda_items';
+const STORAGE_EVENTS_TS_KEY = 'lumina_agenda_updated_at';
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -98,7 +101,15 @@ export default function App() {
     return [];
   });
   const [calendarEvents, setCalendarEvents] = useState(() => {
-    try { const saved = localStorage.getItem('lumina_calendarEvents'); if (saved) { const p = JSON.parse(saved); return typeof p === 'object' && p !== null && !Array.isArray(p) ? p : {}; } } catch (e) {}
+    try {
+      const saved =
+        localStorage.getItem(STORAGE_EVENTS_KEY) ||
+        localStorage.getItem('lumina_calendarEvents');
+      if (saved) {
+        const p = JSON.parse(saved);
+        return typeof p === 'object' && p !== null && !Array.isArray(p) ? p : {};
+      }
+    } catch (e) {}
     return {};
   });
 
@@ -210,27 +221,42 @@ export default function App() {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 4000); };
 
-  const syncDataToCloud = (newMap, newRecs, newCalEvents = null) => {
+  const syncDataToCloud = (newMap, newRecs, newCalEvents = null, newCalTs = null) => {
     if (!user || !db) return;
     const payload = {};
     if (newMap) payload.activityMap = newMap;
     if (newRecs) payload.streakRecoveries = newRecs;
-    if (newCalEvents) payload.calendarEvents = newCalEvents;
+    if (newCalEvents) {
+      payload.calendarEvents = newCalEvents;
+      payload.calendarUpdatedAt = newCalTs || Date.now();
+    }
     if (Object.keys(payload).length > 0) {
       setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), payload, { merge: true }).catch(console.error);
     }
   };
 
   const handleUpdateCalendarEvents = (newEvents) => {
-    setCalendarEvents(newEvents);
-    syncDataToCloud(null, null, newEvents);
+    const cleanEvents = JSON.parse(JSON.stringify(newEvents || {}));
+    const nowTs = Date.now();
+    setCalendarEvents(cleanEvents);
+    try {
+      localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(cleanEvents));
+      localStorage.setItem('lumina_calendarEvents', JSON.stringify(cleanEvents));
+      localStorage.setItem(STORAGE_EVENTS_TS_KEY, String(nowTs));
+    } catch (e) {}
+    syncDataToCloud(null, null, cleanEvents, nowTs);
   };
 
   useEffect(() => { try { localStorage.setItem('lumina_decks', JSON.stringify(decks)); } catch(e){} }, [decks]);
   useEffect(() => { try { localStorage.setItem('lumina_folders', JSON.stringify(folders)); } catch(e){} }, [folders]);
   useEffect(() => { try { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); } catch(e){} }, [activityMap]);
   useEffect(() => { try { localStorage.setItem('lumina_streakRecoveries', JSON.stringify(streakRecoveries)); } catch(e){} }, [streakRecoveries]);
-  useEffect(() => { try { localStorage.setItem('lumina_calendarEvents', JSON.stringify(calendarEvents)); } catch(e){} }, [calendarEvents]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(calendarEvents));
+      localStorage.setItem('lumina_calendarEvents', JSON.stringify(calendarEvents));
+    } catch(e){}
+  }, [calendarEvents]);
 
   useEffect(() => {
     if (!hasCleanedUpPhantoms.current && Object.keys(activityMap).length > 0) {
@@ -332,7 +358,54 @@ export default function App() {
           setDoc(profileRef, { activityMap: cleanMap, streakRecoveries: cleanRecoveries }, { merge: true }).catch(console.error);
         }
 
-        if (data.calendarEvents && typeof data.calendarEvents === 'object') setCalendarEvents(data.calendarEvents);
+        const cloudEvents =
+          data.calendarEvents &&
+          typeof data.calendarEvents === 'object' &&
+          !Array.isArray(data.calendarEvents)
+            ? data.calendarEvents
+            : null;
+        const cloudTs = typeof data.calendarUpdatedAt === 'number' ? data.calendarUpdatedAt : 0;
+
+        let localParsed = {};
+        let localTs = 0;
+        try {
+          const saved =
+            localStorage.getItem(STORAGE_EVENTS_KEY) ||
+            localStorage.getItem('lumina_calendarEvents');
+          if (saved) {
+            const p = JSON.parse(saved);
+            if (p && typeof p === 'object' && !Array.isArray(p)) localParsed = p;
+          }
+          const savedTs = localStorage.getItem(STORAGE_EVENTS_TS_KEY);
+          if (savedTs) localTs = parseInt(savedTs, 10) || 0;
+        } catch (e) {}
+
+        const hasLocalItems = Object.keys(localParsed).length > 0;
+        const hasCloudItems = cloudEvents && Object.keys(cloudEvents).length > 0;
+
+        if (localTs > cloudTs || (!hasCloudItems && hasLocalItems)) {
+          const cleanLocal = JSON.parse(JSON.stringify(localParsed));
+          const uploadTs = localTs || Date.now();
+          setCalendarEvents(cleanLocal);
+          try {
+            localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(cleanLocal));
+            localStorage.setItem('lumina_calendarEvents', JSON.stringify(cleanLocal));
+            localStorage.setItem(STORAGE_EVENTS_TS_KEY, String(uploadTs));
+          } catch (e) {}
+          setDoc(
+            profileRef,
+            { calendarEvents: cleanLocal, calendarUpdatedAt: uploadTs },
+            { merge: true }
+          ).catch(console.error);
+        } else if (cloudEvents !== null) {
+          setCalendarEvents(cloudEvents);
+          try {
+            localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(cloudEvents));
+            localStorage.setItem('lumina_calendarEvents', JSON.stringify(cloudEvents));
+            if (cloudTs) localStorage.setItem(STORAGE_EVENTS_TS_KEY, String(cloudTs));
+          } catch (e) {}
+        }
+
         if (data.dailyGoal) setDailyGoal(data.dailyGoal);
         if (data.desiredRetention) setDesiredRetention(clamp(parseFloat(data.desiredRetention), 0.75, 0.97));
       } else {
@@ -340,9 +413,18 @@ export default function App() {
         const activityToSync = localActivity ? JSON.parse(localActivity) : {};
         const localRecs = localStorage.getItem('lumina_streakRecoveries');
         const recsToSync = localRecs ? JSON.parse(localRecs) : [];
-        const localCalEvents = localStorage.getItem('lumina_calendarEvents');
+        const localCalEvents =
+          localStorage.getItem(STORAGE_EVENTS_KEY) ||
+          localStorage.getItem('lumina_calendarEvents');
         const calEventsToSync = localCalEvents ? JSON.parse(localCalEvents) : {};
-        setDoc(profileRef, { activityMap: activityToSync, streakRecoveries: recsToSync, calendarEvents: calEventsToSync, dailyGoal: 50, desiredRetention: 0.90 }).catch(console.error);
+        setDoc(profileRef, {
+          activityMap: activityToSync,
+          streakRecoveries: recsToSync,
+          calendarEvents: calEventsToSync,
+          calendarUpdatedAt: Date.now(),
+          dailyGoal: 50,
+          desiredRetention: 0.90
+        }).catch(console.error);
       }
     }, console.error);
 
@@ -920,6 +1002,7 @@ export default function App() {
         decks,
         activityMap,
         streakRecoveries,
+        calendarEvents,
       });
       showToast("Backup (.json) exportado com sucesso!");
     } catch (err) {
@@ -950,6 +1033,12 @@ export default function App() {
         const restoredDecks = Array.isArray(parsed.decks) ? parsed.decks : [];
         const restoredActivity = parsed.activityMap && typeof parsed.activityMap === 'object' ? parsed.activityMap : activityMap;
         const restoredRecoveries = Array.isArray(parsed.streakRecoveries) ? parsed.streakRecoveries : streakRecoveries;
+        const restoredCalendarEvents =
+          parsed.calendarEvents &&
+          typeof parsed.calendarEvents === 'object' &&
+          !Array.isArray(parsed.calendarEvents)
+            ? parsed.calendarEvents
+            : calendarEvents;
         const restoredGoal = parsed.dailyGoal ? parseInt(parsed.dailyGoal) : dailyGoal;
         const restoredRetention = parsed.desiredRetention ? clamp(parseFloat(parsed.desiredRetention), 0.75, 0.97) : desiredRetention;
 
@@ -959,6 +1048,7 @@ export default function App() {
         setStreakRecoveries(restoredRecoveries);
         setDailyGoal(restoredGoal);
         setDesiredRetention(restoredRetention);
+        handleUpdateCalendarEvents(restoredCalendarEvents);
 
         if (user && db) {
           restoredFolders.forEach(f => updateFolderInCloud(f));
@@ -966,6 +1056,8 @@ export default function App() {
           setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), {
             activityMap: restoredActivity,
             streakRecoveries: restoredRecoveries,
+            calendarEvents: restoredCalendarEvents,
+            calendarUpdatedAt: Date.now(),
             dailyGoal: restoredGoal,
             desiredRetention: restoredRetention
           }, { merge: true }).catch(console.error);

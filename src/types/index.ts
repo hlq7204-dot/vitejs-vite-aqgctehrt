@@ -84,6 +84,21 @@ export interface CardStats {
 
 export type ActivityMap = Record<string, string[]>;
 
+export type CalendarEventType = 'task' | 'reminder' | 'exam';
+
+export type CalendarRecurrence = 'none' | 'daily' | 'weekdays' | 'weekly';
+
+export interface CalendarEventItem {
+  id: string;
+  title: string;
+  type: CalendarEventType;
+  time?: string;
+  completed?: boolean;
+  deckId?: string;
+  folderId?: string;
+  recurrence?: CalendarRecurrence;
+}
+
 export interface SessionStats {
   reviewed: number;
   correct: number;
