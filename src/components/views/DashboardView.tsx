@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import type {
   ActivityMap,
+  CalendarEventItem,
   CardStats,
   CustomStudyConfig,
   Deck,
@@ -82,7 +83,6 @@ interface DashboardViewProps {
   setIsModalOpen: (open: boolean) => void;
   onOpenDeckDetail: (deckId: string) => void;
   toggleIgnoreDeck: (deck: Deck, e: React.MouseEvent) => void;
-  // Props para StatsView e ReportsView
   calendarMonth: Date;
   setCalendarMonth: (d: Date) => void;
   streakRecoveries: string[];
@@ -97,8 +97,8 @@ interface DashboardViewProps {
   reportDeckId: string;
   setReportDeckId: (deckId: string) => void;
   desiredRetention: number;
-  calendarEvents?: Record<string, any[]>;
-  onUpdateCalendarEvents?: (newEvents: Record<string, any[]>) => void;
+  calendarEvents?: Record<string, CalendarEventItem[]>;
+  onUpdateCalendarEvents?: (newEvents: Record<string, CalendarEventItem[]>) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -747,9 +747,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-{mainTab === 'stats' && (
+      {mainTab === 'stats' && (
         <StatsView
           validDecks={validDecks}
+          folders={folders}
+          getDecksInFolder={getDecksInFolder}
+          startReview={startReview}
           calendarMonth={calendarMonth}
           setCalendarMonth={setCalendarMonth}
           getDailyCount={getDailyCount}

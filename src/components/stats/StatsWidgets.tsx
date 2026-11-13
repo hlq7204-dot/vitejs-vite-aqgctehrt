@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   PieChart,
   CalendarDays,
@@ -19,8 +19,18 @@ import {
   Check,
   X,
   History,
+  Play,
+  GraduationCap,
+  BookOpen,
+  Folder as FolderIcon,
+  Layers,
 } from 'lucide-react';
-import type { Deck, CalendarEventItem } from '../../types';
+import type {
+  Deck,
+  Folder,
+  CalendarEventItem,
+  CalendarEventType,
+} from '../../types';
 import { checkCardDue, isCardBuried } from '../../utils/fsrs';
 import { getCardStats, getTodayStr } from '../../utils/helpers';
 
@@ -28,6 +38,13 @@ export type { CalendarEventItem } from '../../types';
 
 interface StatsViewProps {
   validDecks: Deck[];
+  folders?: Folder[];
+  getDecksInFolder?: (folderId: string | null) => Deck[];
+  startReview?: (
+    deckId: string | null,
+    forceAll?: boolean,
+    folderId?: string | null
+  ) => void;
   calendarMonth: Date;
   setCalendarMonth: (d: Date) => void;
   getDailyCount: (dateStr: string) => number;
@@ -43,6 +60,9 @@ interface StatsViewProps {
 
 export const StatsView: React.FC<StatsViewProps> = ({
   validDecks,
+  folders = [],
+  getDecksInFolder,
+  startReview,
   calendarMonth,
   setCalendarMonth,
   getDailyCount,
@@ -57,17 +77,75 @@ export const StatsView: React.FC<StatsViewProps> = ({
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayStr());
   const [newItemTitle, setNewItemTitle] = useState('');
-  const [newItemType, setNewItemType] = useState<'task' | 'reminder'>('task');
+  const [newItemType, setNewItemType] = useState<CalendarEventType>('task');
   const [newItemTime, setNewItemTime] = useState('');
+  const [newItemLink, setNewItemLink] = useState(''); // '' | 'deck:<id>' | 'folder:<id>'
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
   const eventsMap = calendarEvents || {};
+  const activeDecksList = useMemo(
+    () => validDecks.filter((d) => !d.isIgnored),
+    [validDecks]
+  );
+
+  // Mapa de revisões previstas pelo FSRS por data (YYYY-MM-DD)
+  const forecastByDateStr = useMemo(() => {
+    const map: Record<string, number> = {};
+    const todayStr = getTodayStr();
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    activeDecksList.forEach((deck) => {
+      (deck.cards || []).forEach((c) => {
+        if (c.isSuspended || isCardBuried(c)) return;
+        const isDueNow = checkCardDue(c);
+        const isDueToday =
+          !c.dueDate || isDueNow || c.dueDate <= endOfToday.getTime();
+
+        if (isDueToday) {
+          map[todayStr] = (map[todayStr] || 0) + 1;
+        } else if (c.dueDate) {
+          const d = new Date(c.dueDate);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const dy = String(d.getDate()).padStart(2, '0');
+          const dStr = `${y}-${m}-${dy}`;
+          map[dStr] = (map[dStr] || 0) + 1;
+        }
+      });
+    });
+
+    return map;
+  }, [activeDecksList]);
+
+  // Próxima prova futura cadastrada na agenda
+  const nextUpcomingExam = useMemo(() => {
+    const todayStr = getTodayStr();
+    const futureDates = Object.keys(eventsMap)
+      .filter((d) => d >= todayStr)
+      .sort();
+
+    for (const dateStr of futureDates) {
+      const exam = (eventsMap[dateStr] || []).find((i) => i.type === 'exam');
+      if (exam) {
+        return { dateStr, exam };
+      }
+    }
+    return null;
+  }, [eventsMap]);
 
   const updateEvents = (nextMap: Record<string, CalendarEventItem[]>) => {
     const cleanMap = JSON.parse(JSON.stringify(nextMap));
     if (onUpdateCalendarEvents) {
       onUpdateCalendarEvents(cleanMap);
     }
+  };
+
+  const resetFormInputs = () => {
+    setNewItemTitle('');
+    setNewItemTime('');
+    setNewItemLink('');
+    setEditingItemId(null);
   };
 
   const handleSaveCalendarItem = (e: React.FormEvent) => {
@@ -77,6 +155,13 @@ export const StatsView: React.FC<StatsViewProps> = ({
     const trimmedTime = newItemTime.trim();
     const currentDayItems = [...(eventsMap[selectedDate] || [])];
 
+    const linkedDeckId = newItemLink.startsWith('deck:')
+      ? newItemLink.slice(5)
+      : undefined;
+    const linkedFolderId = newItemLink.startsWith('folder:')
+      ? newItemLink.slice(7)
+      : undefined;
+
     if (editingItemId) {
       const updated = currentDayItems.map((item) => {
         if (item.id !== editingItemId) return item;
@@ -84,13 +169,14 @@ export const StatsView: React.FC<StatsViewProps> = ({
           id: item.id,
           title: newItemTitle.trim(),
           type: newItemType,
-          completed: !!item.completed,
+          completed: newItemType === 'task' ? !!item.completed : false,
         };
         if (trimmedTime) updatedItem.time = trimmedTime;
+        if (linkedDeckId) updatedItem.deckId = linkedDeckId;
+        if (linkedFolderId) updatedItem.folderId = linkedFolderId;
         return updatedItem;
       });
       updateEvents({ ...eventsMap, [selectedDate]: updated });
-      setEditingItemId(null);
     } else {
       const newItem: CalendarEventItem = {
         id: `ev-${Date.now()}`,
@@ -99,6 +185,8 @@ export const StatsView: React.FC<StatsViewProps> = ({
         completed: false,
       };
       if (trimmedTime) newItem.time = trimmedTime;
+      if (linkedDeckId) newItem.deckId = linkedDeckId;
+      if (linkedFolderId) newItem.folderId = linkedFolderId;
 
       updateEvents({
         ...eventsMap,
@@ -106,8 +194,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
       });
     }
 
-    setNewItemTitle('');
-    setNewItemTime('');
+    resetFormInputs();
   };
 
   const handleToggleTask = (itemId: string) => {
@@ -129,23 +216,82 @@ export const StatsView: React.FC<StatsViewProps> = ({
     }
     updateEvents(nextMap);
     if (editingItemId === itemId) {
-      setEditingItemId(null);
-      setNewItemTitle('');
-      setNewItemTime('');
+      resetFormInputs();
     }
   };
 
   const handleStartEditItem = (item: CalendarEventItem) => {
     setEditingItemId(item.id);
     setNewItemTitle(item.title);
-    setNewItemType(item.type === 'reminder' ? 'reminder' : 'task');
+    setNewItemType(item.type || 'task');
     setNewItemTime(item.time || '');
+    if (item.deckId) setNewItemLink(`deck:${item.deckId}`);
+    else if (item.folderId) setNewItemLink(`folder:${item.folderId}`);
+    else setNewItemLink('');
+  };
+
+  const resolveLinkedTarget = (item: CalendarEventItem) => {
+    if (item.deckId) {
+      const deck = validDecks.find((d) => d.id === item.deckId);
+      if (!deck) return null;
+      const cards = (deck.cards || []).filter((c) => !c.isSuspended);
+      const newCardsCount = cards.filter(
+        (c) => c.state === 0 || !c.reviews
+      ).length;
+      const dueCardsCount = cards.filter((c) => checkCardDue(c)).length;
+      return {
+        kind: 'deck' as const,
+        id: deck.id,
+        name: deck.name,
+        totalCards: cards.length,
+        newCardsCount,
+        dueCardsCount,
+      };
+    }
+    if (item.folderId) {
+      const folder = folders.find((f) => f.id === item.folderId);
+      if (!folder) return null;
+      const folderDecks = getDecksInFolder
+        ? getDecksInFolder(folder.id).filter((d) => !d.isIgnored)
+        : validDecks.filter((d) => d.parentId === folder.id && !d.isIgnored);
+      const cards = folderDecks
+        .flatMap((d) => d.cards || [])
+        .filter((c) => !c.isSuspended);
+      const newCardsCount = cards.filter(
+        (c) => c.state === 0 || !c.reviews
+      ).length;
+      const dueCardsCount = cards.filter((c) => checkCardDue(c)).length;
+      return {
+        kind: 'folder' as const,
+        id: folder.id,
+        name: folder.name,
+        totalCards: cards.length,
+        newCardsCount,
+        dueCardsCount,
+      };
+    }
+    return null;
+  };
+
+  const getExamMetrics = (examDateStr: string, item: CalendarEventItem) => {
+    const todayStr = getTodayStr();
+    const todayNoon = new Date(todayStr + 'T12:00:00');
+    const examNoon = new Date(examDateStr + 'T12:00:00');
+    const daysLeft = Math.round(
+      (examNoon.getTime() - todayNoon.getTime()) / 86400000
+    );
+    const target = resolveLinkedTarget(item);
+    const newCardsCount = target ? target.newCardsCount : 0;
+    const newPerDay =
+      daysLeft > 0 && newCardsCount > 0
+        ? Math.ceil(newCardsCount / daysLeft)
+        : 0;
+
+    return { daysLeft, target, newCardsCount, newPerDay };
   };
 
   const renderMastery = () => {
-    const gCards = validDecks
-      .filter((d) => !d.isIgnored)
-      .flatMap((d) => d.cards || []);
+    const gCards = activeDecksList.flatMap((d) => d.cards || []);
     const gStats = getCardStats(gCards);
     const totalC = gCards.length || 1;
     return (
@@ -157,7 +303,8 @@ export const StatsView: React.FC<StatsViewProps> = ({
               <PieChart className="w-5 h-5 text-blue-400" /> Domínio Global
             </h3>
             <span className="text-xl font-black text-blue-400">
-              {gCards.length} <span className="text-sm text-slate-500">cartões</span>
+              {gCards.length}{' '}
+              <span className="text-sm text-slate-500">cartões</span>
             </span>
           </div>
           <div className="w-full flex h-4 rounded-full overflow-hidden border border-slate-800 mb-6 relative z-10">
@@ -250,6 +397,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
       cells.push(<div key={`empty-${i}`} className="p-2"></div>);
     }
     const todayStr = getTodayStr();
+    const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
     const nowDate = new Date();
     const isCurrentMonthView =
       year === nowDate.getFullYear() && month === nowDate.getMonth();
@@ -262,11 +410,13 @@ export const StatsView: React.FC<StatsViewProps> = ({
       const dateStr = `${y}-${m}-${dy}`;
 
       const count = getDailyCount(dateStr);
+      const forecastCount = forecastByDateStr[dateStr] || 0;
       const isToday = dateStr === todayStr;
+      const isFuture = dateStr > todayStr;
       const isSelected = dateStr === selectedDate;
       monthTotalRevisions += count;
 
-      const isPast = dateObj < new Date(new Date().setHours(0, 0, 0, 0));
+      const isPast = dateObj < todayStart;
       const isRecovered = streakRecoveries.includes(dateStr);
       const isCompleted = count > 0 || isRecovered;
 
@@ -275,6 +425,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
       const pendingTasksCount = tasks.filter((t) => !t.completed).length;
       const completedTasksCount = tasks.filter((t) => t.completed).length;
       const remindersCount = dayItems.filter((i) => i.type === 'reminder').length;
+      const examsCount = dayItems.filter((i) => i.type === 'exam').length;
 
       let bg = 'bg-slate-900/50 border-slate-800 text-slate-400 hover:border-slate-700';
       if (isCompleted) {
@@ -290,6 +441,8 @@ export const StatsView: React.FC<StatsViewProps> = ({
           bg =
             'bg-emerald-400 border-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.4)] text-slate-900 font-bold';
         }
+      } else if (examsCount > 0) {
+        bg = 'bg-purple-950/50 border-purple-500/40 text-purple-200 hover:border-purple-400/60';
       }
 
       cells.push(
@@ -298,11 +451,9 @@ export const StatsView: React.FC<StatsViewProps> = ({
           tabIndex={0}
           onClick={() => {
             setSelectedDate(dateStr);
-            setEditingItemId(null);
-            setNewItemTitle('');
-            setNewItemTime('');
+            resetFormInputs();
           }}
-          className={`relative flex flex-col items-center justify-center h-12 w-full rounded-xl border transition-all group cursor-pointer focus:outline-none hover:scale-105 hover:z-20 ${bg} ${
+          className={`relative flex flex-col items-center justify-center h-14 w-full rounded-xl border transition-all group cursor-pointer focus:outline-none hover:scale-105 hover:z-20 ${bg} ${
             isSelected
               ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-950 z-10'
               : ''
@@ -310,11 +461,24 @@ export const StatsView: React.FC<StatsViewProps> = ({
         >
           <span className="text-sm pointer-events-none leading-none">{d}</span>
 
+          {/* Previsão discreta de revisões FSRS nos dias futuros */}
+          {isFuture && forecastCount > 0 && (
+            <span className="text-[9px] font-bold text-indigo-300/80 leading-none mt-1 pointer-events-none">
+              {forecastCount}p
+            </span>
+          )}
+
           <div className="flex items-center gap-1 mt-1 pointer-events-none">
             {isToday && (
               <span
                 className="w-1.5 h-1.5 rounded-full bg-indigo-400"
                 title="Hoje"
+              />
+            )}
+            {examsCount > 0 && (
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_5px_rgba(192,132,252,0.9)]"
+                title={`${examsCount} prova(s)`}
               />
             )}
             {pendingTasksCount > 0 && (
@@ -338,18 +502,35 @@ export const StatsView: React.FC<StatsViewProps> = ({
           </div>
 
           <div className="absolute bottom-full mb-1.5 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-all duration-200 translate-y-1 group-hover:translate-y-0 group-focus:translate-y-0 bg-slate-800/95 text-slate-200 text-[10px] font-medium px-2.5 py-1.5 rounded-lg pointer-events-none whitespace-nowrap z-50 shadow-xl border border-slate-700/80 flex flex-col items-center backdrop-blur-md">
-            <span
-              className={
-                count > 0 ? 'text-emerald-400 font-bold text-xs' : 'text-slate-400'
-              }
-            >
-              {count} revisões
-            </span>
+            {isFuture ? (
+              <span
+                className={
+                  forecastCount > 0
+                    ? 'text-indigo-300 font-bold text-xs'
+                    : 'text-slate-400'
+                }
+              >
+                {forecastCount} {forecastCount === 1 ? 'revisão prevista' : 'revisões previstas'}
+              </span>
+            ) : (
+              <span
+                className={
+                  count > 0 ? 'text-emerald-400 font-bold text-xs' : 'text-slate-400'
+                }
+              >
+                {count} revisões
+                {isToday && forecastCount > 0 ? ` • ${forecastCount} pendentes` : ''}
+              </span>
+            )}
             {dayItems.length > 0 && (
               <span className="text-amber-300 text-[9px] mt-0.5 font-semibold">
-                {tasks.length > 0 ? `${tasks.length} tarefa(s)` : ''}
-                {tasks.length > 0 && remindersCount > 0 ? ' • ' : ''}
-                {remindersCount > 0 ? `${remindersCount} lembrete(s)` : ''}
+                {[
+                  examsCount > 0 ? `${examsCount} prova(s)` : '',
+                  tasks.length > 0 ? `${tasks.length} tarefa(s)` : '',
+                  remindersCount > 0 ? `${remindersCount} lembrete(s)` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' • ')}
               </span>
             )}
             {isRecovered && count === 0 && (
@@ -371,9 +552,10 @@ export const StatsView: React.FC<StatsViewProps> = ({
       (a, b) => (a.time || '99:99').localeCompare(b.time || '99:99')
     );
     const selectedDateObj = new Date(selectedDate + 'T12:00:00');
-    const selectedIsPast =
-      selectedDateObj < new Date(new Date().setHours(0, 0, 0, 0));
+    const selectedIsPast = selectedDateObj < todayStart;
+    const selectedIsFuture = selectedDate > todayStr;
     const selectedCount = getDailyCount(selectedDate);
+    const selectedForecastCount = forecastByDateStr[selectedDate] || 0;
     const selectedIsRecovered = streakRecoveries.includes(selectedDate);
     const selectedCanRecover =
       selectedIsPast && selectedCount === 0 && !selectedIsRecovered;
@@ -414,6 +596,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
                       new Date(current.getFullYear(), current.getMonth(), 1)
                     );
                     setSelectedDate(todayStr);
+                    resetFormInputs();
                   }}
                   className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-lg transition-colors"
                 >
@@ -447,16 +630,76 @@ export const StatsView: React.FC<StatsViewProps> = ({
         </div>
 
         <div className="mt-6 pt-5 border-t border-slate-800/80 relative z-10 flex flex-col gap-4">
+          {/* Banner da próxima prova futura, se houver */}
+          {nextUpcomingExam && (
+            <div
+              onClick={() => {
+                const examDate = new Date(nextUpcomingExam.dateStr + 'T12:00:00');
+                setCalendarMonth(
+                  new Date(examDate.getFullYear(), examDate.getMonth(), 1)
+                );
+                setSelectedDate(nextUpcomingExam.dateStr);
+                resetFormInputs();
+              }}
+              className="flex flex-wrap items-center justify-between gap-2 bg-purple-950/30 hover:bg-purple-950/45 border border-purple-500/30 rounded-2xl px-3.5 py-2.5 cursor-pointer transition-colors"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <GraduationCap className="w-4 h-4 text-purple-400 shrink-0" />
+                <span className="text-xs font-bold text-purple-200 truncate">
+                  Próxima Prova: {nextUpcomingExam.exam.title}
+                </span>
+                <span className="text-[11px] text-purple-300/80 font-semibold shrink-0">
+                  ({nextUpcomingExam.dateStr.split('-').reverse().join('/')})
+                </span>
+              </div>
+              {(() => {
+                const { daysLeft, newPerDay, newCardsCount } = getExamMetrics(
+                  nextUpcomingExam.dateStr,
+                  nextUpcomingExam.exam
+                );
+                return (
+                  <div className="flex items-center gap-2 text-[11px] font-bold">
+                    <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-lg">
+                      {daysLeft === 0
+                        ? 'É hoje!'
+                        : daysLeft === 1
+                        ? 'Falta 1 dia'
+                        : `Faltam ${daysLeft} dias`}
+                    </span>
+                    {newPerDay > 0 && (
+                      <span className="text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
+                        ~{newPerDay} novos/dia ({newCardsCount})
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-slate-100">
                 {selectedDate === todayStr
                   ? `Hoje (${formattedSelectedDate})`
                   : `Dia ${formattedSelectedDate}`}
               </span>
-              <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
-                {selectedCount} {selectedCount === 1 ? 'revisão' : 'revisões'}
-              </span>
+              {!selectedIsFuture && (
+                <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
+                  {selectedCount} {selectedCount === 1 ? 'revisão' : 'revisões'}
+                </span>
+              )}
+              {(selectedIsFuture || selectedDate === todayStr) &&
+                selectedForecastCount > 0 && (
+                  <span className="text-xs font-semibold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-lg">
+                    {selectedForecastCount}{' '}
+                    {selectedDate === todayStr
+                      ? 'pendentes'
+                      : selectedForecastCount === 1
+                      ? 'revisão prevista'
+                      : 'revisões previstas'}
+                  </span>
+                )}
             </div>
 
             {selectedCanRecover && (
@@ -472,170 +715,287 @@ export const StatsView: React.FC<StatsViewProps> = ({
 
           <form
             onSubmit={handleSaveCalendarItem}
-            className="flex flex-col sm:flex-row gap-2 bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800/90"
+            className="flex flex-col gap-2 bg-slate-950/70 p-3 rounded-2xl border border-slate-800/90"
           >
-            <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 shrink-0">
-              <button
-                type="button"
-                onClick={() => setNewItemType('task')}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                  newItemType === 'task'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <CheckSquare className="w-3.5 h-3.5" /> Tarefa
-              </button>
-              <button
-                type="button"
-                onClick={() => setNewItemType('reminder')}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                  newItemType === 'reminder'
-                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Bell className="w-3.5 h-3.5" /> Lembrete
-              </button>
-            </div>
-
-            <input
-              type="text"
-              value={newItemTitle}
-              onChange={(e) => setNewItemTitle(e.target.value)}
-              placeholder={
-                newItemType === 'task'
-                  ? 'Adicionar nova tarefa para este dia...'
-                  : 'Adicionar lembrete para este dia...'
-              }
-              className="flex-grow bg-slate-900 border border-slate-800 text-slate-100 text-xs sm:text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 transition-colors"
-            />
-
-            <div className="flex items-center gap-2 shrink-0">
-              <input
-                type="time"
-                value={newItemTime}
-                onChange={(e) => setNewItemTime(e.target.value)}
-                className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-indigo-500"
-                title="Horário opcional"
-              />
-              {editingItemId && (
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 shrink-0">
                 <button
                   type="button"
-                  onClick={() => {
-                    setEditingItemId(null);
-                    setNewItemTitle('');
-                    setNewItemTime('');
-                  }}
-                  className="p-2 text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800 rounded-xl"
-                  title="Cancelar edição"
+                  onClick={() => setNewItemType('task')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    newItemType === 'task'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
                 >
-                  <X className="w-4 h-4" />
+                  <CheckSquare className="w-3.5 h-3.5" /> Tarefa
                 </button>
-              )}
-              <button
-                type="submit"
-                disabled={!newItemTitle.trim()}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-                  newItemTitle.trim()
-                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95'
-                    : 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                }`}
+                <button
+                  type="button"
+                  onClick={() => setNewItemType('reminder')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    newItemType === 'reminder'
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Bell className="w-3.5 h-3.5" /> Lembrete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewItemType('exam')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    newItemType === 'exam'
+                      ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <GraduationCap className="w-3.5 h-3.5" /> Prova
+                </button>
+              </div>
+
+              <input
+                type="text"
+                value={newItemTitle}
+                onChange={(e) => setNewItemTitle(e.target.value)}
+                placeholder={
+                  newItemType === 'task'
+                    ? 'Ex: Revisar Direito Administrativo...'
+                    : newItemType === 'reminder'
+                    ? 'Ex: Fazer simulado às 19h...'
+                    : 'Ex: Prova HOB - Técnico em Administração...'
+                }
+                className="flex-grow bg-slate-900 border border-slate-800 text-slate-100 text-xs sm:text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <select
+                value={newItemLink}
+                onChange={(e) => setNewItemLink(e.target.value)}
+                className="flex-grow bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 transition-colors"
+                title="Vincular a um baralho ou coleção (opcional)"
               >
-                {editingItemId ? (
-                  <>
-                    <Check className="w-4 h-4" /> Salvar
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4" /> Adicionar
-                  </>
+                <option value="">Sem vínculo com baralho/coleção</option>
+                {folders.length > 0 && (
+                  <optgroup label="Coleções">
+                    {folders.map((f) => (
+                      <option key={f.id} value={`folder:${f.id}`}>
+                        Coleção: {f.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 )}
-              </button>
+                {activeDecksList.length > 0 && (
+                  <optgroup label="Baralhos">
+                    {activeDecksList.map((d) => (
+                      <option key={d.id} value={`deck:${d.id}`}>
+                        Baralho: {d.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="time"
+                  value={newItemTime}
+                  onChange={(e) => setNewItemTime(e.target.value)}
+                  className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-indigo-500"
+                  title="Horário opcional"
+                />
+                {editingItemId && (
+                  <button
+                    type="button"
+                    onClick={resetFormInputs}
+                    className="p-2 text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800 rounded-xl"
+                    title="Cancelar edição"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  disabled={!newItemTitle.trim()}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                    newItemTitle.trim()
+                      ? 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95'
+                      : 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                  }`}
+                >
+                  {editingItemId ? (
+                    <>
+                      <Check className="w-4 h-4" /> Salvar
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" /> Adicionar
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </form>
 
           {selectedDayItems.length === 0 ? (
             <div className="text-center py-4 text-xs text-slate-500 bg-slate-950/40 rounded-2xl border border-dashed border-slate-800/80">
-              Nenhuma tarefa ou lembrete agendado para {formattedSelectedDate}.
+              Nenhuma tarefa, lembrete ou prova agendada para {formattedSelectedDate}.
             </div>
           ) : (
-            <div className="flex flex-col gap-2 max-h-52 overflow-y-auto custom-scrollbar pr-1">
+            <div className="flex flex-col gap-2 max-h-64 overflow-y-auto custom-scrollbar pr-1">
               {selectedDayItems.map((item) => {
                 const isTask = item.type === 'task';
+                const isExam = item.type === 'exam';
+                const linkedTarget = resolveLinkedTarget(item);
+                const examMetrics = isExam
+                  ? getExamMetrics(selectedDate, item)
+                  : null;
+
                 return (
                   <div
                     key={item.id}
-                    className={`flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl border transition-all ${
+                    className={`flex flex-col gap-2 px-3.5 py-2.5 rounded-xl border transition-all ${
                       isTask && item.completed
                         ? 'bg-slate-950/40 border-slate-800/60 opacity-60'
+                        : isExam
+                        ? 'bg-purple-950/25 border-purple-500/35 hover:border-purple-400/50'
                         : isTask
                         ? 'bg-slate-950/80 border-slate-800 hover:border-amber-500/30'
                         : 'bg-rose-950/20 border-rose-500/20 hover:border-rose-500/40'
                     }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0 flex-grow">
-                      {isTask ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-grow flex-wrap">
+                        {isTask ? (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTask(item.id)}
+                            className={`shrink-0 transition-colors ${
+                              item.completed
+                                ? 'text-emerald-400'
+                                : 'text-amber-400 hover:text-amber-300'
+                            }`}
+                            title={
+                              item.completed
+                                ? 'Desmarcar tarefa'
+                                : 'Concluir tarefa'
+                            }
+                          >
+                            {item.completed ? (
+                              <CheckSquare className="w-4 h-4" />
+                            ) : (
+                              <Square className="w-4 h-4" />
+                            )}
+                          </button>
+                        ) : isExam ? (
+                          <GraduationCap className="w-4 h-4 text-purple-400 shrink-0" />
+                        ) : (
+                          <Bell className="w-4 h-4 text-rose-400 shrink-0" />
+                        )}
+
+                        <span
+                          className={`text-xs sm:text-sm font-semibold truncate ${
+                            isTask && item.completed
+                              ? 'line-through text-slate-500'
+                              : isExam
+                              ? 'text-purple-100'
+                              : 'text-slate-200'
+                          }`}
+                        >
+                          {item.title}
+                        </span>
+
+                        {item.time && (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md shrink-0">
+                            <Clock className="w-3 h-3 text-indigo-400" />
+                            {item.time}
+                          </span>
+                        )}
+
+                        {isExam && examMetrics && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0">
+                            {examMetrics.daysLeft > 0
+                              ? `Faltam ${examMetrics.daysLeft}d`
+                              : examMetrics.daysLeft === 0
+                              ? 'É hoje!'
+                              : `Há ${Math.abs(examMetrics.daysLeft)}d`}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        {linkedTarget && startReview && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (linkedTarget.kind === 'deck') {
+                                startReview(linkedTarget.id, false, null);
+                              } else {
+                                startReview(null, false, linkedTarget.id);
+                              }
+                            }}
+                            disabled={linkedTarget.dueCardsCount === 0}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all mr-1 ${
+                              linkedTarget.dueCardsCount > 0
+                                ? 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95'
+                                : 'bg-slate-800/80 text-slate-500 cursor-not-allowed'
+                            }`}
+                            title={
+                              linkedTarget.dueCardsCount > 0
+                                ? `Estudar ${linkedTarget.dueCardsCount} pendentes`
+                                : 'Sem cartões pendentes agora'
+                            }
+                          >
+                            <Play className="w-3 h-3 fill-current" /> Estudar
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => handleToggleTask(item.id)}
-                          className={`shrink-0 transition-colors ${
-                            item.completed
-                              ? 'text-emerald-400'
-                              : 'text-amber-400 hover:text-amber-300'
-                          }`}
-                          title={
-                            item.completed
-                              ? 'Desmarcar tarefa'
-                              : 'Concluir tarefa'
-                          }
+                          onClick={() => handleStartEditItem(item)}
+                          className="p-1.5 text-slate-500 hover:text-indigo-400 rounded-lg hover:bg-slate-800 transition-colors"
+                          title="Editar"
                         >
-                          {item.completed ? (
-                            <CheckSquare className="w-4 h-4" />
-                          ) : (
-                            <Square className="w-4 h-4" />
-                          )}
+                          <Pencil className="w-3.5 h-3.5" />
                         </button>
-                      ) : (
-                        <Bell className="w-4 h-4 text-rose-400 shrink-0" />
-                      )}
-
-                      <span
-                        className={`text-xs sm:text-sm font-medium truncate ${
-                          isTask && item.completed
-                            ? 'line-through text-slate-500'
-                            : 'text-slate-200'
-                        }`}
-                      >
-                        {item.title}
-                      </span>
-
-                      {item.time && (
-                        <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md shrink-0">
-                          <Clock className="w-3 h-3 text-indigo-400" />
-                          {item.time}
-                        </span>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCalendarItem(item.id)}
+                          className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleStartEditItem(item)}
-                        className="p-1.5 text-slate-500 hover:text-indigo-400 rounded-lg hover:bg-slate-800 transition-colors"
-                        title="Editar"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCalendarItem(item.id)}
-                        className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
-                        title="Excluir"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    {/* Rodapé informativo quando há vínculo com Baralho/Coleção ou meta de Prova */}
+                    {(linkedTarget || (isExam && examMetrics)) && (
+                      <div className="flex flex-wrap items-center gap-2 pl-6 text-[11px]">
+                        {linkedTarget && (
+                          <span className="inline-flex items-center gap-1 text-slate-300 bg-slate-900/90 border border-slate-800 px-2 py-0.5 rounded-md font-medium">
+                            {linkedTarget.kind === 'deck' ? (
+                              <BookOpen className="w-3 h-3 text-indigo-400" />
+                            ) : (
+                              <FolderIcon className="w-3 h-3 text-indigo-400" />
+                            )}
+                            {linkedTarget.name}
+                            <span className="text-slate-500 ml-1">
+                              ({linkedTarget.dueCardsCount} pend.)
+                            </span>
+                          </span>
+                        )}
+
+                        {isExam && examMetrics && linkedTarget && examMetrics.daysLeft > 0 && (
+                          <span className="inline-flex items-center gap-1 text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md font-semibold">
+                            <Layers className="w-3 h-3 text-emerald-400" />
+                            {examMetrics.newCardsCount > 0
+                              ? `Meta: ~${examMetrics.newPerDay} cartões novos/dia (${examMetrics.newCardsCount} restantes)`
+                              : 'Todos os cartões novos já foram iniciados!'}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -647,9 +1007,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
   };
 
   const renderForecast = () => {
-    const allCards = validDecks
-      .filter((d) => !d.isIgnored)
-      .flatMap((d) => d.cards || []);
+    const allCards = activeDecksList.flatMap((d) => d.cards || []);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const endOfToday = new Date(today);
@@ -867,8 +1225,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
   };
 
   const renderDeckDistribution = () => {
-    const allStudiedDecks = validDecks
-      .filter((d) => !d.isIgnored)
+    const allStudiedDecks = activeDecksList
       .map((d) => {
         const effort = (d.cards || []).reduce(
           (sum, c) => sum + (c.reviews || 0),
