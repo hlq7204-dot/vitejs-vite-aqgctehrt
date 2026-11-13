@@ -189,9 +189,9 @@ export default function App() {
 
   const [isCustomStudyModalOpen, setIsCustomStudyModalOpen] = useState(false);
   const [customStudyConfig, setCustomStudyConfig] = useState({
-    sourceType: 'all', // 'all' | 'folder' | 'deck'
+    sourceType: 'all',
     sourceId: null,
-    preset: 'cram', // 'cram' | 'leeches' | 'new_only' | 'interactive' | 'due_only'
+    preset: 'cram',
     cardType: 'all',
     tag: 'all',
     limit: 20
@@ -230,8 +230,13 @@ export default function App() {
       payload.calendarEvents = newCalEvents;
       payload.calendarUpdatedAt = newCalTs || Date.now();
     }
-    if (Object.keys(payload).length > 0) {
-      setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), payload, { merge: true }).catch(console.error);
+    const fields = Object.keys(payload);
+    if (fields.length > 0) {
+      setDoc(
+        doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'),
+        payload,
+        { mergeFields: fields }
+      ).catch(console.error);
     }
   };
 
@@ -355,7 +360,11 @@ export default function App() {
         setStreakRecoveries(cleanRecoveries);
 
         if (hasChanges) {
-          setDoc(profileRef, { activityMap: cleanMap, streakRecoveries: cleanRecoveries }, { merge: true }).catch(console.error);
+          setDoc(
+            profileRef,
+            { activityMap: cleanMap, streakRecoveries: cleanRecoveries },
+            { mergeFields: ['activityMap', 'streakRecoveries'] }
+          ).catch(console.error);
         }
 
         const cloudEvents =
@@ -395,7 +404,7 @@ export default function App() {
           setDoc(
             profileRef,
             { calendarEvents: cleanLocal, calendarUpdatedAt: uploadTs },
-            { merge: true }
+            { mergeFields: ['calendarEvents', 'calendarUpdatedAt'] }
           ).catch(console.error);
         } else if (cloudEvents !== null) {
           setCalendarEvents(cloudEvents);
@@ -863,7 +872,6 @@ export default function App() {
     setActivityMap(newActivityMap); syncDataToCloud(newActivityMap, null);
 
     let newQueue = [...reviewQueue];
-    // Cartões marcados como "Errei" (quality === 0) voltam para o fim da fila na sessão atual
     if (quality === 0) newQueue.push({ ...updatedCard, _deckId: currentCard._deckId });
     if (currentCardIndex + 1 < newQueue.length) { setReviewQueue(newQueue); setIsFlipped(false); setCurrentCardIndex(prev => prev + 1); } 
     else setCurrentView('finished');
@@ -885,7 +893,6 @@ export default function App() {
       updateDeckInCloud(updatedDeck);
     }
 
-    // Reverte também o registro no activityMap do dia para não inflar estatísticas
     const todayStr = getTodayStr();
     if (Array.isArray(activityMap[todayStr])) {
       const currentList = [...activityMap[todayStr]];
@@ -1053,14 +1060,27 @@ export default function App() {
         if (user && db) {
           restoredFolders.forEach(f => updateFolderInCloud(f));
           restoredDecks.forEach(d => updateDeckInCloud(d));
-          setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), {
-            activityMap: restoredActivity,
-            streakRecoveries: restoredRecoveries,
-            calendarEvents: restoredCalendarEvents,
-            calendarUpdatedAt: Date.now(),
-            dailyGoal: restoredGoal,
-            desiredRetention: restoredRetention
-          }, { merge: true }).catch(console.error);
+          setDoc(
+            doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'),
+            {
+              activityMap: restoredActivity,
+              streakRecoveries: restoredRecoveries,
+              calendarEvents: restoredCalendarEvents,
+              calendarUpdatedAt: Date.now(),
+              dailyGoal: restoredGoal,
+              desiredRetention: restoredRetention
+            },
+            {
+              mergeFields: [
+                'activityMap',
+                'streakRecoveries',
+                'calendarEvents',
+                'calendarUpdatedAt',
+                'dailyGoal',
+                'desiredRetention'
+              ]
+            }
+          ).catch(console.error);
         }
         setIsSettingsOpen(false);
         showToast(`Backup restaurado! (${restoredDecks.length} baralhos)`);
@@ -1117,10 +1137,14 @@ export default function App() {
     setDesiredRetention(finalRetention);
     setIsSettingsOpen(false);
     if (user && db) {
-      setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'), {
-        dailyGoal: finalGoal,
-        desiredRetention: finalRetention
-      }, { merge: true }).catch(console.error);
+      setDoc(
+        doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'),
+        {
+          dailyGoal: finalGoal,
+          desiredRetention: finalRetention
+        },
+        { mergeFields: ['dailyGoal', 'desiredRetention'] }
+      ).catch(console.error);
     }
     showToast("Configurações salvas!");
   };
@@ -1408,7 +1432,6 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* CABEÇALHO SÓBRIO E INTEGRADO */}
           <Header
             currentView={currentView}
             mainTab={mainTab}
@@ -1599,7 +1622,6 @@ export default function App() {
         </>
       )}
 
-      {/* MODAL CONFIGURAÇÕES & BACKUP */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -1613,7 +1635,6 @@ export default function App() {
         onExportCSV={handleExportCSV}
       />
 
-      {/* MODAL ESTUDO PERSONALIZADO / SIMULADO */}
       <CustomStudyModal
         isOpen={isCustomStudyModalOpen}
         onClose={() => setIsCustomStudyModalOpen(false)}
@@ -1624,7 +1645,6 @@ export default function App() {
         matchedCardsCount={getFilteredCustomStudyCards(customStudyConfig).length}
       />
 
-      {/* MODAIS DE AÇÃO E CONFIRMAÇÃO */}
       <StreakRecoveryModal
         streakRecoveryDate={streakRecoveryDate}
         onClose={() => setStreakRecoveryDate(null)}
@@ -1657,7 +1677,6 @@ export default function App() {
         onConfirm={confirmDelete}
       />
 
-      {/* MODAL CRIAR/EDITAR PASTA/BARALHO */}
       <FolderDeckModal
         isOpen={isModalOpen}
         onClose={closeAndResetModal}
@@ -1672,7 +1691,6 @@ export default function App() {
         onSubmit={handleCreateOrEditItem}
       />
 
-      {/* MODAL EDITAR CARTÃO NA REVISÃO */}
       <CardEditModal
         isOpen={isCardEditModalOpen}
         onClose={() => setIsCardEditModalOpen(false)}
@@ -1697,7 +1715,6 @@ export default function App() {
         onSave={handleSaveCard}
       />
 
-      {/* TOASTS */}
       <Toast toast={toast} />
     </div>
   );

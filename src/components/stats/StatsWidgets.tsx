@@ -48,17 +48,32 @@ interface DisplayCalendarItem extends CalendarEventItem {
   isCompletedOnDate: boolean;
 }
 
+const WEEKDAY_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
 const RECURRENCE_LABELS: Record<CalendarRecurrence, string> = {
   none: 'Não se repete',
   daily: 'Diário',
   weekdays: 'Seg–Sex',
   weekly: 'Semanal',
+  custom_days: 'Dias específicos',
+};
+
+const formatRecurrenceBadge = (item: CalendarEventItem): string => {
+  if (!item.recurrence || item.recurrence === 'none') return '';
+  if (item.recurrence === 'custom_days') {
+    const days = [...(item.recurrenceDays || [])].sort((a, b) => a - b);
+    if (days.length === 0) return 'Dias específicos';
+    if (days.length === 7) return 'Todos os dias';
+    return days.map((d) => WEEKDAY_SHORT[d]).join(', ');
+  }
+  return RECURRENCE_LABELS[item.recurrence];
 };
 
 const matchesRecurrenceOnDate = (
   originDateStr: string,
   targetDateStr: string,
-  recurrence?: CalendarRecurrence
+  recurrence?: CalendarRecurrence,
+  recurrenceDays?: number[]
 ): boolean => {
   if (!recurrence || recurrence === 'none') return false;
   if (targetDateStr <= originDateStr) return false;
@@ -71,6 +86,9 @@ const matchesRecurrenceOnDate = (
   if (recurrence === 'weekly') {
     const originDate = new Date(originDateStr + 'T12:00:00');
     return targetDow === originDate.getDay();
+  }
+  if (recurrence === 'custom_days') {
+    return Array.isArray(recurrenceDays) && recurrenceDays.includes(targetDow);
   }
   return false;
 };
@@ -121,10 +139,23 @@ export const StatsView: React.FC<StatsViewProps> = ({
   const [newItemLink, setNewItemLink] = useState('');
   const [newItemRecurrence, setNewItemRecurrence] =
     useState<CalendarRecurrence>('none');
+  const [newItemRecurrenceDays, setNewItemRecurrenceDays] = useState<number[]>(
+    () => [new Date(getTodayStr() + 'T12:00:00').getDay()]
+  );
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingOriginDate, setEditingOriginDate] = useState<string | null>(
+    null
+  );
+  const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
   const [showOverdueDetails, setShowOverdueDetails] = useState(false);
 
-  const eventsMap = calendarEvents || {};
+  const eventsMap =
+    calendarEvents &&
+    typeof calendarEvents === 'object' &&
+    !Array.isArray(calendarEvents)
+      ? calendarEvents
+      : {};
+
   const activeDecksList = useMemo(
     () => validDecks.filter((d) => !d.isIgnored),
     [validDecks]
@@ -134,8 +165,9 @@ export const StatsView: React.FC<StatsViewProps> = ({
   const recurringOrigins = useMemo(() => {
     const list: { originDate: string; item: CalendarEventItem }[] = [];
     Object.entries(eventsMap).forEach(([dateStr, items]) => {
-      (items || []).forEach((item) => {
-        if (item.recurrence && item.recurrence !== 'none') {
+      if (!Array.isArray(items)) return;
+      items.forEach((item) => {
+        if (item && item.recurrence && item.recurrence !== 'none') {
           list.push({ originDate: dateStr, item });
         }
       });
@@ -143,10 +175,15 @@ export const StatsView: React.FC<StatsViewProps> = ({
     return list;
   }, [eventsMap]);
 
-  // Resolve os itens diretos + recorrentes de qualquer data
+  // Resolve os itens diretos + recorrentes de qualquer data (respeitando datas excluídas)
   const getItemsForDate = (targetDateStr: string): DisplayCalendarItem[] => {
-    const directItems: DisplayCalendarItem[] = (eventsMap[targetDateStr] || []).map(
-      (item) => {
+    const rawDirect = Array.isArray(eventsMap[targetDateStr])
+      ? eventsMap[targetDateStr]
+      : [];
+
+    const directItems: DisplayCalendarItem[] = rawDirect
+      .filter((item) => !(item.excludedDates || []).includes(targetDateStr))
+      .map((item) => {
         const isRec = item.recurrence && item.recurrence !== 'none';
         const isCompletedOnDate = isRec
           ? (item.completedDates || []).includes(targetDateStr) || !!item.completed
@@ -157,12 +194,19 @@ export const StatsView: React.FC<StatsViewProps> = ({
           isProjected: false,
           isCompletedOnDate,
         };
-      }
-    );
+      });
 
     const projectedItems: DisplayCalendarItem[] = [];
     recurringOrigins.forEach(({ originDate, item }) => {
-      if (matchesRecurrenceOnDate(originDate, targetDateStr, item.recurrence)) {
+      if ((item.excludedDates || []).includes(targetDateStr)) return;
+      if (
+        matchesRecurrenceOnDate(
+          originDate,
+          targetDateStr,
+          item.recurrence,
+          item.recurrenceDays
+        )
+      ) {
         projectedItems.push({
           ...item,
           originDate,
@@ -186,7 +230,8 @@ export const StatsView: React.FC<StatsViewProps> = ({
       .sort();
 
     pastDates.forEach((dateStr) => {
-      (eventsMap[dateStr] || []).forEach((item) => {
+      const items = Array.isArray(eventsMap[dateStr]) ? eventsMap[dateStr] : [];
+      items.forEach((item) => {
         const isOneOff = !item.recurrence || item.recurrence === 'none';
         if (item.type === 'task' && !item.completed && isOneOff) {
           list.push({ originDate: dateStr, item });
@@ -235,7 +280,8 @@ export const StatsView: React.FC<StatsViewProps> = ({
       .sort();
 
     for (const dateStr of futureDates) {
-      const exam = (eventsMap[dateStr] || []).find((i) => i.type === 'exam');
+      const items = Array.isArray(eventsMap[dateStr]) ? eventsMap[dateStr] : [];
+      const exam = items.find((i) => i.type === 'exam');
       if (exam) {
         return { dateStr, exam };
       }
@@ -250,12 +296,46 @@ export const StatsView: React.FC<StatsViewProps> = ({
     }
   };
 
-  const resetFormInputs = () => {
+  const resetFormInputs = (targetDateStr = selectedDate) => {
     setNewItemTitle('');
     setNewItemTime('');
     setNewItemLink('');
     setNewItemRecurrence('none');
+    const dow = new Date(targetDateStr + 'T12:00:00').getDay();
+    setNewItemRecurrenceDays([dow]);
     setEditingItemId(null);
+    setEditingOriginDate(null);
+    setPendingDeleteKey(null);
+  };
+
+  const toggleWeekdaySelection = (dayIndex: number) => {
+    setNewItemRecurrenceDays((prev) => {
+      if (prev.includes(dayIndex)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((d) => d !== dayIndex);
+      }
+      return [...prev, dayIndex].sort((a, b) => a - b);
+    });
+  };
+
+  // Encontra a primeira data (a partir de baseDateStr) que coincide com os dias da semana selecionados
+  const findFirstMatchingDateStr = (
+    baseDateStr: string,
+    daysOfWeek: number[]
+  ): string => {
+    if (!daysOfWeek || daysOfWeek.length === 0) return baseDateStr;
+    const base = new Date(baseDateStr + 'T12:00:00');
+    for (let offset = 0; offset < 7; offset++) {
+      const candidate = new Date(base);
+      candidate.setDate(base.getDate() + offset);
+      if (daysOfWeek.includes(candidate.getDay())) {
+        const y = candidate.getFullYear();
+        const m = String(candidate.getMonth() + 1).padStart(2, '0');
+        const dy = String(candidate.getDate()).padStart(2, '0');
+        return `${y}-${m}-${dy}`;
+      }
+    }
+    return baseDateStr;
   };
 
   const handleSaveCalendarItem = (e: React.FormEvent) => {
@@ -263,9 +343,15 @@ export const StatsView: React.FC<StatsViewProps> = ({
     if (!newItemTitle.trim()) return;
 
     const trimmedTime = newItemTime.trim();
-    const currentDayItems = [...(eventsMap[selectedDate] || [])];
     const effectiveRecurrence: CalendarRecurrence =
       newItemType === 'exam' ? 'none' : newItemRecurrence;
+
+    const effectiveDays =
+      effectiveRecurrence === 'custom_days'
+        ? newItemRecurrenceDays.length > 0
+          ? [...newItemRecurrenceDays].sort((a, b) => a - b)
+          : [new Date(selectedDate + 'T12:00:00').getDay()]
+        : undefined;
 
     const linkedDeckId = newItemLink.startsWith('deck:')
       ? newItemLink.slice(5)
@@ -275,7 +361,12 @@ export const StatsView: React.FC<StatsViewProps> = ({
       : undefined;
 
     if (editingItemId) {
-      const updated = currentDayItems.map((item) => {
+      const targetOriginDate = editingOriginDate || selectedDate;
+      const originItems = Array.isArray(eventsMap[targetOriginDate])
+        ? [...eventsMap[targetOriginDate]]
+        : [];
+
+      const updated = originItems.map((item) => {
         if (item.id !== editingItemId) return item;
         const updatedItem: CalendarEventItem = {
           id: item.id,
@@ -284,16 +375,30 @@ export const StatsView: React.FC<StatsViewProps> = ({
           completed: newItemType === 'task' ? !!item.completed : false,
           recurrence: effectiveRecurrence,
         };
+        if (effectiveDays) updatedItem.recurrenceDays = effectiveDays;
         if (item.completedDates && effectiveRecurrence !== 'none') {
           updatedItem.completedDates = item.completedDates;
+        }
+        if (item.excludedDates && effectiveRecurrence !== 'none') {
+          updatedItem.excludedDates = item.excludedDates;
         }
         if (trimmedTime) updatedItem.time = trimmedTime;
         if (linkedDeckId) updatedItem.deckId = linkedDeckId;
         if (linkedFolderId) updatedItem.folderId = linkedFolderId;
         return updatedItem;
       });
-      updateEvents({ ...eventsMap, [selectedDate]: updated });
+      updateEvents({ ...eventsMap, [targetOriginDate]: updated });
+      resetFormInputs(selectedDate);
     } else {
+      const startDateStr =
+        effectiveRecurrence === 'custom_days' && effectiveDays
+          ? findFirstMatchingDateStr(selectedDate, effectiveDays)
+          : selectedDate;
+
+      const targetDayItems = Array.isArray(eventsMap[startDateStr])
+        ? [...eventsMap[startDateStr]]
+        : [];
+
       const newItem: CalendarEventItem = {
         id: `ev-${Date.now()}`,
         title: newItemTitle.trim(),
@@ -301,22 +406,32 @@ export const StatsView: React.FC<StatsViewProps> = ({
         completed: false,
         recurrence: effectiveRecurrence,
       };
+      if (effectiveDays) newItem.recurrenceDays = effectiveDays;
       if (trimmedTime) newItem.time = trimmedTime;
       if (linkedDeckId) newItem.deckId = linkedDeckId;
       if (linkedFolderId) newItem.folderId = linkedFolderId;
 
       updateEvents({
         ...eventsMap,
-        [selectedDate]: [...currentDayItems, newItem],
+        [startDateStr]: [...targetDayItems, newItem],
       });
-    }
 
-    resetFormInputs();
+      if (startDateStr !== selectedDate) {
+        const startObj = new Date(startDateStr + 'T12:00:00');
+        setCalendarMonth(
+          new Date(startObj.getFullYear(), startObj.getMonth(), 1)
+        );
+        setSelectedDate(startDateStr);
+      }
+      resetFormInputs(startDateStr);
+    }
   };
 
   const handleToggleTask = (displayItem: DisplayCalendarItem) => {
     const originDate = displayItem.originDate;
-    const originItems = eventsMap[originDate] || [];
+    const originItems = Array.isArray(eventsMap[originDate])
+      ? eventsMap[originDate]
+      : [];
     const isRec = displayItem.recurrence && displayItem.recurrence !== 'none';
 
     const updated = originItems.map((item) => {
@@ -340,9 +455,12 @@ export const StatsView: React.FC<StatsViewProps> = ({
     updateEvents({ ...eventsMap, [originDate]: updated });
   };
 
-  const handleDeleteCalendarItem = (displayItem: DisplayCalendarItem) => {
+  // Exclui toda a série (ou um evento único)
+  const handleDeleteEntireSeries = (displayItem: DisplayCalendarItem) => {
     const originDate = displayItem.originDate;
-    const originItems = eventsMap[originDate] || [];
+    const originItems = Array.isArray(eventsMap[originDate])
+      ? eventsMap[originDate]
+      : [];
     const updated = originItems.filter((item) => item.id !== displayItem.id);
     const nextMap = { ...eventsMap };
     if (updated.length > 0) {
@@ -351,30 +469,72 @@ export const StatsView: React.FC<StatsViewProps> = ({
       delete nextMap[originDate];
     }
     updateEvents(nextMap);
+    setPendingDeleteKey(null);
     if (editingItemId === displayItem.id) {
-      resetFormInputs();
+      resetFormInputs(selectedDate);
     }
   };
 
-  const handleStartEditItem = (displayItem: DisplayCalendarItem) => {
-    if (displayItem.isProjected) {
-      const originObj = new Date(displayItem.originDate + 'T12:00:00');
-      setCalendarMonth(
-        new Date(originObj.getFullYear(), originObj.getMonth(), 1)
+  // Exclui o evento recorrente apenas na data selecionada (mantendo os outros dias)
+  const handleDeleteOnlyThisDate = (displayItem: DisplayCalendarItem) => {
+    const originDate = displayItem.originDate;
+    const originItems = Array.isArray(eventsMap[originDate])
+      ? eventsMap[originDate]
+      : [];
+
+    const updated = originItems.map((item) => {
+      if (item.id !== displayItem.id) return item;
+      const nextExcluded = Array.from(
+        new Set([...(item.excludedDates || []), selectedDate])
       );
-      setSelectedDate(displayItem.originDate);
+      return {
+        ...item,
+        excludedDates: nextExcluded,
+      };
+    });
+
+    updateEvents({ ...eventsMap, [originDate]: updated });
+    setPendingDeleteKey(null);
+    if (editingItemId === displayItem.id) {
+      resetFormInputs(selectedDate);
     }
+  };
+
+  const handleDeleteButtonClick = (displayItem: DisplayCalendarItem) => {
+    const isRecurring =
+      displayItem.recurrence && displayItem.recurrence !== 'none';
+    if (!isRecurring) {
+      handleDeleteEntireSeries(displayItem);
+      return;
+    }
+    const key = `${displayItem.originDate}-${displayItem.id}`;
+    setPendingDeleteKey((prev) => (prev === key ? null : key));
+  };
+
+  const handleStartEditItem = (displayItem: DisplayCalendarItem) => {
+    setPendingDeleteKey(null);
     setEditingItemId(displayItem.id);
+    setEditingOriginDate(displayItem.originDate);
     setNewItemTitle(displayItem.title);
     setNewItemType(displayItem.type || 'task');
     setNewItemTime(displayItem.time || '');
     setNewItemRecurrence(displayItem.recurrence || 'none');
+    if (
+      displayItem.recurrence === 'custom_days' &&
+      Array.isArray(displayItem.recurrenceDays) &&
+      displayItem.recurrenceDays.length > 0
+    ) {
+      setNewItemRecurrenceDays([...displayItem.recurrenceDays]);
+    } else {
+      setNewItemRecurrenceDays([
+        new Date(displayItem.originDate + 'T12:00:00').getDay(),
+      ]);
+    }
     if (displayItem.deckId) setNewItemLink(`deck:${displayItem.deckId}`);
     else if (displayItem.folderId) setNewItemLink(`folder:${displayItem.folderId}`);
     else setNewItemLink('');
   };
 
-  // Move todas as tarefas atrasadas para hoje
   const handleMoveAllOverdueToToday = () => {
     if (overdueTasks.length === 0) return;
     const todayStr = getTodayStr();
@@ -382,51 +542,53 @@ export const StatsView: React.FC<StatsViewProps> = ({
     const movedItems: CalendarEventItem[] = [];
 
     overdueTasks.forEach(({ originDate, item }) => {
-      const filtered = (nextMap[originDate] || []).filter(
-        (x) => x.id !== item.id
-      );
+      const currentList = Array.isArray(nextMap[originDate])
+        ? nextMap[originDate]
+        : [];
+      const filtered = currentList.filter((x) => x.id !== item.id);
       if (filtered.length > 0) nextMap[originDate] = filtered;
       else delete nextMap[originDate];
       movedItems.push({ ...item, completed: false });
     });
 
-    nextMap[todayStr] = [...(nextMap[todayStr] || []), ...movedItems];
+    const todayList = Array.isArray(nextMap[todayStr]) ? nextMap[todayStr] : [];
+    nextMap[todayStr] = [...todayList, ...movedItems];
     updateEvents(nextMap);
     setShowOverdueDetails(false);
 
     const now = new Date();
     setCalendarMonth(new Date(now.getFullYear(), now.getMonth(), 1));
     setSelectedDate(todayStr);
-    resetFormInputs();
+    resetFormInputs(todayStr);
   };
 
-  // Move apenas uma tarefa atrasada para hoje
   const handleMoveSingleOverdueToToday = (
     originDate: string,
     targetItem: CalendarEventItem
   ) => {
     const todayStr = getTodayStr();
     const nextMap: Record<string, CalendarEventItem[]> = { ...eventsMap };
-    const filtered = (nextMap[originDate] || []).filter(
-      (x) => x.id !== targetItem.id
-    );
+    const currentList = Array.isArray(nextMap[originDate])
+      ? nextMap[originDate]
+      : [];
+    const filtered = currentList.filter((x) => x.id !== targetItem.id);
     if (filtered.length > 0) nextMap[originDate] = filtered;
     else delete nextMap[originDate];
 
-    nextMap[todayStr] = [
-      ...(nextMap[todayStr] || []),
-      { ...targetItem, completed: false },
-    ];
+    const todayList = Array.isArray(nextMap[todayStr]) ? nextMap[todayStr] : [];
+    nextMap[todayStr] = [...todayList, { ...targetItem, completed: false }];
     updateEvents(nextMap);
   };
 
-  // Marca uma tarefa atrasada como concluída diretamente do banner
   const handleCompleteSingleOverdue = (
     originDate: string,
     targetItem: CalendarEventItem
   ) => {
     const nextMap: Record<string, CalendarEventItem[]> = { ...eventsMap };
-    nextMap[originDate] = (nextMap[originDate] || []).map((x) =>
+    const currentList = Array.isArray(nextMap[originDate])
+      ? nextMap[originDate]
+      : [];
+    nextMap[originDate] = currentList.map((x) =>
       x.id === targetItem.id ? { ...x, completed: true } : x
     );
     updateEvents(nextMap);
@@ -653,7 +815,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
           tabIndex={0}
           onClick={() => {
             setSelectedDate(dateStr);
-            resetFormInputs();
+            resetFormInputs(dateStr);
           }}
           className={`relative flex flex-col items-center justify-center h-14 w-full rounded-xl border transition-all group cursor-pointer focus:outline-none hover:scale-105 hover:z-20 ${bg} ${
             isSelected
@@ -795,7 +957,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
                       new Date(current.getFullYear(), current.getMonth(), 1)
                     );
                     setSelectedDate(todayStr);
-                    resetFormInputs();
+                    resetFormInputs(todayStr);
                   }}
                   className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-lg transition-colors"
                 >
@@ -918,7 +1080,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
                   new Date(examDate.getFullYear(), examDate.getMonth(), 1)
                 );
                 setSelectedDate(nextUpcomingExam.dateStr);
-                resetFormInputs();
+                resetFormInputs(nextUpcomingExam.dateStr);
               }}
               className="flex flex-wrap items-center justify-between gap-2 bg-purple-950/30 hover:bg-purple-950/45 border border-purple-500/30 rounded-2xl px-3.5 py-2.5 cursor-pointer transition-colors"
             >
@@ -1082,9 +1244,15 @@ export const StatsView: React.FC<StatsViewProps> = ({
               {newItemType !== 'exam' && (
                 <select
                   value={newItemRecurrence}
-                  onChange={(e) =>
-                    setNewItemRecurrence(e.target.value as CalendarRecurrence)
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value as CalendarRecurrence;
+                    setNewItemRecurrence(val);
+                    if (val === 'custom_days' && newItemRecurrenceDays.length === 0) {
+                      setNewItemRecurrenceDays([
+                        new Date(selectedDate + 'T12:00:00').getDay(),
+                      ]);
+                    }
+                  }}
                   className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 transition-colors"
                   title="Repetição automática"
                 >
@@ -1092,6 +1260,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
                   <option value="daily">Diariamente</option>
                   <option value="weekdays">Dias úteis (Seg–Sex)</option>
                   <option value="weekly">Semanalmente</option>
+                  <option value="custom_days">Dias específicos</option>
                 </select>
               )}
 
@@ -1106,7 +1275,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
                 {editingItemId && (
                   <button
                     type="button"
-                    onClick={resetFormInputs}
+                    onClick={() => resetFormInputs(selectedDate)}
                     className="p-2 text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800 rounded-xl"
                     title="Cancelar edição"
                   >
@@ -1134,6 +1303,32 @@ export const StatsView: React.FC<StatsViewProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Seletor de dias específicos da semana */}
+            {newItemType !== 'exam' && newItemRecurrence === 'custom_days' && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[11px] font-semibold text-slate-400 mr-1">
+                  Repetir em:
+                </span>
+                {WEEKDAY_SHORT.map((label, idx) => {
+                  const active = newItemRecurrenceDays.includes(idx);
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => toggleWeekdaySelection(idx)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                        active
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
+                          : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </form>
 
           {selectedDayItems.length === 0 ? (
@@ -1141,12 +1336,14 @@ export const StatsView: React.FC<StatsViewProps> = ({
               Nenhuma tarefa, lembrete ou prova agendada para {formattedSelectedDate}.
             </div>
           ) : (
-            <div className="flex flex-col gap-2 max-h-64 overflow-y-auto custom-scrollbar pr-1">
+            <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
               {selectedDayItems.map((item) => {
                 const isTask = item.type === 'task';
                 const isExam = item.type === 'exam';
                 const hasRecurrence =
                   item.recurrence && item.recurrence !== 'none';
+                const itemKey = `${item.originDate}-${item.id}`;
+                const isConfirmingDelete = pendingDeleteKey === itemKey;
                 const linkedTarget = resolveLinkedTarget(item);
                 const examMetrics = isExam
                   ? getExamMetrics(selectedDate, item)
@@ -1154,7 +1351,7 @@ export const StatsView: React.FC<StatsViewProps> = ({
 
                 return (
                   <div
-                    key={`${item.originDate}-${item.id}`}
+                    key={itemKey}
                     className={`flex flex-col gap-2 px-3.5 py-2.5 rounded-xl border transition-all ${
                       isTask && item.isCompletedOnDate
                         ? 'bg-slate-950/40 border-slate-800/60 opacity-60'
@@ -1213,10 +1410,10 @@ export const StatsView: React.FC<StatsViewProps> = ({
                           </span>
                         )}
 
-                        {hasRecurrence && item.recurrence && (
+                        {hasRecurrence && (
                           <span className="flex items-center gap-1 text-[10px] font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/25 px-2 py-0.5 rounded-md shrink-0">
                             <Repeat className="w-3 h-3 text-cyan-400" />
-                            {RECURRENCE_LABELS[item.recurrence]}
+                            {formatRecurrenceBadge(item)}
                           </span>
                         )}
 
@@ -1269,16 +1466,50 @@ export const StatsView: React.FC<StatsViewProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteCalendarItem(item)}
-                          className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
-                          title={
-                            item.isProjected ? 'Excluir série recorrente' : 'Excluir'
-                          }
+                          onClick={() => handleDeleteButtonClick(item)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            isConfirmingDelete
+                              ? 'bg-rose-500/20 text-rose-300'
+                              : 'text-slate-500 hover:text-rose-400 hover:bg-rose-500/10'
+                          }`}
+                          title="Excluir"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
+
+                    {/* Opções de exclusão para eventos recorrentes */}
+                    {isConfirmingDelete && hasRecurrence && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-rose-950/35 border border-rose-500/30 rounded-xl px-3 py-2 text-xs">
+                        <span className="text-rose-200 font-semibold">
+                          Como deseja excluir este evento recorrente?
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteOnlyThisDate(item)}
+                            className="px-2.5 py-1 rounded-lg font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 transition-colors"
+                          >
+                            Somente dia {formattedSelectedDate.slice(0, 5)}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEntireSeries(item)}
+                            className="px-2.5 py-1 rounded-lg font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors"
+                          >
+                            Toda a série
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteKey(null)}
+                            className="px-2 py-1 rounded-lg font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {(linkedTarget || (isExam && examMetrics)) && (
                       <div className="flex flex-wrap items-center gap-2 pl-6 text-[11px]">

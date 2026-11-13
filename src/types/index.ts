@@ -86,7 +86,12 @@ export type ActivityMap = Record<string, string[]>;
 
 export type CalendarEventType = 'task' | 'reminder' | 'exam';
 
-export type CalendarRecurrence = 'none' | 'daily' | 'weekdays' | 'weekly';
+export type CalendarRecurrence =
+  | 'none'
+  | 'daily'
+  | 'weekdays'
+  | 'weekly'
+  | 'custom_days';
 
 export interface CalendarEventItem {
   id: string;
@@ -95,9 +100,11 @@ export interface CalendarEventItem {
   time?: string;
   completed?: boolean;
   completedDates?: string[];
+  excludedDates?: string[];
   deckId?: string;
   folderId?: string;
   recurrence?: CalendarRecurrence;
+  recurrenceDays?: number[]; // 0 = Dom, 1 = Seg, ..., 6 = Sáb
 }
 
 export interface SessionStats {
