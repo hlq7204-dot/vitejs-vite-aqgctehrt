@@ -2,7 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 
 export type CardType = 'standard' | 'choice' | 'tf' | 'typing';
 
-export type CardState = 0 | 1 | 2 | 3; // 0: Novo, 1: Aprendizagem, 2: Revisão, 3: Reaprendizagem
+export type CardState = 0 | 1 | 2 | 3;
 
 export interface ReviewRatingCounts {
   again: number;
@@ -24,6 +24,7 @@ export interface Card {
   phonetic?: string;
   hint?: string;
   mnemonic?: string;
+  audioOnly?: boolean;
   audioOnlyFront?: boolean;
   options?: string[];
   correctOption?: number;
@@ -110,7 +111,7 @@ export interface CalendarEventItem {
   deckId?: string;
   folderId?: string;
   recurrence?: CalendarRecurrence;
-  recurrenceDays?: number[]; // 0 = Dom, 1 = Seg, ..., 6 = Sáb
+  recurrenceDays?: number[];
 }
 
 export interface SessionStats {
