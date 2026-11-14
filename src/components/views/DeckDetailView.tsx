@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   BookOpen,
@@ -18,20 +18,13 @@ import {
   Trash2,
   CornerUpRight,
   RotateCcw,
-  Headphones,
-  Languages,
-  Lightbulb,
+  Volume2,
   ArrowLeftRight,
   ChevronDown,
   ChevronUp,
-  Volume2,
 } from 'lucide-react';
 import type { Card, CardType, Deck } from '../../types';
-import {
-  DECK_THEMES,
-  CARD_TYPES,
-  VOICE_LANGUAGES,
-} from '../../constants/themes';
+import { DECK_THEMES, CARD_TYPES } from '../../constants/themes';
 import {
   checkCardDue,
   getEffectiveLapses,
@@ -66,16 +59,16 @@ interface DeckDetailViewProps {
   setNewCardFront: (val: string) => void;
   newCardBack: string;
   setNewCardBack: (val: string) => void;
-  cardPhonetic: string;
-  setCardPhonetic: (val: string) => void;
-  cardHint: string;
-  setCardHint: (val: string) => void;
-  cardMnemonic: string;
-  setCardMnemonic: (val: string) => void;
-  cardAudioOnly: boolean;
-  setCardAudioOnly: (val: boolean) => void;
-  createReversedCard: boolean;
-  setCreateReversedCard: (val: boolean) => void;
+  newCardPhonetic?: string;
+  setNewCardPhonetic?: (val: string) => void;
+  newCardHint?: string;
+  setNewCardHint?: (val: string) => void;
+  newCardMnemonic?: string;
+  setNewCardMnemonic?: (val: string) => void;
+  newCardAudioOnly?: boolean;
+  setNewCardAudioOnly?: (val: boolean) => void;
+  createReversedCard?: boolean;
+  setCreateReversedCard?: (val: boolean) => void;
   choiceOptions: string[];
   updateChoiceOption: (idx: number, val: string) => void;
   addChoiceOption: () => void;
@@ -125,15 +118,15 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
   setNewCardFront,
   newCardBack,
   setNewCardBack,
-  cardPhonetic,
-  setCardPhonetic,
-  cardHint,
-  setCardHint,
-  cardMnemonic,
-  setCardMnemonic,
-  cardAudioOnly,
-  setCardAudioOnly,
-  createReversedCard,
+  newCardPhonetic = '',
+  setNewCardPhonetic,
+  newCardHint = '',
+  setNewCardHint,
+  newCardMnemonic = '',
+  setNewCardMnemonic,
+  newCardAudioOnly = false,
+  setNewCardAudioOnly,
+  createReversedCard = false,
   setCreateReversedCard,
   choiceOptions,
   updateChoiceOption,
@@ -174,20 +167,20 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
     'none' | 'tag' | 'reset' | 'delete'
   >('none');
   const [bulkTagInput, setBulkTagInput] = useState('');
-  const [showExtraCardFields, setShowExtraCardFields] = useState(false);
+  const [showExtraFields, setShowExtraFields] = useState(false);
+
+  useEffect(() => {
+    if (
+      editingCardId &&
+      (newCardPhonetic || newCardHint || newCardMnemonic)
+    ) {
+      setShowExtraFields(true);
+    }
+  }, [editingCardId, newCardPhonetic, newCardHint, newCardMnemonic]);
 
   if (!activeDeck) return null;
   const stats = getCardStats(activeDeck.cards);
   const due = calculateTotalDue(stats);
-
-  const voiceLabel =
-    VOICE_LANGUAGES.find((v) => v.code === (activeDeck.voiceLang || 'pt-BR'))
-      ?.label || 'Português (Brasil)';
-
-  const hasAnyExtraValue = Boolean(
-    cardPhonetic.trim() || cardHint.trim() || cardMnemonic.trim()
-  );
-  const isExtraSectionExpanded = showExtraCardFields || hasAnyExtraValue;
 
   const getCardStatusCategory = (card: Card) => {
     if (card.isSuspended) return 'suspended';
@@ -278,7 +271,7 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
               <BookOpen className="w-7 h-7 sm:w-8 sm:h-8" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 flex items-center gap-3 flex-wrap">
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 flex items-center gap-3">
                 {activeDeck.name}
                 {activeDeck.isIgnored && (
                   <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-1 rounded border border-slate-700 flex items-center gap-1 uppercase tracking-wider">
@@ -286,13 +279,6 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                   </span>
                 )}
               </h1>
-              <div className="flex items-center gap-2 flex-wrap mt-1.5">
-                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 bg-slate-950/80 border border-slate-800 px-2.5 py-0.5 rounded-lg">
-                  <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-                  Voz: {voiceLabel}
-                  {activeDeck.autoPlayAudio ? ' • Auto' : ''}
-                </span>
-              </div>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto flex-wrap">
@@ -414,23 +400,6 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                 onChange={setNewCardFront}
               />
 
-              {cardType === 'standard' && (
-                <label className="flex items-center justify-between gap-2.5 bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 cursor-pointer hover:border-slate-700 transition-colors">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Headphones className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span className="text-xs font-medium text-slate-300 truncate">
-                      Modo Apenas Áudio
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={cardAudioOnly}
-                    onChange={(e) => setCardAudioOnly(e.target.checked)}
-                    className="w-4 h-4 accent-indigo-500 rounded cursor-pointer shrink-0"
-                  />
-                </label>
-              )}
-
               {cardType === 'choice' && (
                 <div className="space-y-2 pt-2 border-t border-slate-800">
                   <label className="block text-sm font-medium text-slate-400">
@@ -539,80 +508,139 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                 />
               </div>
 
-              {!editingCardId && cardType === 'standard' && (
-                <label className="flex items-center justify-between gap-2.5 bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 cursor-pointer hover:border-slate-700 transition-colors">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                    <span className="text-xs font-medium text-slate-300 truncate">
-                      Criar também cartão invertido
+              {/* Opções rápidas de estudo e idiomas */}
+              <div className="pt-2 border-t border-slate-800 space-y-2">
+                {setNewCardAudioOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setNewCardAudioOnly(!newCardAudioOnly)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-left transition-colors ${
+                      newCardAudioOnly
+                        ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-xs font-semibold">
+                      <Volume2
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          newCardAudioOnly ? 'text-cyan-400' : 'text-slate-500'
+                        }`}
+                      />
+                      Modo Apenas Áudio (ocultar frente)
                     </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={createReversedCard}
-                    onChange={(e) => setCreateReversedCard(e.target.checked)}
-                    className="w-4 h-4 accent-indigo-500 rounded cursor-pointer shrink-0"
-                  />
-                </label>
-              )}
+                    <div
+                      className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                        newCardAudioOnly
+                          ? 'bg-cyan-500 border-cyan-400 text-slate-950'
+                          : 'bg-slate-900 border-slate-700 text-transparent'
+                      }`}
+                    >
+                      <Check className="w-3 h-3" />
+                    </div>
+                  </button>
+                )}
 
-              {/* Campos extras opcionais (Fonética, Dica, Mnemônico) */}
-              <div className="pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowExtraCardFields((prev) => !prev)}
-                  className="w-full flex items-center justify-between text-xs font-semibold text-slate-400 hover:text-slate-200 py-1 transition-colors"
-                >
-                  <span>Fonética, Dica e Mnemônico</span>
-                  {isExtraSectionExpanded ? (
-                    <ChevronUp className="w-4 h-4" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4" />
+                {!editingCardId &&
+                  cardType === 'standard' &&
+                  setCreateReversedCard && (
+                    <button
+                      type="button"
+                      onClick={() => setCreateReversedCard(!createReversedCard)}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-left transition-colors ${
+                        createReversedCard
+                          ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 text-xs font-semibold">
+                        <ArrowLeftRight
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            createReversedCard
+                              ? 'text-indigo-400'
+                              : 'text-slate-500'
+                          }`}
+                        />
+                        Criar também cartão invertido
+                      </span>
+                      <div
+                        className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                          createReversedCard
+                            ? 'bg-indigo-600 border-indigo-500 text-white'
+                            : 'bg-slate-900 border-slate-700 text-transparent'
+                        }`}
+                      >
+                        <Check className="w-3 h-3" />
+                      </div>
+                    </button>
                   )}
-                </button>
 
-                {isExtraSectionExpanded && (
-                  <div className="space-y-3 mt-2.5 animate-in fade-in duration-150">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
-                        <Languages className="w-3.5 h-3.5 text-cyan-400" />{' '}
-                        Transcrição Fonética
-                      </label>
-                      <input
-                        type="text"
-                        value={cardPhonetic}
-                        onChange={(e) => setCardPhonetic(e.target.value)}
-                        placeholder="Pinyin, IPA ou leitura..."
-                        className="w-full bg-slate-950 border border-slate-800 text-cyan-200 text-xs rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
+                {/* Campos extras recolhíveis: Fonética, Dica e Mnemônico */}
+                {(setNewCardPhonetic || setNewCardHint || setNewCardMnemonic) && (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowExtraFields((prev) => !prev)}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-slate-950/70 hover:bg-slate-950 border border-slate-800/80 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      <span>Campos extras (Fonética, Dica, Mnemônico)</span>
+                      {showExtraFields ? (
+                        <ChevronUp className="w-4 h-4" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}
+                    </button>
 
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
-                        <Lightbulb className="w-3.5 h-3.5 text-amber-400" />{' '}
-                        Dica (Frente)
-                      </label>
-                      <input
-                        type="text"
-                        value={cardHint}
-                        onChange={(e) => setCardHint(e.target.value)}
-                        placeholder="Dica revelável na frente..."
-                        className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
+                    {showExtraFields && (
+                      <div className="space-y-3 mt-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 animate-in fade-in duration-150">
+                        {setNewCardPhonetic && (
+                          <div>
+                            <label className="block text-xs font-medium text-slate-400 mb-1">
+                              Transcrição Fonética (Pinyin / IPA)
+                            </label>
+                            <input
+                              type="text"
+                              value={newCardPhonetic}
+                              onChange={(e) =>
+                                setNewCardPhonetic(e.target.value)
+                              }
+                              placeholder="Opcional..."
+                              className="w-full bg-slate-900 border border-slate-800 text-cyan-300 font-mono text-xs rounded-lg p-2.5 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        )}
 
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
-                        <Lightbulb className="w-3.5 h-3.5 text-indigo-400" />{' '}
-                        Mnemônico / Observação (Verso)
-                      </label>
-                      <textarea
-                        value={cardMnemonic}
-                        onChange={(e) => setCardMnemonic(e.target.value)}
-                        placeholder="Associação ou nota exibida no verso..."
-                        className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-16 custom-scrollbar"
-                      />
-                    </div>
+                        {setNewCardHint && (
+                          <div>
+                            <label className="block text-xs font-medium text-slate-400 mb-1">
+                              Dica (exibida na frente sob demanda)
+                            </label>
+                            <input
+                              type="text"
+                              value={newCardHint}
+                              onChange={(e) => setNewCardHint(e.target.value)}
+                              placeholder="Opcional..."
+                              className="w-full bg-slate-900 border border-slate-800 text-amber-200 text-xs rounded-lg p-2.5 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        )}
+
+                        {setNewCardMnemonic && (
+                          <div>
+                            <label className="block text-xs font-medium text-slate-400 mb-1">
+                              Mnemônico / Observação (exibido no verso)
+                            </label>
+                            <textarea
+                              value={newCardMnemonic}
+                              onChange={(e) =>
+                                setNewCardMnemonic(e.target.value)
+                              }
+                              placeholder="Opcional..."
+                              className="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded-lg p-2.5 focus:outline-none focus:border-indigo-500 resize-none h-16 custom-scrollbar"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -667,7 +695,10 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                 {editingCardId && (
                   <button
                     type="button"
-                    onClick={onCancelEditCard}
+                    onClick={() => {
+                      setShowExtraFields(false);
+                      onCancelEditCard();
+                    }}
                     className="w-1/3 bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 rounded-xl transition-colors"
                   >
                     Cancelar
@@ -860,6 +891,7 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
             }
 
             const leech = isCardLeech(card);
+            const isAudioOnly = Boolean(card.audioOnlyFront || card.audioOnly);
             const typeObj =
               CARD_TYPES.find((t) => t.id === (card.type || 'standard')) ||
               CARD_TYPES[0];
@@ -907,12 +939,9 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                       >
                         {statusLabel}
                       </span>
-                      {card.audioOnly && (
-                        <span
-                          className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
-                          title="Modo Apenas Áudio"
-                        >
-                          <Headphones className="w-3 h-3" /> Áudio
+                      {isAudioOnly && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                          <Volume2 className="w-3 h-3" /> Apenas Áudio
                         </span>
                       )}
                       {leech && (
@@ -949,13 +978,8 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                       dangerouslySetInnerHTML={{ __html: card.front }}
                     />
                     {card.phonetic && (
-                      <div className="text-xs font-medium text-cyan-400/90 mt-1">
+                      <div className="text-xs font-mono text-cyan-300/90 mt-1">
                         {card.phonetic}
-                      </div>
-                    )}
-                    {card.hint && (
-                      <div className="text-[11px] text-amber-400/80 mt-1">
-                        Dica: {card.hint}
                       </div>
                     )}
                   </div>
@@ -973,11 +997,6 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                       className="text-slate-400 text-sm sm:text-base break-words"
                       dangerouslySetInnerHTML={{ __html: card.back || '' }}
                     />
-                    {card.mnemonic && (
-                      <div className="text-[11px] text-indigo-300/80 mt-1.5">
-                        Obs: {card.mnemonic}
-                      </div>
-                    )}
                   </div>
                 </div>
                 {!isSelectMode && (

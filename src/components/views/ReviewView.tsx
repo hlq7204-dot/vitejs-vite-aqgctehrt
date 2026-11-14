@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   RotateCcw,
@@ -15,6 +15,10 @@ import {
   Send,
   Sparkles,
   CheckCircle2,
+  Eye,
+  EyeOff,
+  HelpCircle,
+  Lightbulb,
 } from 'lucide-react';
 import type { Card, SessionStats } from '../../types';
 import {
@@ -117,15 +121,26 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
   deckAutoPlay = false,
   speakCardText,
 }) => {
+  const [showPhonetic, setShowPhonetic] = useState(false);
+  const [showHint, setShowHint] = useState(false);
+
   const currentCard = reviewQueue[currentCardIndex];
   const type = currentCard?.type || 'standard';
+  const isAudioOnly = Boolean(
+    currentCard?.audioOnlyFront || currentCard?.audioOnly
+  );
+
+  useEffect(() => {
+    setShowPhonetic(false);
+    setShowHint(false);
+  }, [currentCard?.id]);
 
   useEffect(() => {
     if (!currentCard || isFlipped) return;
-    if (deckAutoPlay || currentCard.audioOnlyFront) {
+    if (deckAutoPlay || isAudioOnly) {
       const timer = setTimeout(() => {
         const textToSpeak =
-          type === 'choice'
+          type === 'choice' && !isAudioOnly
             ? `${currentCard.front} ${(currentCard.options || []).join('. ')}`
             : currentCard.front;
         speakCardText(textToSpeak, undefined, true);
@@ -173,7 +188,10 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
     const isBack = variant === 'back';
     const isInteractive = variant === 'interactive';
     return (
-      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex items-center gap-1.5"
+        onClick={(e) => e.stopPropagation()}
+      >
         {onToggleSpeechRate && (
           <button
             type="button"
@@ -212,6 +230,96 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
             <Volume2 className="w-3.5 h-3.5" />
           )}
         </button>
+      </div>
+    );
+  };
+
+  const renderAudioOnlyFrontBlock = () => (
+    <div
+      className="flex flex-col items-center justify-center gap-4 my-2"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={(e) => speakCardText(currentCard.front, e, true)}
+        className={`w-24 h-24 rounded-full flex items-center justify-center border-2 transition-all active:scale-95 shadow-xl ${
+          isSpeaking
+            ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200 animate-pulse'
+            : 'bg-indigo-600/20 hover:bg-indigo-600/35 border-indigo-500/50 text-indigo-300'
+        }`}
+        title="Ouvir pronúncia"
+      >
+        <Volume2 className="w-11 h-11" />
+      </button>
+      <span className="text-xs font-bold uppercase tracking-wider text-cyan-300/90 bg-cyan-500/10 border border-cyan-500/25 px-3 py-1 rounded-full">
+        Modo Escuta • Ouça e tente identificar
+      </span>
+    </div>
+  );
+
+  const renderFrontAuxiliaries = () => {
+    const hasPhonetic = Boolean(currentCard.phonetic && !isAudioOnly);
+    const hasHint = Boolean(currentCard.hint);
+    if (!hasPhonetic && !hasHint) return null;
+
+    return (
+      <div
+        className="flex flex-col items-center gap-2.5 mt-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {hasPhonetic && (
+            <button
+              type="button"
+              onClick={() => setShowPhonetic((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${
+                showPhonetic
+                  ? 'bg-cyan-500/20 text-cyan-200 border-cyan-500/40'
+                  : 'bg-slate-950/90 hover:bg-slate-800 text-cyan-300 border-slate-800'
+              }`}
+            >
+              {showPhonetic ? (
+                <>
+                  <EyeOff className="w-3.5 h-3.5" /> Ocultar Fonética
+                </>
+              ) : (
+                <>
+                  <Eye className="w-3.5 h-3.5" /> Mostrar Fonética
+                </>
+              )}
+            </button>
+          )}
+
+          {hasHint && (
+            <button
+              type="button"
+              onClick={() => setShowHint((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${
+                showHint
+                  ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
+                  : 'bg-slate-950/90 hover:bg-slate-800 text-amber-300 border-slate-800'
+              }`}
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              {showHint ? 'Ocultar Dica' : 'Ver Dica'}
+            </button>
+          )}
+        </div>
+
+        {hasPhonetic && showPhonetic && (
+          <div className="px-4 py-2 rounded-xl bg-cyan-950/35 border border-cyan-500/30 text-cyan-200 font-mono text-base sm:text-lg text-center animate-in fade-in duration-150">
+            {currentCard.phonetic}
+          </div>
+        )}
+
+        {hasHint && showHint && (
+          <div className="max-w-xl px-4 py-2.5 rounded-xl bg-amber-950/35 border border-amber-500/30 text-amber-200 text-xs sm:text-sm text-center animate-in fade-in duration-150">
+            <strong className="uppercase text-[10px] tracking-wider text-amber-400 block mb-0.5">
+              Dica
+            </strong>
+            {currentCard.hint}
+          </div>
+        )}
       </div>
     );
   };
@@ -365,11 +473,16 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                   </div>
                 </div>
                 <div className="flex-grow overflow-y-auto custom-scrollbar relative">
-                  <div className="min-h-full flex flex-col justify-center p-6 sm:p-8">
-                    <div
-                      className="w-full text-2xl sm:text-3xl text-slate-100 text-center anki-content break-words"
-                      dangerouslySetInnerHTML={{ __html: currentCard.front }}
-                    />
+                  <div className="min-h-full flex flex-col justify-center items-center p-6 sm:p-8">
+                    {isAudioOnly ? (
+                      renderAudioOnlyFrontBlock()
+                    ) : (
+                      <div
+                        className="w-full text-2xl sm:text-3xl text-slate-100 text-center anki-content break-words"
+                        dangerouslySetInnerHTML={{ __html: currentCard.front }}
+                      />
+                    )}
+                    {renderFrontAuxiliaries()}
                   </div>
                 </div>
               </div>
@@ -421,13 +534,48 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                   </div>
                 </div>
                 <div className="flex-grow overflow-y-auto custom-scrollbar relative">
-                  <div className="min-h-full flex flex-col justify-center p-6 sm:p-8">
+                  <div className="min-h-full flex flex-col justify-center items-center p-6 sm:p-8 gap-4">
+                    {isAudioOnly && (
+                      <div className="w-full max-w-2xl bg-slate-950/60 border border-slate-800/90 rounded-2xl px-4 py-3 text-center">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                          Texto do Áudio
+                        </span>
+                        <div
+                          className="text-lg sm:text-xl text-slate-200 font-semibold anki-content break-words"
+                          dangerouslySetInnerHTML={{
+                            __html: currentCard.front,
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {currentCard.phonetic && (
+                      <div className="px-4 py-1.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-cyan-200 font-mono text-base sm:text-lg text-center">
+                        {currentCard.phonetic}
+                      </div>
+                    )}
+
                     <div
                       className="w-full text-2xl sm:text-3xl text-indigo-100 text-center anki-content break-words"
                       dangerouslySetInnerHTML={{
                         __html: currentCard.back || '',
                       }}
                     />
+
+                    {currentCard.mnemonic && (
+                      <div
+                        className="w-full max-w-2xl mt-2 px-4 py-3 rounded-2xl bg-amber-950/30 border border-amber-500/25 text-amber-100/95 text-xs sm:text-sm text-left"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-1">
+                          <Lightbulb className="w-3.5 h-3.5" /> Mnemônico /
+                          Observação
+                        </div>
+                        <p className="whitespace-pre-line leading-relaxed">
+                          {currentCard.mnemonic}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -468,7 +616,11 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 {renderAudioControls(
-                  `${currentCard.front} ${(currentCard.options || []).join('. ')}`,
+                  isAudioOnly
+                    ? currentCard.front
+                    : `${currentCard.front} ${(currentCard.options || []).join(
+                        '. '
+                      )}`,
                   'interactive'
                 )}
                 <div className="relative">
@@ -489,11 +641,24 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
             </div>
 
             <div className="overflow-y-auto custom-scrollbar flex-grow flex flex-col">
-              <div className="p-6 sm:p-8 border-b border-slate-800/50 shrink-0">
-                <div
-                  className="text-xl sm:text-3xl font-medium text-slate-100 text-center anki-content break-words"
-                  dangerouslySetInnerHTML={{ __html: currentCard.front }}
-                />
+              <div className="p-6 sm:p-8 border-b border-slate-800/50 shrink-0 flex flex-col items-center">
+                {isAudioOnly && !isFlipped ? (
+                  renderAudioOnlyFrontBlock()
+                ) : (
+                  <div
+                    className="text-xl sm:text-3xl font-medium text-slate-100 text-center anki-content break-words"
+                    dangerouslySetInnerHTML={{ __html: currentCard.front }}
+                  />
+                )}
+                {!isFlipped ? (
+                  renderFrontAuxiliaries()
+                ) : (
+                  currentCard.phonetic && (
+                    <div className="mt-3 px-3.5 py-1 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-cyan-200 font-mono text-sm sm:text-base">
+                      {currentCard.phonetic}
+                    </div>
+                  )
+                )}
               </div>
               <div className="flex-grow p-6 sm:px-10 bg-slate-950/50 flex flex-col justify-center gap-4">
                 {type === 'choice' && (
@@ -655,12 +820,25 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
               </div>
             </div>
 
-            {isFlipped && currentCard.back && (
-              <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 shrink-0 animate-in fade-in duration-300">
-                <div
-                  className="anki-content break-words"
-                  dangerouslySetInnerHTML={{ __html: currentCard.back }}
-                />
+            {isFlipped && (currentCard.back || currentCard.mnemonic) && (
+              <div className="p-6 bg-indigo-950/30 border-t border-indigo-500/20 text-indigo-100 shrink-0 animate-in fade-in duration-300 space-y-3">
+                {currentCard.back && (
+                  <div
+                    className="anki-content break-words"
+                    dangerouslySetInnerHTML={{ __html: currentCard.back }}
+                  />
+                )}
+                {currentCard.mnemonic && (
+                  <div className="px-4 py-2.5 rounded-xl bg-amber-950/30 border border-amber-500/25 text-amber-100/95 text-xs sm:text-sm">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-0.5">
+                      <Lightbulb className="w-3.5 h-3.5" /> Mnemônico /
+                      Observação
+                    </div>
+                    <p className="whitespace-pre-line">
+                      {currentCard.mnemonic}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -230,7 +230,12 @@ export default function App() {
 
   const [cardType, setCardType] = useState('standard');
   const [newCardFront, setNewCardFront] = useState('');
-  const [newCardBack, setNewCardBack] = useState(''); 
+  const [newCardBack, setNewCardBack] = useState('');
+  const [newCardPhonetic, setNewCardPhonetic] = useState('');
+  const [newCardHint, setNewCardHint] = useState('');
+  const [newCardMnemonic, setNewCardMnemonic] = useState('');
+  const [newCardAudioOnly, setNewCardAudioOnly] = useState(false);
+  const [createReversedCard, setCreateReversedCard] = useState(false);
   const [choiceOptions, setChoiceOptions] = useState(['', '', '', '']); 
   const [correctOption, setCorrectOption] = useState(0);
   const [tfCorrect, setTfCorrect] = useState(true);
@@ -286,6 +291,22 @@ export default function App() {
   const stateRef = useRef({});
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 5000); };
+
+  const resetCardForm = () => {
+    setEditingCardId(null);
+    setNewCardFront('');
+    setNewCardBack('');
+    setNewCardPhonetic('');
+    setNewCardHint('');
+    setNewCardMnemonic('');
+    setNewCardAudioOnly(false);
+    setCreateReversedCard(false);
+    setChoiceOptions(['', '', '', '']);
+    setCorrectOption(0);
+    setTfCorrect(true);
+    setTypeAnswer('');
+    setCardTagsInput('');
+  };
 
   const effectiveDailyNewLimit = Number(dailyNewLimit) || 0;
   const newIntroducedTodayCount =
@@ -1022,7 +1043,7 @@ export default function App() {
     const finalQueue = customStudyConfig.invertCards
       ? sliced.map((c) => {
           if ((c.type || 'standard') === 'standard' && c.back && c.back.trim() !== '') {
-            return { ...c, front: c.back, back: c.front };
+            return { ...c, front: c.back, back: c.front, audioOnly: false, audioOnlyFront: false };
           }
           return c;
         })
@@ -1081,6 +1102,8 @@ export default function App() {
         if (originalCard) {
           cleanUpdatedCard.front = originalCard.front;
           cleanUpdatedCard.back = originalCard.back;
+          cleanUpdatedCard.audioOnly = originalCard.audioOnly;
+          cleanUpdatedCard.audioOnlyFront = originalCard.audioOnlyFront;
         }
       }
       
@@ -1123,6 +1146,8 @@ export default function App() {
         if (originalCard) {
           cleanOldCard.front = originalCard.front;
           cleanOldCard.back = originalCard.back;
+          cleanOldCard.audioOnly = originalCard.audioOnly;
+          cleanOldCard.audioOnlyFront = originalCard.audioOnlyFront;
         }
       }
       
@@ -1729,16 +1754,25 @@ export default function App() {
     isProcessingRef.current = true;
 
     const parsedTags = parseTagsString(cardTagsInput);
+    const trimmedPhonetic = newCardPhonetic.trim();
+    const trimmedHint = newCardHint.trim();
+    const trimmedMnemonic = newCardMnemonic.trim();
+    const nowTs = Date.now();
 
     let processedCard = { 
-      id: editingCardId || `c-${Date.now()}`, 
+      id: editingCardId || `c-${nowTs}`, 
       type: cardType, 
       front: newCardFront, 
-      back: newCardBack, 
+      back: newCardBack,
+      phonetic: trimmedPhonetic || undefined,
+      hint: trimmedHint || undefined,
+      mnemonic: trimmedMnemonic || undefined,
+      audioOnly: newCardAudioOnly,
+      audioOnlyFront: newCardAudioOnly,
       tags: parsedTags,
       state: 0,
       interval: 0, 
-      dueDate: Date.now(), 
+      dueDate: nowTs, 
       reviews: 0 
     };
     
@@ -1753,6 +1787,11 @@ export default function App() {
           type: cardType, 
           front: newCardFront, 
           back: newCardBack,
+          phonetic: trimmedPhonetic || undefined,
+          hint: trimmedHint || undefined,
+          mnemonic: trimmedMnemonic || undefined,
+          audioOnly: newCardAudioOnly,
+          audioOnlyFront: newCardAudioOnly,
           tags: parsedTags
         };
       }
@@ -1764,29 +1803,68 @@ export default function App() {
 
     if (currentDeck) {
       let updatedCards;
-      if (editingCardId) updatedCards = currentDeck.cards.map(c => c.id === editingCardId ? processedCard : c);
-      else updatedCards = [...(currentDeck.cards || []), processedCard];
+      let createdReversed = false;
+
+      if (editingCardId) {
+        updatedCards = currentDeck.cards.map(c => c.id === editingCardId ? processedCard : c);
+      } else {
+        const cardsToAdd = [processedCard];
+        if (cardType === 'standard' && createReversedCard && newCardBack.trim() !== '') {
+          createdReversed = true;
+          cardsToAdd.push({
+            id: `c-${nowTs + 1}`,
+            type: 'standard',
+            front: newCardBack,
+            back: newCardFront,
+            phonetic: trimmedPhonetic || undefined,
+            mnemonic: trimmedMnemonic || undefined,
+            audioOnly: false,
+            audioOnlyFront: false,
+            tags: parsedTags,
+            state: 0,
+            interval: 0,
+            dueDate: nowTs,
+            reviews: 0,
+          });
+        }
+        updatedCards = [...(currentDeck.cards || []), ...cardsToAdd];
+      }
       
       const updatedDeck = { ...currentDeck, cards: updatedCards };
-      setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d)); updateDeckInCloud(updatedDeck);
+      setDecks(prev => prev.map(d => d.id === currentDeck.id ? updatedDeck : d));
+      updateDeckInCloud(updatedDeck);
       
       if (editingCardId && currentView === 'review') {
         setReviewQueue(prev => prev.map(c => c.id === editingCardId ? { ...c, ...processedCard, _deckId: c._deckId } : c));
       }
 
-      showToast(editingCardId ? "Cartão atualizado!" : "Cartão adicionado!");
+      if (editingCardId) {
+        showToast("Cartão atualizado!");
+      } else if (createdReversed) {
+        showToast("Cartão e versão invertida adicionados!");
+      } else {
+        showToast("Cartão adicionado!");
+      }
     }
-    setNewCardFront(''); setNewCardBack(''); setChoiceOptions(['', '', '', '']); setCorrectOption(0); setTfCorrect(true); setTypeAnswer(''); setCardTagsInput(''); setEditingCardId(null);
+    resetCardForm();
     setTimeout(() => { isProcessingRef.current = false; }, 300);
   };
 
   const editCard = (card) => {
-    setCardType(card.type || 'standard'); setNewCardFront(card.front); setNewCardBack(card.back || '');
+    setCardType(card.type || 'standard');
+    setNewCardFront(card.front);
+    setNewCardBack(card.back || '');
+    setNewCardPhonetic(card.phonetic || '');
+    setNewCardHint(card.hint || '');
+    setNewCardMnemonic(card.mnemonic || '');
+    setNewCardAudioOnly(Boolean(card.audioOnlyFront || card.audioOnly));
+    setCreateReversedCard(false);
     if (card.type === 'choice') { setChoiceOptions(card.options || ['', '', '', '']); setCorrectOption(card.correctOption || 0); }
     if (card.type === 'tf') setTfCorrect(card.isTrue !== false);
     if (card.type === 'typing') setTypeAnswer(card.typeAnswer || '');
     setCardTagsInput((card.tags || []).map(t => `#${t}`).join(' '));
-    setEditingCardId(card.id); window.scrollTo({ top: 0, behavior: 'smooth' });
+    setEditingCardId(card.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const deleteCard = (cardId) => {
@@ -1926,14 +2004,7 @@ export default function App() {
                 activeDeck={activeDeck}
                 onBack={() => {
                   setCurrentView('dashboard');
-                  setEditingCardId(null);
-                  setNewCardFront('');
-                  setNewCardBack('');
-                  setChoiceOptions(['', '', '', '']);
-                  setCorrectOption(0);
-                  setTfCorrect(true);
-                  setTypeAnswer('');
-                  setCardTagsInput('');
+                  resetCardForm();
                   setIsSelectMode(false);
                   setSelectedCardIds(new Set());
                   setDeckSearchQuery('');
@@ -1944,22 +2015,23 @@ export default function App() {
                 startReview={startReview}
                 openCustomStudyModal={openCustomStudyModal}
                 editingCardId={editingCardId}
-                onCancelEditCard={() => {
-                  setEditingCardId(null);
-                  setNewCardFront('');
-                  setNewCardBack('');
-                  setChoiceOptions(['', '', '', '']);
-                  setCorrectOption(0);
-                  setTfCorrect(true);
-                  setTypeAnswer('');
-                  setCardTagsInput('');
-                }}
+                onCancelEditCard={resetCardForm}
                 cardType={cardType}
                 setCardType={setCardType}
                 newCardFront={newCardFront}
                 setNewCardFront={setNewCardFront}
                 newCardBack={newCardBack}
                 setNewCardBack={setNewCardBack}
+                newCardPhonetic={newCardPhonetic}
+                setNewCardPhonetic={setNewCardPhonetic}
+                newCardHint={newCardHint}
+                setNewCardHint={setNewCardHint}
+                newCardMnemonic={newCardMnemonic}
+                setNewCardMnemonic={setNewCardMnemonic}
+                newCardAudioOnly={newCardAudioOnly}
+                setNewCardAudioOnly={setNewCardAudioOnly}
+                createReversedCard={createReversedCard}
+                setCreateReversedCard={setCreateReversedCard}
                 choiceOptions={choiceOptions}
                 updateChoiceOption={updateChoiceOption}
                 addChoiceOption={addChoiceOption}
@@ -2126,6 +2198,14 @@ export default function App() {
         setNewCardFront={setNewCardFront}
         newCardBack={newCardBack}
         setNewCardBack={setNewCardBack}
+        newCardPhonetic={newCardPhonetic}
+        setNewCardPhonetic={setNewCardPhonetic}
+        newCardHint={newCardHint}
+        setNewCardHint={setNewCardHint}
+        newCardMnemonic={newCardMnemonic}
+        setNewCardMnemonic={setNewCardMnemonic}
+        newCardAudioOnly={newCardAudioOnly}
+        setNewCardAudioOnly={setNewCardAudioOnly}
         choiceOptions={choiceOptions}
         updateChoiceOption={updateChoiceOption}
         addChoiceOption={addChoiceOption}

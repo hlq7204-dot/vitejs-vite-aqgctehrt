@@ -1,13 +1,13 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Pencil,
   Check,
   X,
   Plus,
   Tag,
-  Headphones,
-  Languages,
-  Lightbulb,
+  Volume2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { CARD_TYPES } from '../../constants/themes';
 import { RichTextEditor } from '../RichTextEditor';
@@ -22,14 +22,14 @@ interface CardEditModalProps {
   setNewCardFront: (val: string) => void;
   newCardBack: string;
   setNewCardBack: (val: string) => void;
-  cardPhonetic: string;
-  setCardPhonetic: (val: string) => void;
-  cardHint: string;
-  setCardHint: (val: string) => void;
-  cardMnemonic: string;
-  setCardMnemonic: (val: string) => void;
-  cardAudioOnly: boolean;
-  setCardAudioOnly: (val: boolean) => void;
+  newCardPhonetic?: string;
+  setNewCardPhonetic?: (val: string) => void;
+  newCardHint?: string;
+  setNewCardHint?: (val: string) => void;
+  newCardMnemonic?: string;
+  setNewCardMnemonic?: (val: string) => void;
+  newCardAudioOnly?: boolean;
+  setNewCardAudioOnly?: (val: boolean) => void;
   choiceOptions: string[];
   updateChoiceOption: (idx: number, val: string) => void;
   addChoiceOption: () => void;
@@ -54,14 +54,14 @@ export const CardEditModal: React.FC<CardEditModalProps> = ({
   setNewCardFront,
   newCardBack,
   setNewCardBack,
-  cardPhonetic,
-  setCardPhonetic,
-  cardHint,
-  setCardHint,
-  cardMnemonic,
-  setCardMnemonic,
-  cardAudioOnly,
-  setCardAudioOnly,
+  newCardPhonetic = '',
+  setNewCardPhonetic,
+  newCardHint = '',
+  setNewCardHint,
+  newCardMnemonic = '',
+  setNewCardMnemonic,
+  newCardAudioOnly = false,
+  setNewCardAudioOnly,
   choiceOptions,
   updateChoiceOption,
   addChoiceOption,
@@ -76,6 +76,14 @@ export const CardEditModal: React.FC<CardEditModalProps> = ({
   setCardTagsInput,
   onSave,
 }) => {
+  const [showExtraFields, setShowExtraFields] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && (newCardPhonetic || newCardHint || newCardMnemonic)) {
+      setShowExtraFields(true);
+    }
+  }, [isOpen, newCardPhonetic, newCardHint, newCardMnemonic]);
+
   if (!isOpen) return null;
 
   return (
@@ -126,23 +134,6 @@ export const CardEditModal: React.FC<CardEditModalProps> = ({
               value={newCardFront}
               onChange={setNewCardFront}
             />
-
-            {cardType === 'standard' && (
-              <label className="flex items-center justify-between gap-3 bg-slate-950/80 border border-slate-800 rounded-xl px-3.5 py-2.5 cursor-pointer hover:border-slate-700 transition-colors">
-                <div className="flex items-center gap-2">
-                  <Headphones className="w-4 h-4 text-cyan-400 shrink-0" />
-                  <span className="text-xs sm:text-sm font-medium text-slate-200">
-                    Modo Apenas Áudio (oculta o texto da frente até virar)
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={cardAudioOnly}
-                  onChange={(e) => setCardAudioOnly(e.target.checked)}
-                  className="w-4 h-4 accent-indigo-500 rounded cursor-pointer shrink-0"
-                />
-              </label>
-            )}
 
             {cardType === 'choice' && (
               <div className="space-y-2 pt-2 border-t border-slate-800">
@@ -252,47 +243,101 @@ export const CardEditModal: React.FC<CardEditModalProps> = ({
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
-                  <Languages className="w-3.5 h-3.5 text-cyan-400" /> Transcrição
-                  Fonética
-                </label>
-                <input
-                  type="text"
-                  value={cardPhonetic}
-                  onChange={(e) => setCardPhonetic(e.target.value)}
-                  placeholder="Pinyin, IPA ou leitura..."
-                  className="w-full bg-slate-950 border border-slate-800 text-cyan-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+            <div className="pt-2 border-t border-slate-800 space-y-2.5">
+              {setNewCardAudioOnly && (
+                <button
+                  type="button"
+                  onClick={() => setNewCardAudioOnly(!newCardAudioOnly)}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-left transition-colors ${
+                    newCardAudioOnly
+                      ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-xs sm:text-sm font-semibold">
+                    <Volume2
+                      className={`w-4 h-4 shrink-0 ${
+                        newCardAudioOnly ? 'text-cyan-400' : 'text-slate-500'
+                      }`}
+                    />
+                    Modo Apenas Áudio (ocultar texto da frente)
+                  </span>
+                  <div
+                    className={`w-5 h-5 rounded flex items-center justify-center border shrink-0 ${
+                      newCardAudioOnly
+                        ? 'bg-cyan-500 border-cyan-400 text-slate-950'
+                        : 'bg-slate-900 border-slate-700 text-transparent'
+                    }`}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </div>
+                </button>
+              )}
 
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
-                  <Lightbulb className="w-3.5 h-3.5 text-amber-400" /> Dica
-                  (Frente)
-                </label>
-                <input
-                  type="text"
-                  value={cardHint}
-                  onChange={(e) => setCardHint(e.target.value)}
-                  placeholder="Dica revelável na frente..."
-                  className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
+              {(setNewCardPhonetic || setNewCardHint || setNewCardMnemonic) && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowExtraFields((prev) => !prev)}
+                    className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-950/70 hover:bg-slate-950 border border-slate-800/80 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+                  >
+                    <span>Campos extras (Fonética, Dica, Mnemônico)</span>
+                    {showExtraFields ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
-                <Lightbulb className="w-3.5 h-3.5 text-indigo-400" /> Mnemônico
-                / Observação (Verso)
-              </label>
-              <textarea
-                value={cardMnemonic}
-                onChange={(e) => setCardMnemonic(e.target.value)}
-                placeholder="Associação ou nota exibida no verso..."
-                className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-16 custom-scrollbar"
-              />
+                  {showExtraFields && (
+                    <div className="space-y-3 mt-3 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                      {setNewCardPhonetic && (
+                        <div>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                            Transcrição Fonética (Pinyin / IPA)
+                          </label>
+                          <input
+                            type="text"
+                            value={newCardPhonetic}
+                            onChange={(e) => setNewCardPhonetic(e.target.value)}
+                            placeholder="Opcional..."
+                            className="w-full bg-slate-900 border border-slate-800 text-cyan-300 font-mono text-xs sm:text-sm rounded-lg p-2.5 focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      )}
+
+                      {setNewCardHint && (
+                        <div>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                            Dica (exibida na frente sob demanda)
+                          </label>
+                          <input
+                            type="text"
+                            value={newCardHint}
+                            onChange={(e) => setNewCardHint(e.target.value)}
+                            placeholder="Opcional..."
+                            className="w-full bg-slate-900 border border-slate-800 text-amber-200 text-xs sm:text-sm rounded-lg p-2.5 focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      )}
+
+                      {setNewCardMnemonic && (
+                        <div>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                            Mnemônico / Observação (exibido no verso)
+                          </label>
+                          <textarea
+                            value={newCardMnemonic}
+                            onChange={(e) => setNewCardMnemonic(e.target.value)}
+                            placeholder="Opcional..."
+                            className="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-lg p-2.5 focus:outline-none focus:border-indigo-500 resize-none h-20 custom-scrollbar"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="pt-2 border-t border-slate-800">
