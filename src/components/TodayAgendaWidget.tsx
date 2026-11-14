@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   CalendarDays,
   CheckSquare,
@@ -11,9 +11,13 @@ import {
   ArrowRight,
   Repeat,
   Layers,
+  Plus,
+  X,
+  Check,
 } from 'lucide-react';
 import type {
   CalendarEventItem,
+  CalendarEventType,
   CalendarRecurrence,
   Deck,
   Folder,
@@ -89,6 +93,12 @@ export const TodayAgendaWidget: React.FC<TodayAgendaWidgetProps> = ({
   startReview,
   onOpenCalendarTab,
 }) => {
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  const [quickTitle, setQuickTitle] = useState('');
+  const [quickType, setQuickType] = useState<CalendarEventType>('task');
+  const [quickTime, setQuickTime] = useState('');
+  const [quickLink, setQuickLink] = useState('');
+
   const todayStr = getTodayStr();
   const eventsMap =
     calendarEvents &&
@@ -96,6 +106,11 @@ export const TodayAgendaWidget: React.FC<TodayAgendaWidgetProps> = ({
     !Array.isArray(calendarEvents)
       ? calendarEvents
       : {};
+
+  const activeDecksList = useMemo(
+    () => validDecks.filter((d) => !d.isIgnored),
+    [validDecks]
+  );
 
   const todayItems = useMemo(() => {
     const list: TodayDisplayItem[] = [];
@@ -203,6 +218,44 @@ export const TodayAgendaWidget: React.FC<TodayAgendaWidgetProps> = ({
     return null;
   }, [eventsMap, todayStr, validDecks, getDecksInFolder]);
 
+  const handleQuickAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickTitle.trim() || !onUpdateCalendarEvents) return;
+
+    const currentTodayItems = Array.isArray(eventsMap[todayStr])
+      ? [...eventsMap[todayStr]]
+      : [];
+
+    const linkedDeckId = quickLink.startsWith('deck:')
+      ? quickLink.slice(5)
+      : undefined;
+    const linkedFolderId = quickLink.startsWith('folder:')
+      ? quickLink.slice(7)
+      : undefined;
+
+    const newItem: CalendarEventItem = {
+      id: `ev-${Date.now()}`,
+      title: quickTitle.trim(),
+      type: quickType,
+      completed: false,
+      recurrence: 'none',
+    };
+
+    if (quickTime.trim()) newItem.time = quickTime.trim();
+    if (linkedDeckId) newItem.deckId = linkedDeckId;
+    if (linkedFolderId) newItem.folderId = linkedFolderId;
+
+    onUpdateCalendarEvents({
+      ...eventsMap,
+      [todayStr]: [...currentTodayItems, newItem],
+    });
+
+    setQuickTitle('');
+    setQuickTime('');
+    setQuickLink('');
+    setIsQuickAddOpen(false);
+  };
+
   const handleToggleTodayTask = (targetItem: TodayDisplayItem) => {
     if (!onUpdateCalendarEvents) return;
     const originDate = targetItem.originDate;
@@ -264,24 +317,6 @@ export const TodayAgendaWidget: React.FC<TodayAgendaWidgetProps> = ({
   const hasAnyHighlight =
     todayItems.length > 0 || overdueCount > 0 || nextExamInfo !== null;
 
-  if (!hasAnyHighlight) {
-    return (
-      <div className="rounded-2xl px-4 py-3 border border-slate-800/80 bg-slate-900/40 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 text-xs sm:text-sm text-slate-400">
-          <CalendarDays className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>Nenhum compromisso agendado para hoje.</span>
-        </div>
-        <button
-          type="button"
-          onClick={onOpenCalendarTab}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 px-3 py-1.5 rounded-xl transition-colors shrink-0"
-        >
-          Abrir Agenda <ArrowRight className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="rounded-2xl p-4 sm:p-5 border border-slate-800/80 bg-slate-900/50 shadow-lg flex flex-col gap-3.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -290,11 +325,17 @@ export const TodayAgendaWidget: React.FC<TodayAgendaWidgetProps> = ({
           <h3 className="text-sm sm:text-base font-bold text-slate-100">
             Agenda de Hoje
           </h3>
-          {todayItems.length > 0 && (
+          {todayItems.length > 0 ? (
             <span className="text-xs font-semibold text-slate-400 bg-slate-950 border border-slate-800 px-2 py-0.5 rounded-lg">
               {todayItems.filter((i) => i.type === 'task' && i.isCompletedToday).length}
               /{todayItems.length}
             </span>
+          ) : (
+            !isQuickAddOpen && (
+              <span className="text-xs text-slate-500">
+                Nenhum compromisso para hoje
+              </span>
+            )
           )}
           {overdueCount > 0 && (
             <button
@@ -310,14 +351,133 @@ export const TodayAgendaWidget: React.FC<TodayAgendaWidgetProps> = ({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onOpenCalendarTab}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 bg-slate-950 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-xl transition-colors"
-        >
-          Calendário completo <ArrowRight className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsQuickAddOpen((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-colors ${
+              isQuickAddOpen
+                ? 'bg-slate-800 text-slate-300 border-slate-700'
+                : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500/50'
+            }`}
+          >
+            {isQuickAddOpen ? (
+              <>
+                <X className="w-3.5 h-3.5" /> Fechar
+              </>
+            ) : (
+              <>
+                <Plus className="w-3.5 h-3.5" /> Novo
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenCalendarTab}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 bg-slate-950 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-xl transition-colors"
+          >
+            {hasAnyHighlight ? 'Calendário completo' : 'Abrir Agenda'}{' '}
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
+
+      {isQuickAddOpen && (
+        <form
+          onSubmit={handleQuickAddSubmit}
+          className="flex flex-col gap-2 bg-slate-950/80 p-3 rounded-xl border border-slate-800 animate-in fade-in duration-150"
+        >
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800 shrink-0">
+              <button
+                type="button"
+                onClick={() => setQuickType('task')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${
+                  quickType === 'task'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <CheckSquare className="w-3.5 h-3.5" /> Tarefa
+              </button>
+              <button
+                type="button"
+                onClick={() => setQuickType('reminder')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${
+                  quickType === 'reminder'
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Bell className="w-3.5 h-3.5" /> Lembrete
+              </button>
+            </div>
+
+            <input
+              type="text"
+              autoFocus
+              value={quickTitle}
+              onChange={(e) => setQuickTitle(e.target.value)}
+              placeholder={
+                quickType === 'task'
+                  ? 'Título da tarefa de hoje...'
+                  : 'Título do lembrete de hoje...'
+              }
+              className="flex-grow bg-slate-900 border border-slate-800 text-slate-100 text-xs sm:text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <select
+              value={quickLink}
+              onChange={(e) => setQuickLink(e.target.value)}
+              className="flex-grow bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 transition-colors"
+            >
+              <option value="">Sem vínculo com baralho/coleção</option>
+              {folders.length > 0 && (
+                <optgroup label="Coleções">
+                  {folders.map((f) => (
+                    <option key={f.id} value={`folder:${f.id}`}>
+                      Coleção: {f.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {activeDecksList.length > 0 && (
+                <optgroup label="Baralhos">
+                  {activeDecksList.map((d) => (
+                    <option key={d.id} value={`deck:${d.id}`}>
+                      Baralho: {d.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                type="time"
+                value={quickTime}
+                onChange={(e) => setQuickTime(e.target.value)}
+                className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
+                title="Horário opcional"
+              />
+              <button
+                type="submit"
+                disabled={!quickTitle.trim()}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  quickTitle.trim()
+                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95'
+                    : 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5" /> Salvar
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
 
       {nextExamInfo && (
         <div
