@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   CheckSquare,
   Play,
+  RefreshCcw,
 } from 'lucide-react';
 import type { CustomStudyConfig } from '../../types';
 
@@ -39,8 +40,9 @@ export const CustomStudyModal: React.FC<CustomStudyModalProps> = ({
     Icon: React.ElementType;
   }[] = [
     { id: 'cram', label: 'Simulado Geral (Sorteio)', Icon: Sparkles },
-    { id: 'unlearned', label: 'Apenas Não Aprendidos', Icon: Layers },
+    { id: 'review_only', label: 'Apenas Revisões', Icon: RefreshCcw },
     { id: 'due_only', label: 'Apenas Pendentes Hoje', Icon: CalendarDays },
+    { id: 'unlearned', label: 'Apenas Não Aprendidos', Icon: Layers },
     { id: 'new_only', label: 'Apenas Cartões Novos', Icon: Plus },
     { id: 'leeches', label: 'Apenas Sanguessugas', Icon: AlertTriangle },
     { id: 'interactive', label: 'Apenas Interativos', Icon: CheckSquare },

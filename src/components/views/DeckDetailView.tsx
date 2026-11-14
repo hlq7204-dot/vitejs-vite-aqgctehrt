@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ArrowLeft,
   BookOpen,
@@ -17,6 +17,7 @@ import {
   PauseCircle,
   Trash2,
   CornerUpRight,
+  RotateCcw,
 } from 'lucide-react';
 import type { Card, CardType, Deck } from '../../types';
 import { DECK_THEMES, CARD_TYPES } from '../../constants/themes';
@@ -84,6 +85,10 @@ interface DeckDetailViewProps {
   toggleSuspendCard: (cardId: string) => void;
   deleteCard: (cardId: string) => void;
   onOpenMoveCardsModal: () => void;
+  onBulkDeleteCards?: () => void;
+  onBulkToggleSuspendCards?: () => void;
+  onBulkAddTagToCards?: (rawTagInput: string) => void;
+  onBulkResetCardsProgress?: () => void;
 }
 
 export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
@@ -129,7 +134,16 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
   toggleSuspendCard,
   deleteCard,
   onOpenMoveCardsModal,
+  onBulkDeleteCards,
+  onBulkToggleSuspendCards,
+  onBulkAddTagToCards,
+  onBulkResetCardsProgress,
 }) => {
+  const [bulkActionPanel, setBulkActionPanel] = useState<
+    'none' | 'tag' | 'reset' | 'delete'
+  >('none');
+  const [bulkTagInput, setBulkTagInput] = useState('');
+
   if (!activeDeck) return null;
   const stats = getCardStats(activeDeck.cards);
   const due = calculateTotalDue(stats);
@@ -190,8 +204,19 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
     return true;
   });
 
+  const selectedCardsList = allDeckCards.filter((c) =>
+    selectedCardIds.has(c.id)
+  );
+  const anySelectedActive = selectedCardsList.some((c) => !c.isSuspended);
+
+  const clearSelectionState = () => {
+    setSelectedCardIds(new Set());
+    setBulkActionPanel('none');
+    setBulkTagInput('');
+  };
+
   return (
-    <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 pb-20 animate-in slide-in-from-right-4 fade-in duration-300">
+    <div className="w-full px-4 sm:px-6 lg:px-8 pt-2 pb-28 animate-in slide-in-from-right-4 fade-in duration-300">
       <button
         onClick={onBack}
         className="flex items-center gap-2 text-slate-400 hover:text-slate-200 mb-6 transition-colors"
@@ -456,7 +481,7 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                   type="text"
                   value={cardTagsInput}
                   onChange={(e) => setCardTagsInput(e.target.value)}
-                  placeholder="Ex: #importante #formula #edital"
+                  placeholder="Digite as #tags separadas por espaço..."
                   className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 {deckTags.length > 0 && (
@@ -555,7 +580,7 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                         targetIds.length > 0 &&
                         targetIds.every((id) => selectedCardIds.has(id));
                       if (allFilteredSelected) {
-                        setSelectedCardIds(new Set());
+                        clearSelectionState();
                       } else {
                         setSelectedCardIds(new Set(targetIds));
                       }
@@ -571,7 +596,7 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                 <button
                   onClick={() => {
                     setIsSelectMode(!isSelectMode);
-                    setSelectedCardIds(new Set());
+                    clearSelectionState();
                   }}
                   className={`text-sm px-3 py-1.5 rounded-lg border transition-colors flex-1 sm:flex-none ${
                     isSelectMode
@@ -861,25 +886,214 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
             </div>
           )}
 
+          {/* BARRA FLUTUANTE DE AÇÕES EM LOTE */}
           {selectedCardIds.size > 0 && (
-            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/95 backdrop-blur-md p-3 sm:p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] border border-slate-700 flex items-center gap-4 z-50 animate-pop">
-              <span className="text-slate-200 font-bold whitespace-nowrap">
-                <span className="text-indigo-400">{selectedCardIds.size}</span>{' '}
-                selecionados
-              </span>
-              <div className="w-px h-6 bg-slate-700"></div>
-              <button
-                onClick={onOpenMoveCardsModal}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-xl font-bold transition-all shadow-lg active:scale-95 flex items-center gap-2"
-              >
-                <CornerUpRight className="w-4 h-4" /> Mover
-              </button>
-              <button
-                onClick={() => setSelectedCardIds(new Set())}
-                className="text-slate-400 hover:text-slate-200 px-3 py-2 rounded-xl font-medium transition-colors hidden sm:block"
-              >
-                Desmarcar
-              </button>
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[94vw] max-w-3xl bg-slate-900/95 backdrop-blur-md p-3 sm:p-4 rounded-2xl shadow-[0_12px_45px_rgba(0,0,0,0.85)] border border-slate-700 flex flex-col gap-3 z-50 animate-pop">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xs sm:text-sm text-slate-200 font-bold whitespace-nowrap">
+                    <span className="text-indigo-400">{selectedCardIds.size}</span>{' '}
+                    {selectedCardIds.size === 1 ? 'selecionado' : 'selecionados'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearSelectionState}
+                    className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors"
+                  >
+                    Desmarcar
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkActionPanel('none');
+                      onOpenMoveCardsModal();
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5"
+                  >
+                    <CornerUpRight className="w-3.5 h-3.5" /> Mover
+                  </button>
+
+                  {onBulkAddTagToCards && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBulkActionPanel((prev) =>
+                          prev === 'tag' ? 'none' : 'tag'
+                        )
+                      }
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                        bulkActionPanel === 'tag'
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      }`}
+                    >
+                      <Tag className="w-3.5 h-3.5 text-cyan-400" /> Etiqueta
+                    </button>
+                  )}
+
+                  {onBulkToggleSuspendCards && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onBulkToggleSuspendCards();
+                        setBulkActionPanel('none');
+                      }}
+                      className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5"
+                    >
+                      {anySelectedActive ? (
+                        <>
+                          <PauseCircle className="w-3.5 h-3.5 text-amber-400" />{' '}
+                          Suspender
+                        </>
+                      ) : (
+                        <>
+                          <PlayCircle className="w-3.5 h-3.5 text-emerald-400" />{' '}
+                          Reativar
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {onBulkResetCardsProgress && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBulkActionPanel((prev) =>
+                          prev === 'reset' ? 'none' : 'reset'
+                        )
+                      }
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                        bulkActionPanel === 'reset'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      }`}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-400" /> Zerar
+                    </button>
+                  )}
+
+                  {onBulkDeleteCards && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBulkActionPanel((prev) =>
+                          prev === 'delete' ? 'none' : 'delete'
+                        )
+                      }
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                        bulkActionPanel === 'delete'
+                          ? 'bg-rose-600 text-white border-rose-500'
+                          : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border-rose-500/30'
+                      }`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Excluir
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Subpainel de Etiqueta em Lote */}
+              {bulkActionPanel === 'tag' && onBulkAddTagToCards && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!bulkTagInput.trim()) return;
+                    onBulkAddTagToCards(bulkTagInput);
+                    setBulkTagInput('');
+                    setBulkActionPanel('none');
+                  }}
+                  className="flex items-center gap-2 pt-2 border-t border-slate-800"
+                >
+                  <input
+                    type="text"
+                    autoFocus
+                    value={bulkTagInput}
+                    onChange={(e) => setBulkTagInput(e.target.value)}
+                    placeholder="Digite as #tags para aplicar..."
+                    className="flex-grow bg-slate-950 border border-slate-700 text-slate-100 text-xs sm:text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-cyan-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!bulkTagInput.trim()}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                      bulkTagInput.trim()
+                        ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    <Check className="w-3.5 h-3.5" /> Aplicar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBulkActionPanel('none')}
+                    className="p-2 text-slate-400 hover:text-slate-200 rounded-xl"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </form>
+              )}
+
+              {/* Subpainel de Confirmação de Reset FSRS */}
+              {bulkActionPanel === 'reset' && onBulkResetCardsProgress && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800 text-xs">
+                  <span className="text-amber-200 font-semibold">
+                    Zerar histórico FSRS e voltar {selectedCardIds.size}{' '}
+                    {selectedCardIds.size === 1 ? 'cartão' : 'cartões'} para
+                    Novo?
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBulkActionPanel('none')}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onBulkResetCardsProgress();
+                        setBulkActionPanel('none');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold"
+                    >
+                      Confirmar Reset
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Subpainel de Confirmação de Exclusão em Lote */}
+              {bulkActionPanel === 'delete' && onBulkDeleteCards && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800 text-xs">
+                  <span className="text-rose-200 font-semibold">
+                    Excluir permanentemente {selectedCardIds.size}{' '}
+                    {selectedCardIds.size === 1 ? 'cartão' : 'cartões'}?
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBulkActionPanel('none')}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onBulkDeleteCards();
+                        setBulkActionPanel('none');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold"
+                    >
+                      Confirmar Exclusão
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

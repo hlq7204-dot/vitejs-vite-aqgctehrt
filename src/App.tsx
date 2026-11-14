@@ -893,6 +893,8 @@ export default function App() {
       pool = pool.filter(c => isCardUnlearned(c));
     } else if (config.preset === 'new_only') {
       pool = pool.filter(c => (c.state === 0 || !c.reviews));
+    } else if (config.preset === 'review_only') {
+      pool = pool.filter(c => !isCardUnlearned(c) && checkCardDue(c));
     } else if (config.preset === 'interactive') {
       pool = pool.filter(c => ['choice', 'tf', 'typing'].includes(c.type || 'standard'));
     } else if (config.preset === 'due_only') {
@@ -1427,6 +1429,100 @@ export default function App() {
     showToast(`${cardsToMove.length} cartões movidos com sucesso!`);
   };
 
+  // AÇÕES EM LOTE NO BARALHO
+  const handleBulkDeleteCards = () => {
+    if (!activeDeck || selectedCardIds.size === 0) return;
+    const count = selectedCardIds.size;
+    const idsToRemove = new Set(selectedCardIds);
+    const updatedDeck = {
+      ...activeDeck,
+      cards: (activeDeck.cards || []).filter(c => !idsToRemove.has(c.id)),
+    };
+    setDecks(prev => prev.map(d => d.id === activeDeck.id ? updatedDeck : d));
+    updateDeckInCloud(updatedDeck);
+    removeDeletedCardsFromActivity(idsToRemove);
+    setSelectedCardIds(new Set());
+    setIsSelectMode(false);
+    showToast(`${count} ${count === 1 ? 'cartão excluído' : 'cartões excluídos'}!`);
+  };
+
+  const handleBulkToggleSuspendCards = () => {
+    if (!activeDeck || selectedCardIds.size === 0) return;
+    const targetCards = (activeDeck.cards || []).filter(c => selectedCardIds.has(c.id));
+    const shouldSuspend = targetCards.some(c => !c.isSuspended);
+    const updatedDeck = {
+      ...activeDeck,
+      cards: (activeDeck.cards || []).map(c =>
+        selectedCardIds.has(c.id)
+          ? { ...c, isSuspended: shouldSuspend, buriedUntil: null }
+          : c
+      ),
+    };
+    setDecks(prev => prev.map(d => d.id === activeDeck.id ? updatedDeck : d));
+    updateDeckInCloud(updatedDeck);
+    setSelectedCardIds(new Set());
+    setIsSelectMode(false);
+    showToast(
+      shouldSuspend
+        ? `${targetCards.length} ${targetCards.length === 1 ? 'cartão suspenso' : 'cartões suspensos'}!`
+        : `${targetCards.length} ${targetCards.length === 1 ? 'cartão reativado' : 'cartões reativados'}!`
+    );
+  };
+
+  const handleBulkAddTagToCards = (rawTagInput) => {
+    if (!activeDeck || selectedCardIds.size === 0) return;
+    const newTags = parseTagsString(rawTagInput);
+    if (newTags.length === 0) return;
+    const count = selectedCardIds.size;
+    const updatedDeck = {
+      ...activeDeck,
+      cards: (activeDeck.cards || []).map(c => {
+        if (!selectedCardIds.has(c.id)) return c;
+        const mergedTags = Array.from(new Set([...(c.tags || []), ...newTags]));
+        return { ...c, tags: mergedTags };
+      }),
+    };
+    setDecks(prev => prev.map(d => d.id === activeDeck.id ? updatedDeck : d));
+    updateDeckInCloud(updatedDeck);
+    setSelectedCardIds(new Set());
+    setIsSelectMode(false);
+    showToast(`Etiqueta aplicada em ${count} ${count === 1 ? 'cartão' : 'cartões'}!`);
+  };
+
+  const handleBulkResetCardsProgress = () => {
+    if (!activeDeck || selectedCardIds.size === 0) return;
+    const count = selectedCardIds.size;
+    const updatedDeck = {
+      ...activeDeck,
+      cards: (activeDeck.cards || []).map(c => {
+        if (!selectedCardIds.has(c.id)) return c;
+        const resetCard = {
+          ...c,
+          state: 0,
+          interval: 0,
+          dueDate: Date.now(),
+          reviews: 0,
+          lapses: 0,
+          reviewLapses: 0,
+          learningReviews: 0,
+          buriedUntil: null,
+        };
+        delete resetCard.difficulty;
+        delete resetCard.stability;
+        delete resetCard.last_review;
+        delete resetCard.stepIndex;
+        delete resetCard.reviewRatingCounts;
+        delete resetCard.interactiveStats;
+        return resetCard;
+      }),
+    };
+    setDecks(prev => prev.map(d => d.id === activeDeck.id ? updatedDeck : d));
+    updateDeckInCloud(updatedDeck);
+    setSelectedCardIds(new Set());
+    setIsSelectMode(false);
+    showToast(`Progresso zerado em ${count} ${count === 1 ? 'cartão' : 'cartões'}!`);
+  };
+
   const handleSaveCard = (e) => {
     e.preventDefault(); if (!newCardFront.trim() || !user || isProcessingRef.current) return;
     isProcessingRef.current = true;
@@ -1689,6 +1785,10 @@ export default function App() {
                 toggleSuspendCard={toggleSuspendCard}
                 deleteCard={deleteCard}
                 onOpenMoveCardsModal={() => setIsMoveCardsModalOpen(true)}
+                onBulkDeleteCards={handleBulkDeleteCards}
+                onBulkToggleSuspendCards={handleBulkToggleSuspendCards}
+                onBulkAddTagToCards={handleBulkAddTagToCards}
+                onBulkResetCardsProgress={handleBulkResetCardsProgress}
               />
             )}
             {currentView === 'review' && (
