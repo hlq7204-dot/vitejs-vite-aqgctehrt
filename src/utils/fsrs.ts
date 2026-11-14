@@ -11,7 +11,23 @@ export const maximumInterval = 36500;
 export const S_MIN = 0.01;
 export const DECAY = -w[20];
 export const enable_fuzz = true;
-export const LEARNING_STEPS = [1, 10]; // em minutos
+export const DEFAULT_LEARNING_STEPS = [1, 10]; // em minutos
+export const LEARNING_STEPS = DEFAULT_LEARNING_STEPS;
+
+export const parseLearningSteps = (raw: string | number[]): number[] => {
+  if (Array.isArray(raw)) {
+    const valid = raw
+      .map((n) => Math.round(Number(n)))
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 43200);
+    return valid.length > 0 ? valid : [...DEFAULT_LEARNING_STEPS];
+  }
+  if (typeof raw !== 'string') return [...DEFAULT_LEARNING_STEPS];
+  const parsed = raw
+    .split(/[\s,;]+/)
+    .map((part) => Math.round(parseFloat(part.replace(/[^0-9.]/g, ''))))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 43200);
+  return parsed.length > 0 ? parsed : [...DEFAULT_LEARNING_STEPS];
+};
 
 export const ratings: Record<string, number> = {
   again: 1,
@@ -174,7 +190,6 @@ export const isCardBuried = (card?: Card | null): boolean => {
 export const isCardLeech = (card?: Card | null): boolean => {
   if (!card) return false;
   const state = card.state !== undefined ? card.state : card.reviews > 0 ? 2 : 0;
-  // Cartões Novos (0) ou em Aprendizagem Inicial (1) nunca são Sanguessugas
   if (state === 0 || state === 1) return false;
   return getEffectiveLapses(card) >= 4;
 };
@@ -216,8 +231,14 @@ export const formatInterval = (days?: number): string => {
 export const calculateNextReview = (
   card: Card,
   qualityUI: number,
-  reqRetention = requestRetention
+  reqRetention = requestRetention,
+  customLearningSteps: number[] = DEFAULT_LEARNING_STEPS
 ): Card => {
+  const steps =
+    Array.isArray(customLearningSteps) && customLearningSteps.length > 0
+      ? customLearningSteps
+      : DEFAULT_LEARNING_STEPS;
+
   const RATING_STRINGS = ['again', 'hard', 'good', 'easy'] as const;
   const ratingStr = RATING_STRINGS[qualityUI];
   const now = Date.now();
@@ -247,18 +268,26 @@ export const calculateNextReview = (
     if (ratingStr === 'again') {
       state = 1;
       stepIndex = 0;
-      interval = LEARNING_STEPS[0];
+      interval = steps[0];
       isMinutes = true;
     } else if (ratingStr === 'hard') {
       state = 1;
       stepIndex = 0;
-      interval = (LEARNING_STEPS[0] + LEARNING_STEPS[1]) / 2;
+      interval =
+        steps.length > 1
+          ? (steps[0] + steps[1]) / 2
+          : Math.round(steps[0] * 1.5);
       isMinutes = true;
     } else if (ratingStr === 'good') {
-      state = 1;
-      stepIndex = 1;
-      interval = LEARNING_STEPS[1];
-      isMinutes = true;
+      if (steps.length > 1) {
+        state = 1;
+        stepIndex = 1;
+        interval = steps[1];
+        isMinutes = true;
+      } else {
+        state = 2;
+        interval = next_interval(stability, fuzz_factor, reqRetention);
+      }
     } else if (ratingStr === 'easy') {
       state = 2;
       const good_ivl = next_interval(init_stability('good'), fuzz_factor, reqRetention);
@@ -273,15 +302,15 @@ export const calculateNextReview = (
 
     if (ratingStr === 'again') {
       stepIndex = 0;
-      interval = LEARNING_STEPS[0];
+      interval = steps[0];
       isMinutes = true;
     } else if (ratingStr === 'hard') {
-      interval = LEARNING_STEPS[stepIndex] || LEARNING_STEPS[0];
+      interval = steps[Math.min(stepIndex, steps.length - 1)] || steps[0];
       isMinutes = true;
     } else if (ratingStr === 'good') {
       stepIndex++;
-      if (stepIndex < LEARNING_STEPS.length) {
-        interval = LEARNING_STEPS[stepIndex];
+      if (stepIndex < steps.length) {
+        interval = steps[stepIndex];
         isMinutes = true;
       } else {
         state = 2;
@@ -303,7 +332,7 @@ export const calculateNextReview = (
       stability = next_forget_stability(last_d, last_s, retrievability);
       state = 3;
       stepIndex = 0;
-      interval = LEARNING_STEPS[0];
+      interval = steps[0];
       isMinutes = true;
     } else {
       difficulty = next_difficulty(last_d, ratingStr);
@@ -338,7 +367,6 @@ export const calculateNextReview = (
   const intervalInDays = isMinutes ? interval / 1440 : interval;
   const nextDue = isMinutes ? now + interval * 60000 : now + interval * 86400000;
 
-  // Lapsos e Retenção Real são contabilizados exclusivamente quando o cartão já estava graduado (prevState === 2)
   const baseLapses = getEffectiveLapses(card);
   const reviewLapses =
     prevState === 2 && ratingStr === 'again' ? baseLapses + 1 : baseLapses;

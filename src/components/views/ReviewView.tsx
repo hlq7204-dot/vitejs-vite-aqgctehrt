@@ -19,6 +19,7 @@ import {
 import type { Card, SessionStats } from '../../types';
 import {
   calculateNextReview,
+  DEFAULT_LEARNING_STEPS,
   formatInterval,
   isCardLeech,
 } from '../../utils/fsrs';
@@ -56,6 +57,7 @@ interface ReviewViewProps {
   reviewQueue: Card[];
   currentCardIndex: number;
   desiredRetention: number;
+  learningSteps?: number[];
   isFlipped: boolean;
   setIsFlipped: React.Dispatch<React.SetStateAction<boolean>>;
   reviewInteraction: any;
@@ -83,6 +85,7 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
   reviewQueue,
   currentCardIndex,
   desiredRetention,
+  learningSteps = DEFAULT_LEARNING_STEPS,
   isFlipped,
   setIsFlipped,
   reviewInteraction,
@@ -110,7 +113,10 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
 
   const progress = (currentCardIndex / reviewQueue.length) * 100;
   const intervalLabels = [0, 1, 2, 3].map((q) =>
-    formatInterval(calculateNextReview(currentCard, q, desiredRetention).interval)
+    formatInterval(
+      calculateNextReview(currentCard, q, desiredRetention, learningSteps)
+        .interval
+    )
   );
   const type = currentCard.type || 'standard';
   const leech = isCardLeech(currentCard);

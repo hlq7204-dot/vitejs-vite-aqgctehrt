@@ -6,6 +6,10 @@ interface SettingsModalProps {
   onClose: () => void;
   dailyGoal: number | string;
   setDailyGoal: (val: any) => void;
+  dailyNewLimit: number | string;
+  setDailyNewLimit: (val: any) => void;
+  learningStepsInput: string;
+  setLearningStepsInput: (val: string) => void;
   desiredRetention: number;
   setDesiredRetention: (val: number) => void;
   onSave: (e: React.FormEvent) => void;
@@ -19,6 +23,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   dailyGoal,
   setDailyGoal,
+  dailyNewLimit,
+  setDailyNewLimit,
+  learningStepsInput,
+  setLearningStepsInput,
   desiredRetention,
   setDesiredRetention,
   onSave,
@@ -27,6 +35,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onExportCSV,
 }) => {
   if (!isOpen) return null;
+
+  const numericNewLimit = Number(dailyNewLimit) || 0;
 
   return (
     <div
@@ -61,6 +71,85 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="pt-3 border-t border-slate-800/80">
             <div className="flex justify-between items-center mb-1.5">
               <label className="text-sm font-medium text-slate-300">
+                Limite de Cartões Novos / Dia
+              </label>
+              <span className="text-xs font-bold text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded-lg border border-blue-500/20">
+                {numericNewLimit <= 0 ? 'Ilimitado' : `${numericNewLimit}/dia`}
+              </span>
+            </div>
+            <div className="flex gap-1.5 mb-2">
+              {[10, 20, 30, 50, 0].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setDailyNewLimit(preset)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                    numericNewLimit === preset
+                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  {preset === 0 ? 'Ilimitado' : preset}
+                </button>
+              ))}
+            </div>
+            <input
+              type="number"
+              min="0"
+              max="1000"
+              value={dailyNewLimit}
+              onChange={(e) =>
+                setDailyNewLimit(
+                  e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value))
+                )
+              }
+              className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Use 0 para liberar todos os cartões novos disponíveis ou defina um teto diário para evitar acúmulo após importações.
+            </p>
+          </div>
+
+          <div className="pt-3 border-t border-slate-800/80">
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="text-sm font-medium text-slate-300">
+                Passos de Aprendizagem (min)
+              </label>
+            </div>
+            <div className="flex gap-1.5 mb-2">
+              {[
+                { label: '1m, 10m', val: '1, 10' },
+                { label: '1m, 15m, 1h', val: '1, 15, 60' },
+                { label: '5m, 30m', val: '5, 30' },
+              ].map((p) => (
+                <button
+                  key={p.val}
+                  type="button"
+                  onClick={() => setLearningStepsInput(p.val)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                    learningStepsInput.trim() === p.val
+                      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={learningStepsInput}
+              onChange={(e) => setLearningStepsInput(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Intervalos em minutos separados por vírgula antes de o cartão graduar para revisão diária.
+            </p>
+          </div>
+
+          <div className="pt-3 border-t border-slate-800/80">
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="text-sm font-medium text-slate-300">
                 Retenção Desejada FSRS
               </label>
               <span className="text-sm font-black text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded-lg border border-indigo-500/20">
@@ -77,7 +166,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="w-full accent-indigo-500 cursor-pointer"
             />
             <p className="text-[11px] text-slate-500 mt-1">
-              Valores maiores (ex: 95%) agendam revisões mais frequentes; valores menores (ex: 85%) espaçam mais os cartões. Padrão: 90%.
+              Valores maiores agendam revisões mais frequentes; valores menores espaçam mais os cartões. Padrão: 90%.
             </p>
           </div>
 

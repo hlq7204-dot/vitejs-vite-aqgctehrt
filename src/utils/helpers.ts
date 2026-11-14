@@ -124,5 +124,16 @@ export const getCardStats = (cards?: Card[]): CardStats => {
   );
 };
 
+export const applyDailyNewLimit = (
+  stats: CardStats,
+  remainingNewQuota: number | null
+): CardStats => {
+  if (remainingNewQuota === null) return stats;
+  return {
+    ...stats,
+    new: Math.min(stats.new, Math.max(0, remainingNewQuota)),
+  };
+};
+
 export const calculateTotalDue = (stats: CardStats): number =>
   stats.new + stats.learning + stats.review;

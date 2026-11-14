@@ -7,6 +7,8 @@ import {
   clamp,
   forgetting_curve,
   calculateNextReview,
+  DEFAULT_LEARNING_STEPS,
+  parseLearningSteps,
   getEffectiveLapses,
   getCardRatingBreakdown,
   isCardBuried,
@@ -16,6 +18,7 @@ import {
   formatInterval,
 } from './utils/fsrs';
 import {
+  applyDailyNewLimit,
   cleanupData,
   getTodayStr,
   getGreeting,
@@ -137,6 +140,38 @@ export default function App() {
     try { const saved = localStorage.getItem('lumina_dailyGoal'); if (saved) return parseInt(saved); } catch(e){} return 50;
   });
 
+  const [dailyNewLimit, setDailyNewLimit] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lumina_dailyNewLimit');
+      if (saved !== null) return Math.max(0, parseInt(saved, 10) || 0);
+    } catch (e) {}
+    return 0;
+  });
+
+  const [learningSteps, setLearningSteps] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lumina_learningSteps');
+      if (saved) return parseLearningSteps(JSON.parse(saved));
+    } catch (e) {}
+    return [...DEFAULT_LEARNING_STEPS];
+  });
+  const [learningStepsInput, setLearningStepsInput] = useState(() =>
+    learningSteps.join(', ')
+  );
+
+  const [newCardsToday, setNewCardsToday] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lumina_newCardsToday');
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (p && p.date === getTodayStr() && typeof p.count === 'number') {
+          return p;
+        }
+      }
+    } catch (e) {}
+    return { date: getTodayStr(), count: 0 };
+  });
+
   const [desiredRetention, setDesiredRetention] = useState(() => {
     try {
       const saved = localStorage.getItem('lumina_desiredRetention');
@@ -241,6 +276,14 @@ export default function App() {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 5000); };
 
+  const effectiveDailyNewLimit = Number(dailyNewLimit) || 0;
+  const newIntroducedTodayCount =
+    newCardsToday.date === getTodayStr() ? newCardsToday.count : 0;
+  const remainingNewQuota =
+    effectiveDailyNewLimit > 0
+      ? Math.max(0, effectiveDailyNewLimit - newIntroducedTodayCount)
+      : null;
+
   const syncDataToCloud = (newMap, newRecs, newCalEvents = null, newCalTs = null) => {
     if (!user || !db) return;
     const payload = {};
@@ -285,7 +328,6 @@ export default function App() {
     syncDataToCloud(null, null, cleanEvents, nowTs);
   };
 
-  // Monitor de horário para disparar lembretes/tarefas agendadas do dia atual
   useEffect(() => {
     if (!user) return;
 
@@ -365,6 +407,10 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem('lumina_folders', JSON.stringify(folders)); } catch(e){} }, [folders]);
   useEffect(() => { try { localStorage.setItem('lumina_activity', JSON.stringify(activityMap)); } catch(e){} }, [activityMap]);
   useEffect(() => { try { localStorage.setItem('lumina_streakRecoveries', JSON.stringify(streakRecoveries)); } catch(e){} }, [streakRecoveries]);
+  useEffect(() => { try { localStorage.setItem('lumina_dailyGoal', String(dailyGoal)); } catch(e){} }, [dailyGoal]);
+  useEffect(() => { try { localStorage.setItem('lumina_dailyNewLimit', String(effectiveDailyNewLimit)); } catch(e){} }, [effectiveDailyNewLimit]);
+  useEffect(() => { try { localStorage.setItem('lumina_learningSteps', JSON.stringify(learningSteps)); } catch(e){} }, [learningSteps]);
+  useEffect(() => { try { localStorage.setItem('lumina_newCardsToday', JSON.stringify(newCardsToday)); } catch(e){} }, [newCardsToday]);
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(calendarEvents));
@@ -525,6 +571,12 @@ export default function App() {
         }
 
         if (data.dailyGoal) setDailyGoal(data.dailyGoal);
+        if (typeof data.dailyNewLimit === 'number') setDailyNewLimit(Math.max(0, data.dailyNewLimit));
+        if (Array.isArray(data.learningSteps)) {
+          const parsedSteps = parseLearningSteps(data.learningSteps);
+          setLearningSteps(parsedSteps);
+          setLearningStepsInput(parsedSteps.join(', '));
+        }
         if (data.desiredRetention) setDesiredRetention(clamp(parseFloat(data.desiredRetention), 0.75, 0.97));
       } else {
         const localActivity = localStorage.getItem('lumina_activity');
@@ -541,6 +593,8 @@ export default function App() {
           calendarEvents: calEventsToSync,
           calendarUpdatedAt: Date.now(),
           dailyGoal: 50,
+          dailyNewLimit: 0,
+          learningSteps: [...DEFAULT_LEARNING_STEPS],
           desiredRetention: 0.90
         }).catch(console.error);
       }
@@ -766,7 +820,8 @@ export default function App() {
   };
 
   const getFolderStats = (folderId) => getCardStats(getDecksInFolder(folderId).filter(d => !d.isIgnored).flatMap(d => d.cards || []));
-  const globalStats = getCardStats(validDecks.filter(d => !d.isIgnored).flatMap(d => d.cards || []));
+  const rawGlobalStats = getCardStats(validDecks.filter(d => !d.isIgnored).flatMap(d => d.cards || []));
+  const globalStats = applyDailyNewLimit(rawGlobalStats, remainingNewQuota);
 
   const getFolderPaths = (excludeFolderId = null) => {
     const paths = [];
@@ -822,14 +877,14 @@ export default function App() {
   };
 
   const startReview = (deckId, forceAll = false, folderId = null) => {
-    let dueCards = [];
+    let rawCards = [];
     if (folderId) {
       const decksToStudy = getDecksInFolder(folderId).filter(d => !d.isIgnored);
       decksToStudy.forEach(deck => {
         let cards = (deck.cards || []).filter(c => checkCardDue(c));
         if (forceAll) cards = deck.cards || [];
         cards = cards.map(c => ({ ...c, _deckId: deck.id }));
-        dueCards.push(...cards);
+        rawCards.push(...cards);
       });
       setActiveDeckId(null);
     } else {
@@ -841,12 +896,27 @@ export default function App() {
       let cards = (deck.cards || []).filter(c => checkCardDue(c));
       if (forceAll) cards = deck.cards || [];
       cards = cards.map(c => ({ ...c, _deckId: deck.id }));
-      dueCards.push(...cards);
+      rawCards.push(...cards);
       setActiveDeckId(deckId);
     }
 
+    let dueCards = rawCards;
+    if (!forceAll && remainingNewQuota !== null) {
+      const dueNew = rawCards
+        .filter((c) => c.state === 0 || !c.reviews)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, remainingNewQuota);
+      const dueRest = rawCards.filter((c) => c.state !== 0 && !!c.reviews);
+      dueCards = [...dueRest, ...dueNew];
+    }
+
     if (dueCards.length === 0) {
-      showToast("Sem cartões para estudar aqui.", "info");
+      showToast(
+        !forceAll && remainingNewQuota === 0
+          ? "Limite diário de cartões novos atingido! Use o Modo Livre para estudar mais."
+          : "Sem cartões para estudar aqui.",
+        "info"
+      );
       return;
     }
 
@@ -945,9 +1015,15 @@ export default function App() {
 
   const handleAnswer = (quality) => {
     const currentCard = reviewQueue[currentCardIndex];
+    const wasNewCard = currentCard.state === 0 || !currentCard.reviews;
     setReviewHistory(prev => [...prev, { card: currentCard, index: currentCardIndex, queue: [...reviewQueue], quality, sessionStats: { ...sessionStats } }]);
 
-    const updatedCard = calculateNextReview(currentCard, quality, desiredRetention);
+    const updatedCard = calculateNextReview(
+      currentCard,
+      quality,
+      desiredRetention,
+      learningSteps
+    );
     const cType = currentCard.type || 'standard';
     if (cType !== 'standard' && reviewInteraction !== null) {
       let wasCorrect = false;
@@ -977,6 +1053,12 @@ export default function App() {
 
     setSessionStats(prev => ({ reviewed: prev.reviewed + 1, correct: prev.correct + (quality > 0 ? 1 : 0) }));
     const todayStr = getTodayStr();
+    if (wasNewCard) {
+      setNewCardsToday((prev) => ({
+        date: todayStr,
+        count: (prev.date === todayStr ? prev.count : 0) + 1,
+      }));
+    }
     const currentDayData = Array.isArray(activityMap[todayStr]) ? activityMap[todayStr] : [];
     const newActivityMap = { ...activityMap, [todayStr]: [...currentDayData, updatedCard.id] };
     
@@ -991,6 +1073,7 @@ export default function App() {
   const handleUndo = () => {
     if (reviewHistory.length === 0) return;
     const lastState = reviewHistory[reviewHistory.length - 1];
+    const wasNewCard = lastState.card.state === 0 || !lastState.card.reviews;
     const targetDeckId = lastState.card._deckId || activeDeckId;
     const targetDeck = validDecks.find(d => d.id === targetDeckId);
 
@@ -1005,6 +1088,12 @@ export default function App() {
     }
 
     const todayStr = getTodayStr();
+    if (wasNewCard) {
+      setNewCardsToday((prev) => ({
+        date: todayStr,
+        count: prev.date === todayStr ? Math.max(0, prev.count - 1) : 0,
+      }));
+    }
     if (Array.isArray(activityMap[todayStr])) {
       const currentList = [...activityMap[todayStr]];
       const lastIdx = currentList.lastIndexOf(lastState.card.id);
@@ -1115,6 +1204,8 @@ export default function App() {
     try {
       buildExportJSONFile({
         dailyGoal,
+        dailyNewLimit: effectiveDailyNewLimit,
+        learningSteps,
         desiredRetention,
         folders,
         decks,
@@ -1158,6 +1249,13 @@ export default function App() {
             ? parsed.calendarEvents
             : calendarEvents;
         const restoredGoal = parsed.dailyGoal ? parseInt(parsed.dailyGoal) : dailyGoal;
+        const restoredNewLimit =
+          typeof parsed.dailyNewLimit === 'number'
+            ? Math.max(0, parsed.dailyNewLimit)
+            : effectiveDailyNewLimit;
+        const restoredSteps = Array.isArray(parsed.learningSteps)
+          ? parseLearningSteps(parsed.learningSteps)
+          : learningSteps;
         const restoredRetention = parsed.desiredRetention ? clamp(parseFloat(parsed.desiredRetention), 0.75, 0.97) : desiredRetention;
 
         setFolders(restoredFolders);
@@ -1165,6 +1263,9 @@ export default function App() {
         setActivityMap(restoredActivity);
         setStreakRecoveries(restoredRecoveries);
         setDailyGoal(restoredGoal);
+        setDailyNewLimit(restoredNewLimit);
+        setLearningSteps(restoredSteps);
+        setLearningStepsInput(restoredSteps.join(', '));
         setDesiredRetention(restoredRetention);
         handleUpdateCalendarEvents(restoredCalendarEvents);
 
@@ -1179,6 +1280,8 @@ export default function App() {
               calendarEvents: restoredCalendarEvents,
               calendarUpdatedAt: Date.now(),
               dailyGoal: restoredGoal,
+              dailyNewLimit: restoredNewLimit,
+              learningSteps: restoredSteps,
               desiredRetention: restoredRetention
             },
             {
@@ -1188,6 +1291,8 @@ export default function App() {
                 'calendarEvents',
                 'calendarUpdatedAt',
                 'dailyGoal',
+                'dailyNewLimit',
+                'learningSteps',
                 'desiredRetention'
               ]
             }
@@ -1243,8 +1348,13 @@ export default function App() {
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     const finalGoal = dailyGoal || 50;
+    const finalNewLimit = Math.max(0, Number(dailyNewLimit) || 0);
+    const finalSteps = parseLearningSteps(learningStepsInput);
     const finalRetention = clamp(Number(desiredRetention) || 0.90, 0.75, 0.97);
     setDailyGoal(finalGoal);
+    setDailyNewLimit(finalNewLimit);
+    setLearningSteps(finalSteps);
+    setLearningStepsInput(finalSteps.join(', '));
     setDesiredRetention(finalRetention);
     setIsSettingsOpen(false);
     if (user && db) {
@@ -1252,9 +1362,18 @@ export default function App() {
         doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main'),
         {
           dailyGoal: finalGoal,
+          dailyNewLimit: finalNewLimit,
+          learningSteps: finalSteps,
           desiredRetention: finalRetention
         },
-        { mergeFields: ['dailyGoal', 'desiredRetention'] }
+        {
+          mergeFields: [
+            'dailyGoal',
+            'dailyNewLimit',
+            'learningSteps',
+            'desiredRetention'
+          ]
+        }
       ).catch(console.error);
     }
     showToast("Configurações salvas!");
@@ -1429,7 +1548,6 @@ export default function App() {
     showToast(`${cardsToMove.length} cartões movidos com sucesso!`);
   };
 
-  // AÇÕES EM LOTE NO BARALHO
   const handleBulkDeleteCards = () => {
     if (!activeDeck || selectedCardIds.size === 0) return;
     const count = selectedCardIds.size;
@@ -1648,7 +1766,10 @@ export default function App() {
             isImporting={isImporting}
             importProgress={importProgress}
             onTriggerFileImport={() => fileInputRef.current?.click()}
-            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenSettings={() => {
+              setLearningStepsInput(learningSteps.join(', '));
+              setIsSettingsOpen(true);
+            }}
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullScreen}
             onLogout={handleLogout}
@@ -1669,6 +1790,7 @@ export default function App() {
                 validDecks={validDecks}
                 globalStats={globalStats}
                 dailyGoal={dailyGoal}
+                remainingNewQuota={remainingNewQuota}
                 getDailyCount={getDailyCount}
                 getDailyCountFiltered={getDailyCountFiltered}
                 getDecksInFolder={getDecksInFolder}
@@ -1796,6 +1918,7 @@ export default function App() {
                 reviewQueue={reviewQueue}
                 currentCardIndex={currentCardIndex}
                 desiredRetention={desiredRetention}
+                learningSteps={learningSteps}
                 isFlipped={isFlipped}
                 setIsFlipped={setIsFlipped}
                 reviewInteraction={reviewInteraction}
@@ -1836,6 +1959,10 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         dailyGoal={dailyGoal}
         setDailyGoal={setDailyGoal}
+        dailyNewLimit={dailyNewLimit}
+        setDailyNewLimit={setDailyNewLimit}
+        learningStepsInput={learningStepsInput}
+        setLearningStepsInput={setLearningStepsInput}
         desiredRetention={desiredRetention}
         setDesiredRetention={setDesiredRetention}
         onSave={handleSaveSettings}

@@ -32,6 +32,7 @@ import type {
 import { FOLDER_THEMES, DECK_THEMES } from '../../constants/themes';
 import { isCardUnlearned } from '../../utils/fsrs';
 import {
+  applyDailyNewLimit,
   getCardStats,
   calculateTotalDue,
   getGreeting,
@@ -51,6 +52,7 @@ interface DashboardViewProps {
   validDecks: Deck[];
   globalStats: CardStats;
   dailyGoal: number;
+  remainingNewQuota?: number | null;
   getDailyCount: (dateStr: string) => number;
   getDailyCountFiltered: (dateStr: string, deckId: string) => number;
   getDecksInFolder: (folderId: string | null) => Deck[];
@@ -111,6 +113,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   validDecks,
   globalStats,
   dailyGoal,
+  remainingNewQuota = null,
   getDailyCount,
   getDailyCountFiltered,
   getDecksInFolder,
@@ -150,7 +153,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   calendarEvents = {},
   onUpdateCalendarEvents,
 }) => {
-  const renderStatBadges = (stats: CardStats) => {
+  const renderStatBadges = (rawStats: CardStats) => {
+    const stats = applyDailyNewLimit(rawStats, remainingNewQuota);
     if (calculateTotalDue(stats) === 0) return null;
     return (
       <div
@@ -197,6 +201,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     Math.round((todayDone / (dailyGoal || 1)) * 100),
     100
   );
+
+  const currentFolderEffectiveStats =
+    currentFolderId !== null
+      ? applyDailyNewLimit(getFolderStats(currentFolderId), remainingNewQuota)
+      : null;
 
   return (
     <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-16 sm:pb-0 animate-in fade-in duration-300">
@@ -353,7 +362,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           )}
 
-          {currentFolderId !== null && (
+          {currentFolderId !== null && currentFolderEffectiveStats && (
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-slate-900/70 border border-slate-800 p-5 sm:p-6 rounded-2xl shadow-lg gap-4">
               <div className="flex items-center gap-4">
                 <div className="w-11 h-11 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-indigo-400 shrink-0">
@@ -365,7 +374,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </h2>
                   <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
                     <strong className="text-indigo-400">
-                      {calculateTotalDue(getFolderStats(currentFolderId))}
+                      {calculateTotalDue(currentFolderEffectiveStats)}
                     </strong>{' '}
                     pendentes
                   </p>
@@ -374,11 +383,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="flex gap-2.5 w-full sm:w-auto flex-wrap">
                 <button
                   onClick={() => startReview(null, false, currentFolderId)}
-                  disabled={
-                    calculateTotalDue(getFolderStats(currentFolderId)) === 0
-                  }
+                  disabled={calculateTotalDue(currentFolderEffectiveStats) === 0}
                   className={`flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
-                    calculateTotalDue(getFolderStats(currentFolderId)) > 0
+                    calculateTotalDue(currentFolderEffectiveStats) > 0
                       ? 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95'
                       : 'bg-slate-800 text-slate-600 cursor-not-allowed'
                   }`}
@@ -553,15 +560,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
                 {currentDecks.map((deck, index) => {
-                  const stats = getCardStats(deck.cards);
-                  const due = calculateTotalDue(stats);
+                  const rawStats = getCardStats(deck.cards);
+                  const effectiveStats = applyDailyNewLimit(
+                    rawStats,
+                    remainingNewQuota
+                  );
+                  const due = calculateTotalDue(effectiveStats);
                   const isMenuOpen = activeMenuId === deck.id;
                   const colorClass = deck.color || DECK_THEMES[0].color;
                   const playDisabled = due === 0 || deck.isIgnored;
                   const totalDeckCards = deck.cards?.length || 0;
                   const masteryPct =
                     totalDeckCards > 0
-                      ? Math.round((stats.learned / totalDeckCards) * 100)
+                      ? Math.round((rawStats.learned / totalDeckCards) * 100)
                       : 0;
 
                   return (
@@ -585,7 +596,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               <EyeOff className="w-3 h-3" /> Ignorado
                             </span>
                           ) : (
-                            renderStatBadges(stats)
+                            renderStatBadges(rawStats)
                           )}
                           <div
                             className="relative"
