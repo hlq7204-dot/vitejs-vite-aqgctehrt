@@ -123,7 +123,14 @@ export interface ReviewHistoryItem {
 export interface CustomStudyConfig {
   sourceType: 'all' | 'folder' | 'deck';
   sourceId: string | null;
-  preset: 'cram' | 'leeches' | 'unlearned' | 'new_only' | 'interactive' | 'due_only';
+  preset:
+    | 'cram'
+    | 'leeches'
+    | 'unlearned'
+    | 'new_only'
+    | 'review_only'
+    | 'interactive'
+    | 'due_only';
   cardType: string;
   tag: string;
   limit: number;
