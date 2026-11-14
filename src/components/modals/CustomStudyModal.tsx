@@ -10,6 +10,8 @@ import {
   CheckSquare,
   Play,
   RefreshCcw,
+  ArrowLeftRight,
+  Check,
 } from 'lucide-react';
 import type { CustomStudyConfig } from '../../types';
 
@@ -147,6 +149,43 @@ export const CustomStudyModal: React.FC<CustomStudyModalProps> = ({
                 ))}
               </select>
             </div>
+          </div>
+
+          <div>
+            <button
+              type="button"
+              onClick={() =>
+                setConfig((prev) => ({
+                  ...prev,
+                  invertCards: !prev.invertCards,
+                }))
+              }
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border text-left transition-colors ${
+                config.invertCards
+                  ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200'
+                  : 'bg-slate-950/80 border-slate-800 text-slate-300 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <ArrowLeftRight
+                  className={`w-4 h-4 shrink-0 ${
+                    config.invertCards ? 'text-cyan-400' : 'text-slate-500'
+                  }`}
+                />
+                <span className="text-xs sm:text-sm font-semibold">
+                  Inverter Frente ↔ Verso (cartões padrão)
+                </span>
+              </div>
+              <div
+                className={`w-5 h-5 rounded flex items-center justify-center border shrink-0 ${
+                  config.invertCards
+                    ? 'bg-cyan-500 border-cyan-400 text-slate-950'
+                    : 'bg-slate-900 border-slate-700 text-transparent'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5" />
+              </div>
+            </button>
           </div>
 
           <div>

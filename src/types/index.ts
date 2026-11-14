@@ -21,6 +21,10 @@ export interface Card {
   type?: CardType;
   front: string;
   back?: string;
+  phonetic?: string;
+  hint?: string;
+  mnemonic?: string;
+  audioOnlyFront?: boolean;
   options?: string[];
   correctOption?: number;
   isTrue?: boolean;
@@ -52,6 +56,8 @@ export interface Deck {
   parentId: string | null;
   color?: string;
   isIgnored?: boolean;
+  voiceLang?: string;
+  autoPlayAudio?: boolean;
   cards: Card[];
 }
 
@@ -134,6 +140,7 @@ export interface CustomStudyConfig {
   cardType: string;
   tag: string;
   limit: number;
+  invertCards?: boolean;
 }
 
 export interface ItemToDelete {

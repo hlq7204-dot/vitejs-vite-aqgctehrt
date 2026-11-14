@@ -1,5 +1,14 @@
 import React from 'react';
-import { Pencil, Check, X, Plus, Tag } from 'lucide-react';
+import {
+  Pencil,
+  Check,
+  X,
+  Plus,
+  Tag,
+  Headphones,
+  Languages,
+  Lightbulb,
+} from 'lucide-react';
 import { CARD_TYPES } from '../../constants/themes';
 import { RichTextEditor } from '../RichTextEditor';
 import type { CardType } from '../../types';
@@ -13,6 +22,14 @@ interface CardEditModalProps {
   setNewCardFront: (val: string) => void;
   newCardBack: string;
   setNewCardBack: (val: string) => void;
+  cardPhonetic: string;
+  setCardPhonetic: (val: string) => void;
+  cardHint: string;
+  setCardHint: (val: string) => void;
+  cardMnemonic: string;
+  setCardMnemonic: (val: string) => void;
+  cardAudioOnly: boolean;
+  setCardAudioOnly: (val: boolean) => void;
   choiceOptions: string[];
   updateChoiceOption: (idx: number, val: string) => void;
   addChoiceOption: () => void;
@@ -37,6 +54,14 @@ export const CardEditModal: React.FC<CardEditModalProps> = ({
   setNewCardFront,
   newCardBack,
   setNewCardBack,
+  cardPhonetic,
+  setCardPhonetic,
+  cardHint,
+  setCardHint,
+  cardMnemonic,
+  setCardMnemonic,
+  cardAudioOnly,
+  setCardAudioOnly,
   choiceOptions,
   updateChoiceOption,
   addChoiceOption,
@@ -101,6 +126,23 @@ export const CardEditModal: React.FC<CardEditModalProps> = ({
               value={newCardFront}
               onChange={setNewCardFront}
             />
+
+            {cardType === 'standard' && (
+              <label className="flex items-center justify-between gap-3 bg-slate-950/80 border border-slate-800 rounded-xl px-3.5 py-2.5 cursor-pointer hover:border-slate-700 transition-colors">
+                <div className="flex items-center gap-2">
+                  <Headphones className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <span className="text-xs sm:text-sm font-medium text-slate-200">
+                    Modo Apenas Áudio (oculta o texto da frente até virar)
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={cardAudioOnly}
+                  onChange={(e) => setCardAudioOnly(e.target.checked)}
+                  className="w-4 h-4 accent-indigo-500 rounded cursor-pointer shrink-0"
+                />
+              </label>
+            )}
 
             {cardType === 'choice' && (
               <div className="space-y-2 pt-2 border-t border-slate-800">
@@ -210,6 +252,49 @@ export const CardEditModal: React.FC<CardEditModalProps> = ({
               />
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
+                  <Languages className="w-3.5 h-3.5 text-cyan-400" /> Transcrição
+                  Fonética
+                </label>
+                <input
+                  type="text"
+                  value={cardPhonetic}
+                  onChange={(e) => setCardPhonetic(e.target.value)}
+                  placeholder="Pinyin, IPA ou leitura..."
+                  className="w-full bg-slate-950 border border-slate-800 text-cyan-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
+                  <Lightbulb className="w-3.5 h-3.5 text-amber-400" /> Dica
+                  (Frente)
+                </label>
+                <input
+                  type="text"
+                  value={cardHint}
+                  onChange={(e) => setCardHint(e.target.value)}
+                  placeholder="Dica revelável na frente..."
+                  className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
+                <Lightbulb className="w-3.5 h-3.5 text-indigo-400" /> Mnemônico
+                / Observação (Verso)
+              </label>
+              <textarea
+                value={cardMnemonic}
+                onChange={(e) => setCardMnemonic(e.target.value)}
+                placeholder="Associação ou nota exibida no verso..."
+                className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-16 custom-scrollbar"
+              />
+            </div>
+
             <div className="pt-2 border-t border-slate-800">
               <label className="block text-sm font-medium text-slate-400 mb-1.5 flex items-center gap-1.5">
                 <Tag className="w-3.5 h-3.5 text-indigo-400" /> Etiquetas (#tags)
@@ -218,7 +303,7 @@ export const CardEditModal: React.FC<CardEditModalProps> = ({
                 type="text"
                 value={cardTagsInput}
                 onChange={(e) => setCardTagsInput(e.target.value)}
-                placeholder="Ex: #importante #formula #edital"
+                placeholder="Digite as #tags separadas por espaço..."
                 className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs sm:text-sm rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>

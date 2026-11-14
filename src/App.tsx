@@ -180,6 +180,14 @@ export default function App() {
     return 0.90;
   });
 
+  const [speechRate, setSpeechRate] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lumina_speechRate');
+      if (saved) return parseFloat(saved) === 0.7 ? 0.7 : 1.0;
+    } catch (e) {}
+    return 1.0;
+  });
+
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [currentView, setCurrentView] = useState('dashboard'); 
   const [mainTab, setMainTab] = useState('home'); 
@@ -249,7 +257,8 @@ export default function App() {
     preset: 'cram',
     cardType: 'all',
     tag: 'all',
-    limit: 20
+    limit: 20,
+    invertCards: false,
   });
 
   const fileInputRef = useRef(null);
@@ -261,6 +270,8 @@ export default function App() {
   const [newItemName, setNewItemName] = useState('');
   const [newItemDesc, setNewItemDesc] = useState('');
   const [newItemColor, setNewItemColor] = useState(FOLDER_THEMES[0].color);
+  const [newItemVoiceLang, setNewItemVoiceLang] = useState('pt-BR');
+  const [newItemAutoPlay, setNewItemAutoPlay] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
   
@@ -411,6 +422,7 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem('lumina_dailyNewLimit', String(effectiveDailyNewLimit)); } catch(e){} }, [effectiveDailyNewLimit]);
   useEffect(() => { try { localStorage.setItem('lumina_learningSteps', JSON.stringify(learningSteps)); } catch(e){} }, [learningSteps]);
   useEffect(() => { try { localStorage.setItem('lumina_newCardsToday', JSON.stringify(newCardsToday)); } catch(e){} }, [newCardsToday]);
+  useEffect(() => { try { localStorage.setItem('lumina_speechRate', String(speechRate)); } catch(e){} }, [speechRate]);
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_EVENTS_KEY, JSON.stringify(calendarEvents));
@@ -643,26 +655,36 @@ export default function App() {
     }
   }, [currentCardIndex, isFlipped, currentView]);
 
-  const speakCardText = (htmlContent, e) => {
+  const activeReviewCard = reviewQueue[currentCardIndex];
+  const activeReviewDeck = validDecks.find(
+    (d) => d.id === (activeReviewCard?._deckId || activeDeckId)
+  );
+
+  const toggleSpeechRate = () => {
+    setSpeechRate((prev) => (prev < 1.0 ? 1.0 : 0.7));
+  };
+
+  const speakCardText = (htmlContent, e, forcePlay = false) => {
     if (e) e.stopPropagation();
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      showToast("Seu navegador não suporta leitura em voz alta.", "error");
+      if (!forcePlay) showToast("Seu navegador não suporta leitura em voz alta.", "error");
       return;
     }
     if (window.speechSynthesis.speaking) {
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
-      return;
+      if (!forcePlay) return;
     }
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = htmlContent || '';
     const plainText = (tempDiv.textContent || tempDiv.innerText || '').replace(/\s+/g, ' ').trim();
     if (!plainText) {
-      showToast("Nenhum texto disponível para leitura neste lado.", "info");
+      if (!forcePlay) showToast("Nenhum texto disponível para leitura neste lado.", "info");
       return;
     }
     const utterance = new SpeechSynthesisUtterance(plainText);
-    utterance.lang = 'pt-BR';
+    utterance.lang = activeReviewDeck?.voiceLang || 'pt-BR';
+    utterance.rate = speechRate;
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
     setIsSpeaking(true);
@@ -933,7 +955,8 @@ export default function App() {
       preset: 'cram',
       cardType: 'all',
       tag: 'all',
-      limit: 20
+      limit: 20,
+      invertCards: false,
     });
     setIsCustomStudyModalOpen(true);
   };
@@ -995,7 +1018,15 @@ export default function App() {
     }
 
     const shuffled = [...matched].sort(() => Math.random() - 0.5);
-    const finalQueue = customStudyConfig.limit > 0 ? shuffled.slice(0, customStudyConfig.limit) : shuffled;
+    const sliced = customStudyConfig.limit > 0 ? shuffled.slice(0, customStudyConfig.limit) : shuffled;
+    const finalQueue = customStudyConfig.invertCards
+      ? sliced.map((c) => {
+          if ((c.type || 'standard') === 'standard' && c.back && c.back.trim() !== '') {
+            return { ...c, front: c.back, back: c.front };
+          }
+          return c;
+        })
+      : sliced;
 
     if (customStudyConfig.sourceType === 'deck' && customStudyConfig.sourceId) {
       setActiveDeckId(customStudyConfig.sourceId);
@@ -1044,7 +1075,14 @@ export default function App() {
 
     if (targetDeck) {
       const cleanUpdatedCard = { ...updatedCard };
-      delete cleanUpdatedCard._deckId; 
+      delete cleanUpdatedCard._deckId;
+      if (customStudyConfig.invertCards) {
+        const originalCard = targetDeck.cards.find((c) => c.id === updatedCard.id);
+        if (originalCard) {
+          cleanUpdatedCard.front = originalCard.front;
+          cleanUpdatedCard.back = originalCard.back;
+        }
+      }
       
       const newDeckData = { ...targetDeck, cards: targetDeck.cards.map(c => c.id === updatedCard.id ? cleanUpdatedCard : c) };
       setDecks(prev => prev.map(d => d.id === targetDeckId ? newDeckData : d)); 
@@ -1079,7 +1117,14 @@ export default function App() {
 
     if (targetDeck) {
       const cleanOldCard = { ...lastState.card };
-      delete cleanOldCard._deckId; 
+      delete cleanOldCard._deckId;
+      if (customStudyConfig.invertCards) {
+        const originalCard = targetDeck.cards.find((c) => c.id === cleanOldCard.id);
+        if (originalCard) {
+          cleanOldCard.front = originalCard.front;
+          cleanOldCard.back = originalCard.back;
+        }
+      }
       
       const restoredCards = targetDeck.cards.map(c => c.id === cleanOldCard.id ? cleanOldCard : c);
       const updatedDeck = { ...targetDeck, cards: restoredCards };
@@ -1436,11 +1481,29 @@ export default function App() {
   };
 
   const openEditModal = (type, item, e) => {
-    e.stopPropagation(); setModalType(type); setModalMode('edit'); setEditingItemId(item.id);
-    setNewItemName(item.name); setNewItemDesc(item.description || ''); setNewItemColor(item.color || (type === 'folder' ? FOLDER_THEMES[0].color : DECK_THEMES[0].color)); setIsModalOpen(true);
+    e.stopPropagation();
+    setModalType(type);
+    setModalMode('edit');
+    setEditingItemId(item.id);
+    setNewItemName(item.name);
+    setNewItemDesc(item.description || '');
+    setNewItemColor(
+      item.color ||
+        (type === 'folder' ? FOLDER_THEMES[0].color : DECK_THEMES[0].color)
+    );
+    setNewItemVoiceLang(item.voiceLang || 'pt-BR');
+    setNewItemAutoPlay(!!item.autoPlayAudio);
+    setIsModalOpen(true);
   };
 
-  const closeAndResetModal = () => { setIsModalOpen(false); setNewItemName(''); setNewItemDesc(''); setEditingItemId(null); };
+  const closeAndResetModal = () => {
+    setIsModalOpen(false);
+    setNewItemName('');
+    setNewItemDesc('');
+    setNewItemVoiceLang('pt-BR');
+    setNewItemAutoPlay(false);
+    setEditingItemId(null);
+  };
 
   const handleCreateOrEditItem = (e) => {
     e.preventDefault(); if (!newItemName.trim() || !user || isProcessingRef.current) return;
@@ -1452,7 +1515,18 @@ export default function App() {
         if(f) { const updated = { ...f, name: newItemName, color: newItemColor }; setFolders(prev => prev.map(x => x.id === editingItemId ? updated : x)); updateFolderInCloud(updated); }
       } else {
         const d = validDecks.find(x => x.id === editingItemId);
-        if(d) { const updated = { ...d, name: newItemName, description: newItemDesc, color: newItemColor }; setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x)); updateDeckInCloud(updated); }
+        if (d) {
+          const updated = {
+            ...d,
+            name: newItemName,
+            description: newItemDesc,
+            color: newItemColor,
+            voiceLang: newItemVoiceLang,
+            autoPlayAudio: newItemAutoPlay,
+          };
+          setDecks(prev => prev.map(x => x.id === editingItemId ? updated : x));
+          updateDeckInCloud(updated);
+        }
       }
       showToast(`${modalType === 'folder' ? 'Pasta' : 'Baralho'} atualizado!`);
     } else {
@@ -1460,7 +1534,16 @@ export default function App() {
         const newFolder = { id: `f-${Date.now()}`, name: newItemName, parentId: currentFolderId, color: newItemColor };
         setFolders(prev => [...prev, newFolder]); updateFolderInCloud(newFolder);
       } else {
-        const newDeck = { id: `d-${Date.now()}`, name: newItemName, description: newItemDesc, parentId: currentFolderId, color: newItemColor, cards: [] };
+        const newDeck = {
+          id: `d-${Date.now()}`,
+          name: newItemName,
+          description: newItemDesc,
+          parentId: currentFolderId,
+          color: newItemColor,
+          voiceLang: newItemVoiceLang,
+          autoPlayAudio: newItemAutoPlay,
+          cards: [],
+        };
         setDecks(prev => [...prev, newDeck]); updateDeckInCloud(newDeck);
       }
     }
@@ -1941,6 +2024,9 @@ export default function App() {
                 handleSuspendReviewCard={handleSuspendReviewCard}
                 handleDeleteReviewCard={handleDeleteReviewCard}
                 isSpeaking={isSpeaking}
+                speechRate={speechRate}
+                onToggleSpeechRate={toggleSpeechRate}
+                deckAutoPlay={!!activeReviewDeck?.autoPlayAudio}
                 speakCardText={speakCardText}
               />
             )}
@@ -2024,6 +2110,10 @@ export default function App() {
         setNewItemDesc={setNewItemDesc}
         newItemColor={newItemColor}
         setNewItemColor={setNewItemColor}
+        newItemVoiceLang={newItemVoiceLang}
+        setNewItemVoiceLang={setNewItemVoiceLang}
+        newItemAutoPlay={newItemAutoPlay}
+        setNewItemAutoPlay={setNewItemAutoPlay}
         onSubmit={handleCreateOrEditItem}
       />
 

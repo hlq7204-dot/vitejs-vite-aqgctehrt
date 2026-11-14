@@ -18,9 +18,20 @@ import {
   Trash2,
   CornerUpRight,
   RotateCcw,
+  Headphones,
+  Languages,
+  Lightbulb,
+  ArrowLeftRight,
+  ChevronDown,
+  ChevronUp,
+  Volume2,
 } from 'lucide-react';
 import type { Card, CardType, Deck } from '../../types';
-import { DECK_THEMES, CARD_TYPES } from '../../constants/themes';
+import {
+  DECK_THEMES,
+  CARD_TYPES,
+  VOICE_LANGUAGES,
+} from '../../constants/themes';
 import {
   checkCardDue,
   getEffectiveLapses,
@@ -55,6 +66,16 @@ interface DeckDetailViewProps {
   setNewCardFront: (val: string) => void;
   newCardBack: string;
   setNewCardBack: (val: string) => void;
+  cardPhonetic: string;
+  setCardPhonetic: (val: string) => void;
+  cardHint: string;
+  setCardHint: (val: string) => void;
+  cardMnemonic: string;
+  setCardMnemonic: (val: string) => void;
+  cardAudioOnly: boolean;
+  setCardAudioOnly: (val: boolean) => void;
+  createReversedCard: boolean;
+  setCreateReversedCard: (val: boolean) => void;
   choiceOptions: string[];
   updateChoiceOption: (idx: number, val: string) => void;
   addChoiceOption: () => void;
@@ -104,6 +125,16 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
   setNewCardFront,
   newCardBack,
   setNewCardBack,
+  cardPhonetic,
+  setCardPhonetic,
+  cardHint,
+  setCardHint,
+  cardMnemonic,
+  setCardMnemonic,
+  cardAudioOnly,
+  setCardAudioOnly,
+  createReversedCard,
+  setCreateReversedCard,
   choiceOptions,
   updateChoiceOption,
   addChoiceOption,
@@ -143,10 +174,20 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
     'none' | 'tag' | 'reset' | 'delete'
   >('none');
   const [bulkTagInput, setBulkTagInput] = useState('');
+  const [showExtraCardFields, setShowExtraCardFields] = useState(false);
 
   if (!activeDeck) return null;
   const stats = getCardStats(activeDeck.cards);
   const due = calculateTotalDue(stats);
+
+  const voiceLabel =
+    VOICE_LANGUAGES.find((v) => v.code === (activeDeck.voiceLang || 'pt-BR'))
+      ?.label || 'Português (Brasil)';
+
+  const hasAnyExtraValue = Boolean(
+    cardPhonetic.trim() || cardHint.trim() || cardMnemonic.trim()
+  );
+  const isExtraSectionExpanded = showExtraCardFields || hasAnyExtraValue;
 
   const getCardStatusCategory = (card: Card) => {
     if (card.isSuspended) return 'suspended';
@@ -188,12 +229,14 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
       const backText = (card.back || '')
         .replace(/<[^>]*>/g, ' ')
         .toLowerCase();
+      const phoneticText = (card.phonetic || '').toLowerCase();
       const typeAns = (card.typeAnswer || '').toLowerCase();
       const optsText = (card.options || []).join(' ').toLowerCase();
       const tagsText = (card.tags || []).join(' ').toLowerCase();
       if (
         !frontText.includes(q) &&
         !backText.includes(q) &&
+        !phoneticText.includes(q) &&
         !typeAns.includes(q) &&
         !optsText.includes(q) &&
         !tagsText.includes(q)
@@ -235,7 +278,7 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
               <BookOpen className="w-7 h-7 sm:w-8 sm:h-8" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 flex items-center gap-3">
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 flex items-center gap-3 flex-wrap">
                 {activeDeck.name}
                 {activeDeck.isIgnored && (
                   <span className="bg-slate-800 text-slate-400 text-xs font-bold px-2 py-1 rounded border border-slate-700 flex items-center gap-1 uppercase tracking-wider">
@@ -243,6 +286,13 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                   </span>
                 )}
               </h1>
+              <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 bg-slate-950/80 border border-slate-800 px-2.5 py-0.5 rounded-lg">
+                  <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
+                  Voz: {voiceLabel}
+                  {activeDeck.autoPlayAudio ? ' • Auto' : ''}
+                </span>
+              </div>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto flex-wrap">
@@ -364,6 +414,23 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                 onChange={setNewCardFront}
               />
 
+              {cardType === 'standard' && (
+                <label className="flex items-center justify-between gap-2.5 bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 cursor-pointer hover:border-slate-700 transition-colors">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Headphones className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span className="text-xs font-medium text-slate-300 truncate">
+                      Modo Apenas Áudio
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={cardAudioOnly}
+                    onChange={(e) => setCardAudioOnly(e.target.checked)}
+                    className="w-4 h-4 accent-indigo-500 rounded cursor-pointer shrink-0"
+                  />
+                </label>
+              )}
+
               {cardType === 'choice' && (
                 <div className="space-y-2 pt-2 border-t border-slate-800">
                   <label className="block text-sm font-medium text-slate-400">
@@ -470,6 +537,84 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                   value={newCardBack}
                   onChange={setNewCardBack}
                 />
+              </div>
+
+              {!editingCardId && cardType === 'standard' && (
+                <label className="flex items-center justify-between gap-2.5 bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 cursor-pointer hover:border-slate-700 transition-colors">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span className="text-xs font-medium text-slate-300 truncate">
+                      Criar também cartão invertido
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={createReversedCard}
+                    onChange={(e) => setCreateReversedCard(e.target.checked)}
+                    className="w-4 h-4 accent-indigo-500 rounded cursor-pointer shrink-0"
+                  />
+                </label>
+              )}
+
+              {/* Campos extras opcionais (Fonética, Dica, Mnemônico) */}
+              <div className="pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowExtraCardFields((prev) => !prev)}
+                  className="w-full flex items-center justify-between text-xs font-semibold text-slate-400 hover:text-slate-200 py-1 transition-colors"
+                >
+                  <span>Fonética, Dica e Mnemônico</span>
+                  {isExtraSectionExpanded ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+
+                {isExtraSectionExpanded && (
+                  <div className="space-y-3 mt-2.5 animate-in fade-in duration-150">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
+                        <Languages className="w-3.5 h-3.5 text-cyan-400" />{' '}
+                        Transcrição Fonética
+                      </label>
+                      <input
+                        type="text"
+                        value={cardPhonetic}
+                        onChange={(e) => setCardPhonetic(e.target.value)}
+                        placeholder="Pinyin, IPA ou leitura..."
+                        className="w-full bg-slate-950 border border-slate-800 text-cyan-200 text-xs rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
+                        <Lightbulb className="w-3.5 h-3.5 text-amber-400" />{' '}
+                        Dica (Frente)
+                      </label>
+                      <input
+                        type="text"
+                        value={cardHint}
+                        onChange={(e) => setCardHint(e.target.value)}
+                        placeholder="Dica revelável na frente..."
+                        className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1 flex items-center gap-1.5">
+                        <Lightbulb className="w-3.5 h-3.5 text-indigo-400" />{' '}
+                        Mnemônico / Observação (Verso)
+                      </label>
+                      <textarea
+                        value={cardMnemonic}
+                        onChange={(e) => setCardMnemonic(e.target.value)}
+                        placeholder="Associação ou nota exibida no verso..."
+                        className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-16 custom-scrollbar"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="pt-2 border-t border-slate-800">
@@ -619,7 +764,7 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                     type="text"
                     value={deckSearchQuery}
                     onChange={(e) => setDeckSearchQuery(e.target.value)}
-                    placeholder="Buscar texto na frente, verso ou gabarito..."
+                    placeholder="Buscar texto na frente, verso, fonética ou gabarito..."
                     className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-xl py-2.5 pl-10 pr-9 focus:outline-none focus:border-indigo-500 transition-colors"
                   />
                   {deckSearchQuery && (
@@ -762,6 +907,14 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                       >
                         {statusLabel}
                       </span>
+                      {card.audioOnly && (
+                        <span
+                          className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+                          title="Modo Apenas Áudio"
+                        >
+                          <Headphones className="w-3 h-3" /> Áudio
+                        </span>
+                      )}
                       {leech && (
                         <span
                           className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30"
@@ -795,6 +948,16 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                       className="text-slate-200 font-medium text-sm sm:text-base break-words"
                       dangerouslySetInnerHTML={{ __html: card.front }}
                     />
+                    {card.phonetic && (
+                      <div className="text-xs font-medium text-cyan-400/90 mt-1">
+                        {card.phonetic}
+                      </div>
+                    )}
+                    {card.hint && (
+                      <div className="text-[11px] text-amber-400/80 mt-1">
+                        Dica: {card.hint}
+                      </div>
+                    )}
                   </div>
                   <div className="pt-4 md:pt-8 border-t border-slate-800 md:border-0 max-h-64 overflow-y-auto custom-scrollbar">
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">
@@ -810,6 +973,11 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                       className="text-slate-400 text-sm sm:text-base break-words"
                       dangerouslySetInnerHTML={{ __html: card.back || '' }}
                     />
+                    {card.mnemonic && (
+                      <div className="text-[11px] text-indigo-300/80 mt-1.5">
+                        Obs: {card.mnemonic}
+                      </div>
+                    )}
                   </div>
                 </div>
                 {!isSelectMode && (
@@ -886,7 +1054,6 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
             </div>
           )}
 
-          {/* BARRA FLUTUANTE DE AÇÕES EM LOTE */}
           {selectedCardIds.size > 0 && (
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[94vw] max-w-3xl bg-slate-900/95 backdrop-blur-md p-3 sm:p-4 rounded-2xl shadow-[0_12px_45px_rgba(0,0,0,0.85)] border border-slate-700 flex flex-col gap-3 z-50 animate-pop">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -995,7 +1162,6 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                 </div>
               </div>
 
-              {/* Subpainel de Etiqueta em Lote */}
               {bulkActionPanel === 'tag' && onBulkAddTagToCards && (
                 <form
                   onSubmit={(e) => {
@@ -1036,7 +1202,6 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                 </form>
               )}
 
-              {/* Subpainel de Confirmação de Reset FSRS */}
               {bulkActionPanel === 'reset' && onBulkResetCardsProgress && (
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800 text-xs">
                   <span className="text-amber-200 font-semibold">
@@ -1066,7 +1231,6 @@ export const DeckDetailView: React.FC<DeckDetailViewProps> = ({
                 </div>
               )}
 
-              {/* Subpainel de Confirmação de Exclusão em Lote */}
               {bulkActionPanel === 'delete' && onBulkDeleteCards && (
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800 text-xs">
                   <span className="text-rose-200 font-semibold">

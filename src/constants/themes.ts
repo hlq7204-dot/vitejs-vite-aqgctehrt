@@ -4,6 +4,18 @@ import type { Folder, Deck, ThemeOption, CardTypeOption } from '../types';
 export const initialFolders: Folder[] = [];
 export const initialDecks: Deck[] = [];
 
+export const VOICE_LANGUAGES: { code: string; label: string }[] = [
+  { code: 'pt-BR', label: 'Português (Brasil)' },
+  { code: 'en-US', label: 'Inglês (EUA)' },
+  { code: 'en-GB', label: 'Inglês (Reino Unido)' },
+  { code: 'zh-CN', label: 'Mandarim (Chinês)' },
+  { code: 'es-ES', label: 'Espanhol' },
+  { code: 'fr-FR', label: 'Francês' },
+  { code: 'de-DE', label: 'Alemão' },
+  { code: 'ja-JP', label: 'Japonês' },
+  { code: 'ko-KR', label: 'Coreano' },
+];
+
 export const FOLDER_THEMES: ThemeOption[] = [
   { id: 'indigo', label: 'Índigo', color: 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' },
   { id: 'blue', label: 'Azul', color: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' },

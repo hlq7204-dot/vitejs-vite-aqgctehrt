@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   ArrowLeft,
   RotateCcw,
@@ -77,7 +77,14 @@ interface ReviewViewProps {
   handleSuspendReviewCard: () => void;
   handleDeleteReviewCard: () => void;
   isSpeaking: boolean;
-  speakCardText: (htmlContent?: string, e?: React.MouseEvent) => void;
+  speechRate?: number;
+  onToggleSpeechRate?: () => void;
+  deckAutoPlay?: boolean;
+  speakCardText: (
+    htmlContent?: string,
+    e?: React.MouseEvent,
+    forcePlay?: boolean
+  ) => void;
   sessionStats?: SessionStats;
 }
 
@@ -105,11 +112,29 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
   handleSuspendReviewCard,
   handleDeleteReviewCard,
   isSpeaking,
+  speechRate = 1.0,
+  onToggleSpeechRate,
+  deckAutoPlay = false,
   speakCardText,
 }) => {
-  if (!reviewQueue.length) return null;
   const currentCard = reviewQueue[currentCardIndex];
-  if (!currentCard) return null;
+  const type = currentCard?.type || 'standard';
+
+  useEffect(() => {
+    if (!currentCard || isFlipped) return;
+    if (deckAutoPlay || currentCard.audioOnlyFront) {
+      const timer = setTimeout(() => {
+        const textToSpeak =
+          type === 'choice'
+            ? `${currentCard.front} ${(currentCard.options || []).join('. ')}`
+            : currentCard.front;
+        speakCardText(textToSpeak, undefined, true);
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [currentCard?.id]);
+
+  if (!reviewQueue.length || !currentCard) return null;
 
   const progress = (currentCardIndex / reviewQueue.length) * 100;
   const intervalLabels = [0, 1, 2, 3].map((q) =>
@@ -118,7 +143,6 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
         .interval
     )
   );
-  const type = currentCard.type || 'standard';
   const leech = isCardLeech(currentCard);
 
   const normalizedUserTyped = String(reviewInteraction || '')
@@ -141,6 +165,56 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
       interactiveSuggestedGrade = isTypedCorrect ? 2 : 0;
     }
   }
+
+  const renderAudioControls = (
+    textToRead: string | undefined,
+    variant: 'front' | 'back' | 'interactive'
+  ) => {
+    const isBack = variant === 'back';
+    const isInteractive = variant === 'interactive';
+    return (
+      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        {onToggleSpeechRate && (
+          <button
+            type="button"
+            onClick={onToggleSpeechRate}
+            className={`px-2 py-1 rounded-lg border text-[11px] font-mono font-bold transition-colors ${
+              speechRate < 1.0
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : isBack
+                ? 'bg-indigo-900/40 text-indigo-300/70 hover:text-indigo-200 border-indigo-500/30'
+                : isInteractive
+                ? 'bg-slate-950 text-slate-400 hover:text-indigo-300 border-slate-700'
+                : 'bg-slate-800/60 text-slate-400 hover:text-indigo-300 border-slate-700/50'
+            }`}
+            title="Alternar velocidade da voz (1.0x Normal / 0.7x Lento)"
+          >
+            {speechRate < 1.0 ? '0.7x' : '1.0x'}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={(e) => speakCardText(textToRead, e)}
+          className={`p-1.5 rounded-lg border transition-colors ${
+            isSpeaking
+              ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+              : isBack
+              ? 'bg-indigo-900/40 text-indigo-300/70 hover:text-indigo-200 border-indigo-500/30'
+              : isInteractive
+              ? 'bg-slate-950 text-slate-400 hover:text-indigo-300 border-slate-700'
+              : 'bg-slate-800/60 text-slate-400 hover:text-indigo-300 border-slate-700/50'
+          }`}
+          title="Ouvir pronúncia / Ler em voz alta"
+        >
+          {isSpeaking ? (
+            <VolumeX className="w-3.5 h-3.5" />
+          ) : (
+            <Volume2 className="w-3.5 h-3.5" />
+          )}
+        </button>
+      </div>
+    );
+  };
 
   const renderReviewDropdownMenu = (menuKey: string) =>
     activeMenuId === menuKey && (
@@ -267,22 +341,7 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                     ))}
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => speakCardText(currentCard.front, e)}
-                      className={`p-1.5 rounded-lg border transition-colors ${
-                        isSpeaking
-                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                          : 'bg-slate-800/60 text-slate-400 hover:text-indigo-300 border-slate-700/50'
-                      }`}
-                      title="Ouvir pronúncia / Ler em voz alta"
-                    >
-                      {isSpeaking ? (
-                        <VolumeX className="w-3.5 h-3.5" />
-                      ) : (
-                        <Volume2 className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                    {renderAudioControls(currentCard.front, 'front')}
                     <div
                       className="relative"
                       onClick={(e) => e.stopPropagation()}
@@ -329,22 +388,7 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                     Resposta
                   </span>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => speakCardText(currentCard.back, e)}
-                      className={`p-1.5 rounded-lg border transition-colors ${
-                        isSpeaking
-                          ? 'bg-indigo-500/30 text-indigo-200 border-indigo-400/50'
-                          : 'bg-indigo-900/40 text-indigo-300/70 hover:text-indigo-200 border-indigo-500/30'
-                      }`}
-                      title="Ouvir resposta em voz alta"
-                    >
-                      {isSpeaking ? (
-                        <VolumeX className="w-3.5 h-3.5" />
-                      ) : (
-                        <Volume2 className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                    {renderAudioControls(currentCard.back, 'back')}
                     <div
                       className="relative"
                       onClick={(e) => e.stopPropagation()}
@@ -423,29 +467,10 @@ export const ReviewView: React.FC<ReviewViewProps> = ({
                 ))}
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={(e) =>
-                    speakCardText(
-                      `${currentCard.front} ${(currentCard.options || []).join(
-                        '. '
-                      )}`,
-                      e
-                    )
-                  }
-                  className={`p-2 rounded-lg border transition-colors ${
-                    isSpeaking
-                      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                      : 'bg-slate-950 text-slate-400 hover:text-indigo-300 border-slate-700'
-                  }`}
-                  title="Ouvir pergunta em voz alta"
-                >
-                  {isSpeaking ? (
-                    <VolumeX className="w-4 h-4" />
-                  ) : (
-                    <Volume2 className="w-4 h-4" />
-                  )}
-                </button>
+                {renderAudioControls(
+                  `${currentCard.front} ${(currentCard.options || []).join('. ')}`,
+                  'interactive'
+                )}
                 <div className="relative">
                   <button
                     onClick={() =>
